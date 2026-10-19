@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Node inspector: failed NIRSpec re-extraction</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1F5F7A}a:hover{color:#143F52}
+</style>
+</helmet>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #16181D; background: #F1F2F4; min-height: 100%; box-sizing: border-box; padding: 24px 28px 40px; display: flex; flex-direction: column; gap: 20px">
+
+  <nav aria-label="Breadcrumb" style="font-size: 13px; color: #5B6270; display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+    <a href="Main.dc.html" style="text-decoration: none">Dashboard</a><span>›</span><span>H3 Black hole star</span><span>›</span><span>P1 Balmer break strength</span><span>›</span><span style="font-family: 'IBM Plex Mono', monospace; color: #16181D">rd-0233</span>
+  </nav>
+
+  <header style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px">
+    <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+        <span style="font-size: 12px; font-weight: 600; color: #FFFFFF; background: #B4530A; border-radius: 4px; padding: 3px 8px; text-transform: uppercase; letter-spacing: 0.04em">failed</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #5B6270">Reduction · rd-0233 · formula nirspec-prism-mos 1.2.0</span>
+      </div>
+      <h1 style="margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3">Re-extract PRISM spectra for sample v2 (98 objects) from DJA v4.4 products</h1>
+      <div style="font-size: 13px; color: #5B6270">Started Tue 20:51 by claude-code on runner-2 · failed Tue 22:14 after 1 h 23 m · supersedes rd-0231 (sample v1)</div>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start">
+      <button type="button" onClick="{{ openRerun }}" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #1F5F7A; background: #1F5F7A; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">Re-run with instructions</button>
+      <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 14px; cursor: pointer">Open notebook</button>
+      <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 14px; cursor: pointer">Retire</button>
+    </div>
+  </header>
+
+  <sc-if value="{{ rerunOpen }}" hint-placeholder-val="{{ false }}">
+  <section aria-label="Re-run with instructions" style="background: #FFFFFF; border: 2px solid #1F5F7A; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600">Re-run with instructions</h2>
+      <div style="font-size: 13px; color: #5B6270">Creates rd-0235 superseding rd-0233, inheriting its 98 inputs and formula version. rd-0233 stays in the graph as history. The agent must acknowledge the instruction before starting.</div>
+    </div>
+    <label for="instr" style="font-size: 13px; font-weight: 500">Instruction to the agent</label>
+    <textarea id="instr" rows="4" style="font: inherit; font-size: 14px; line-height: 1.5; padding: 10px 12px; border: 1px solid #C9CED6; border-radius: 6px; resize: vertical; color: #16181D">For the 7 objects that failed continuum_snr, request the 0.4″ aperture departure (already approved for 2 of them under rd-0234) rather than dropping them. Keep the default 0.3″ for the other 91. Do not change the background subtraction. Report S/N per object in the summary.</textarea>
+    <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px">
+      <label style="display: flex; align-items: center; gap: 8px; min-height: 44px"><input type="checkbox" checked style="width: 18px; height: 18px; accent-color: #1F5F7A">Inherit lease budget (2 h, 6 M tokens)</label>
+      <label style="display: flex; align-items: center; gap: 8px; min-height: 44px"><input type="checkbox" checked style="width: 18px; height: 18px; accent-color: #1F5F7A">Unblock an-0424 when done</label>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <button type="button" onClick="{{ submitRerun }}" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #1F5F7A; background: #1F5F7A; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">Create rd-0235 and queue it</button>
+      <button type="button" onClick="{{ closeRerun }}" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 14px; cursor: pointer">Cancel</button>
+    </div>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ queued }}" hint-placeholder-val="{{ false }}">
+  <section aria-label="Queued" style="background: #E9F2EC; border: 1px solid #2B7A4B; border-radius: 8px; padding: 14px 20px; font-size: 14px; color: #1E5A36">rd-0235 created and ready. It inherits rd-0233's inputs, carries instruction in-0061, and will be claimed by the next free runner slot. <a href="Main.dc.html">Back to the dashboard</a></section>
+  </sc-if>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px">
+
+    <section aria-label="Failure record" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600">Failure record · fl-0088</h2>
+      <dl style="margin: 0; display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; font-size: 14px; line-height: 1.5">
+        <dt style="color: #5B6270">Step that stopped</dt><dd style="margin: 0">4 of 6 · <span style="font-family: 'IBM Plex Mono', monospace">extract_1d</span>, after background subtraction, before flux calibration</dd>
+        <dt style="color: #5B6270">Check that tripped</dt><dd style="margin: 0"><span style="font-family: 'IBM Plex Mono', monospace">continuum_snr ≥ 5.0</span> per object, 1.2–1.6 µm window</dd>
+        <dt style="color: #5B6270">Measured</dt><dd style="margin: 0">7 of 98 objects below threshold; minimum 3.1, median of the 7 is 4.2; the other 91 pass with median 11.8</dd>
+        <dt style="color: #5B6270">Agent summary</dt><dd style="margin: 0">"All seven failing objects are the most extended in the sample (r<sub>e</sub> 0.18–0.21″). The default 0.3″ aperture clips their flux. A 0.4″ aperture would likely pass but departs from the formula default, so I stopped and requested approval rather than changing it."</dd>
+        <dt style="color: #5B6270">Last error</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #B4530A">AcceptanceCheckFailed: continuum_snr (7 objects) in step extract_1d</dd>
+        <dt style="color: #5B6270">Effect on the graph</dt><dd style="margin: 0">an-0424 Balmer break fit blocked · claim C3 marked stale (cites a superseded input)</dd>
+      </dl>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 13px; font-weight: 500; color: #5B6270">Failing objects</div>
+        <div style="overflow-x: auto">
+          <table style="border-collapse: collapse; width: 100%; font-size: 13px; min-width: 460px">
+            <thead>
+              <tr style="color: #5B6270; text-align: left">
+                <th style="font-weight: 500; padding: 4px 8px 6px 0; border-bottom: 1px solid #DFE2E7">Object</th>
+                <th style="font-weight: 500; padding: 4px 8px 6px; border-bottom: 1px solid #DFE2E7">z</th>
+                <th style="font-weight: 500; padding: 4px 8px 6px; border-bottom: 1px solid #DFE2E7">r<sub>e</sub> (″)</th>
+                <th style="font-weight: 500; padding: 4px 8px 6px; border-bottom: 1px solid #DFE2E7">S/N</th>
+                <th style="font-weight: 500; padding: 4px 0 6px 8px; border-bottom: 1px solid #DFE2E7">Departure</th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ objs }}" as="o" hint-placeholder-count="7">
+              <tr>
+                <td style="padding: 6px 8px 6px 0; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{o.id}}</td>
+                <td style="padding: 6px 8px; border-bottom: 1px solid #EEF0F3">{{o.z}}</td>
+                <td style="padding: 6px 8px; border-bottom: 1px solid #EEF0F3">{{o.re}}</td>
+                <td style="padding: 6px 8px; border-bottom: 1px solid #EEF0F3; color: #B4530A; font-weight: 500">{{o.snr}}</td>
+                <td style="padding: 6px 0 6px 8px; border-bottom: 1px solid #EEF0F3; color: {{o.depColor}}">{{o.dep}}</td>
+              </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div style="display: flex; flex-direction: column; gap: 20px; min-width: 0">
+      <section aria-label="Notebook at the failing cell" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Notebook, cell 14 of 22</h2>
+          <span style="font-size: 12px; color: #5B6270">partial run · hash 2c91…</span>
+        </div>
+        <div style="font-size: 12px; color: #5B6270">Formula template · agent region closed</div>
+        <pre style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.55; background: #F6F7F9; border: 1px solid #E3E6EB; border-radius: 6px; padding: 12px; overflow-x: auto; color: #16181D">snr = continuum_snr(spec1d, window=(1.2, 1.6))
+check("continuum_snr", snr &gt;= 5.0, per_object=True)</pre>
+        <pre style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.55; background: #FBF1EA; border: 1px solid #E8C9B3; border-radius: 6px; padding: 12px; overflow-x: auto; color: #7A3A0A">AcceptanceCheckFailed: continuum_snr
+  failed: 7 / 98   min 3.1   threshold 5.0
+  ids: 12811, 20466, 38108, 41223, 55604, 60018, 73241</pre>
+        <a href="#" style="font-size: 13px">Open the full notebook and diff against rd-0231</a>
+      </section>
+
+      <section aria-label="Provenance" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Provenance</h2>
+        <dl style="margin: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 12px; font-size: 13px; line-height: 1.5">
+          <dt style="color: #5B6270">Inputs</dt><dd style="margin: 0">ds-0088 DJA NIRSpec v4.4, 98 msaexp 2D products, checksums recorded</dd>
+          <dt style="color: #5B6270">Pipeline</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px">jwst 1.19.2 · msaexp 0.9.4 · CRDS jwst_1364.pmap</dd>
+          <dt style="color: #5B6270">Environment</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px">lock 9e1c… · container sha256:4b7d…</dd>
+          <dt style="color: #5B6270">Code</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px">formulas/nirspec-prism-mos@1.2.0 · commit a81f2c3</dd>
+          <dt style="color: #5B6270">Defaults kept</dt><dd style="margin: 0">aperture 0.3″ · background: local, 2 nod positions · flux cal: formula default</dd>
+          <dt style="color: #5B6270">Job</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-size: 12px">slurm 8812043 · 4 cores · 1 h 23 m · 2.1 M tokens</dd>
+        </dl>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { rerun: false, queued: false };
+  }
+  renderVals() {
+    const objs = [
+      { id: '12811', z: '5.21', re: '0.19', snr: '3.1', dep: 'approved (rd-0234)', depColor: '#2B7A4B' },
+      { id: '20466', z: '6.04', re: '0.18', snr: '3.6', dep: 'approved (rd-0234)', depColor: '#2B7A4B' },
+      { id: '38108', z: '4.77', re: '0.21', snr: '4.0', dep: 'requested', depColor: '#B4530A' },
+      { id: '41223', z: '7.12', re: '0.20', snr: '4.2', dep: 'requested', depColor: '#B4530A' },
+      { id: '55604', z: '5.89', re: '0.19', snr: '4.4', dep: 'requested', depColor: '#B4530A' },
+      { id: '60018', z: '6.51', re: '0.20', snr: '4.6', dep: 'requested', depColor: '#B4530A' },
+      { id: '73241', z: '8.03', re: '0.18', snr: '4.8', dep: 'requested', depColor: '#B4530A' }
+    ];
+    return {
+      objs,
+      rerunOpen: this.state.rerun && !this.state.queued,
+      queued: this.state.queued,
+      openRerun: () => this.setState({ rerun: true }),
+      closeRerun: () => this.setState({ rerun: false }),
+      submitRerun: () => this.setState({ queued: true, rerun: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

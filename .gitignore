@@ -1,0 +1,4 @@
+.researchgraph/index.sqlite
+__pycache__/
+*.egg-info/
+.hypothesis/

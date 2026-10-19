@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Researchgraph graph view: little red dots</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1F5F7A}a:hover{color:#143F52}
+</style>
+</helmet>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #16181D; background: #F1F2F4; min-height: 100%; display: flex; flex-wrap: wrap; align-items: stretch">
+
+  <nav aria-label="Project" style="flex: 1 1 220px; max-width: 240px; background: #FFFFFF; border-right: 1px solid #DFE2E7; box-sizing: border-box; padding: 20px 16px; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">researchgraph · astro profile</div>
+      <div style="font-size: 16px; font-weight: 600; line-height: 1.3">Little red dots: black hole star or dusty AGN?</div>
+      <div style="font-size: 12px; color: #5B6270">branch <span style="font-family: 'IBM Plex Mono', monospace">main</span> · 212 nodes · 4 collaborators</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <a href="Main.dc.html" style="text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #16181D; font-size: 14px">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="10" width="8" height="11" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/></svg>Dashboard</a>
+      <a href="#graph" style="text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; background: #E6EEF2; color: #143F52; font-weight: 500; font-size: 14px">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.8 7.6 10.6 16M16.2 7.6 13.4 16"/></svg>Graph</a>
+      <a href="Main.dc.html" style="text-decoration: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #16181D; font-size: 14px">
+        <span style="display: flex; align-items: center; gap: 10px"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h7"/><path d="m16 16 2 2 4-4"/></svg>Review queue</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #B4530A; color: #FFFFFF; border-radius: 10px; padding: 1px 8px">3</span></a>
+      <a href="Main.dc.html" style="text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #16181D; font-size: 14px">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 4 7v6c0 5 3.5 7.5 8 8 4.5-.5 8-3 8-8V7z"/><path d="m9 12 2 2 4-4"/></svg>Claims</a>
+      <a href="Main.dc.html" style="text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #16181D; font-size: 14px">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Event log</a>
+    </div>
+    <div style="margin-top: auto; font-size: 12px; color: #5B6270; display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #2B7A4B; display: inline-block"></span>Live · index updated 4 s ago</div>
+    </div>
+  </nav>
+
+  <main id="graph" style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 24px 28px 40px; display: flex; flex-direction: column; gap: 16px">
+
+    <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-size: 22px; font-weight: 600; line-height: 1.2">Research graph</h1>
+        <div style="font-size: 13px; color: #5B6270">Layout by type and dependency · supersedes chains collapsed · as of <span style="font-family: 'IBM Plex Mono', monospace">now</span></div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+        <label for="ftype" style="font-size: 13px; color: #5B6270">Show</label>
+        <select id="ftype" style="font: inherit; font-size: 13px; min-height: 40px; padding: 0 10px; border: 1px solid #C9CED6; border-radius: 6px; background: #FFFFFF; color: #16181D"><option>All types</option><option>Hypotheses and predictions</option><option>Analyses and reductions</option><option>Claims</option></select>
+        <label for="fstatus" style="font-size: 13px; color: #5B6270">Status</label>
+        <select id="fstatus" style="font: inherit; font-size: 13px; min-height: 40px; padding: 0 10px; border: 1px solid #C9CED6; border-radius: 6px; background: #FFFFFF; color: #16181D"><option>Active and done</option><option>Including retired</option><option>Running only</option><option>Needs decision</option></select>
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; min-height: 40px"><input type="checkbox" checked style="width: 18px; height: 18px; accent-color: #1F5F7A">Show retired</label>
+        <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 13px; cursor: pointer">Rewind</button>
+      </div>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+
+      <section aria-label="Graph" style="flex: 999 1 560px; min-width: 0; background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: #5B6270; padding: 4px 8px 0">
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; border: 2px solid #2B7A4B; display: inline-block"></span>done · accepted</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; border: 2px solid #1F5F7A; background: #E6EEF2; display: inline-block"></span>running · selected</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; border: 2px solid #B4530A; display: inline-block"></span>needs attention</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 3px; border: 2px dashed #8A909B; display: inline-block"></span>retired · needs observation</span>
+          <span style="margin-left: auto">Drag to pan · scroll to zoom · click a node to inspect</span>
+        </div>
+        <div style="overflow-x: auto">
+          <div style="position: relative; width: 944px; height: 560px">
+
+            <svg width="24" height="8" viewBox="0 0 24 8" preserveAspectRatio="none" style="position: absolute; left: 160px; top: 252px; width: 24px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><path d="M 0 4 L 24 4"></path></svg>
+            <svg width="8" height="312" viewBox="0 0 8 312" preserveAspectRatio="none" style="position: absolute; left: 180px; top: 100px; width: 8px; height: 312px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><path d="M 4 0 L 4 312"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 184px; top: 96px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-1" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-1)"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 184px; top: 200px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-2" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-2)"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 184px; top: 304px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-3" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-3)"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 184px; top: 408px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-dasharray: 6 6; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-4" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-4)"></path></svg>
+
+            <svg width="24" height="8" viewBox="0 0 24 8" preserveAspectRatio="none" style="position: absolute; left: 352px; top: 96px; width: 24px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><path d="M 0 4 L 24 4"></path></svg>
+            <svg width="24" height="8" viewBox="0 0 24 8" preserveAspectRatio="none" style="position: absolute; left: 352px; top: 200px; width: 24px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><path d="M 0 4 L 24 4"></path></svg>
+            <svg width="24" height="8" viewBox="0 0 24 8" preserveAspectRatio="none" style="position: absolute; left: 352px; top: 304px; width: 24px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><path d="M 0 4 L 24 4"></path></svg>
+            <svg width="8" height="440" viewBox="0 0 8 440" preserveAspectRatio="none" style="position: absolute; left: 372px; top: 68px; width: 8px; height: 440px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><path d="M 4 0 L 4 440"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 376px; top: 64px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-5" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-5)"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 376px; top: 152px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-6" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-6)"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 376px; top: 240px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-7" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-7)"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 376px; top: 328px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-8" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-8)"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 376px; top: 416px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-9" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-9)"></path></svg>
+            <svg width="23" height="8" viewBox="0 0 23 8" preserveAspectRatio="none" style="position: absolute; left: 376px; top: 504px; width: 23px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-dasharray: 6 6; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-10" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 19 4" marker-end="url(#dc-arrow-head-filled-10)"></path></svg>
+
+            <svg width="47" height="8" viewBox="0 0 47 8" preserveAspectRatio="none" style="position: absolute; left: 544px; top: 64px; width: 47px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-11" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 43 4" marker-end="url(#dc-arrow-head-filled-11)"></path></svg>
+            <svg width="47" height="8" viewBox="0 0 47 8" preserveAspectRatio="none" style="position: absolute; left: 544px; top: 152px; width: 47px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-12" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 43 4" marker-end="url(#dc-arrow-head-filled-12)"></path></svg>
+            <svg width="47" height="8" viewBox="0 0 47 8" preserveAspectRatio="none" style="position: absolute; left: 544px; top: 240px; width: 47px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-13" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 43 4" marker-end="url(#dc-arrow-head-filled-13)"></path></svg>
+            <svg width="47" height="8" viewBox="0 0 47 8" preserveAspectRatio="none" style="position: absolute; left: 544px; top: 328px; width: 47px; height: 8px; overflow: visible; fill: none; stroke: #1F5F7A; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-14" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#1F5F7A" stroke="none" style="stroke: none; fill: #1F5F7A; fill: context-stroke"/></marker></defs><path d="M 0 4 L 43 4" marker-end="url(#dc-arrow-head-filled-14)"></path></svg>
+            <svg width="47" height="8" viewBox="0 0 47 8" preserveAspectRatio="none" style="position: absolute; left: 544px; top: 416px; width: 47px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-15" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 43 4" marker-end="url(#dc-arrow-head-filled-15)"></path></svg>
+
+            <svg width="47" height="8" viewBox="0 0 47 8" preserveAspectRatio="none" style="position: absolute; left: 736px; top: 64px; width: 47px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-16" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 43 4" marker-end="url(#dc-arrow-head-filled-16)"></path></svg>
+            <svg width="47" height="8" viewBox="0 0 47 8" preserveAspectRatio="none" style="position: absolute; left: 736px; top: 152px; width: 47px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-17" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 43 4" marker-end="url(#dc-arrow-head-filled-17)"></path></svg>
+            <svg width="47" height="8" viewBox="0 0 47 8" preserveAspectRatio="none" style="position: absolute; left: 736px; top: 240px; width: 47px; height: 8px; overflow: visible; fill: none; stroke: #8A909B; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-18" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#8A909B" stroke="none" style="stroke: none; fill: #8A909B; fill: context-stroke"/></marker></defs><path d="M 0 4 L 43 4" marker-end="url(#dc-arrow-head-filled-18)"></path></svg>
+            <svg width="47" height="8" viewBox="0 0 47 8" preserveAspectRatio="none" style="position: absolute; left: 736px; top: 416px; width: 47px; height: 8px; overflow: visible; fill: none; stroke: #B4530A; stroke-width: 2; stroke-dasharray: 6 6; stroke-linecap: round; stroke-linejoin: round"><defs><marker id="dc-arrow-head-filled-19" orient="auto" markerWidth="5" markerHeight="5" refX="2" refY="2" overflow="visible"><path d="M0 0 L4 2 L0 4 Z" fill="#B4530A" stroke="none" style="stroke: none; fill: #B4530A; fill: context-stroke"/></marker></defs><path d="M 0 4 L 43 4" marker-end="url(#dc-arrow-head-filled-19)"></path></svg>
+
+            <div style="position: absolute; left: 16px; top: 8px; font-size: 12px; font-weight: 600; color: #5B6270; text-transform: uppercase; letter-spacing: 0.04em">Question</div>
+            <div style="position: absolute; left: 208px; top: 8px; font-size: 12px; font-weight: 600; color: #5B6270; text-transform: uppercase; letter-spacing: 0.04em">Hypotheses</div>
+            <div style="position: absolute; left: 400px; top: 8px; font-size: 12px; font-weight: 600; color: #5B6270; text-transform: uppercase; letter-spacing: 0.04em">Predictions</div>
+            <div style="position: absolute; left: 592px; top: 8px; font-size: 12px; font-weight: 600; color: #5B6270; text-transform: uppercase; letter-spacing: 0.04em">Analyses</div>
+            <div style="position: absolute; left: 784px; top: 8px; font-size: 12px; font-weight: 600; color: #5B6270; text-transform: uppercase; letter-spacing: 0.04em">Claims</div>
+
+            <div style="position: absolute; left: 16px; top: 228px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #8A909B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>Q1</b> What are the little red dots?<br><span style="color: #5B6270">open group · 3 active</span></span></div>
+
+            <div style="position: absolute; left: 208px; top: 72px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #E6EEF2; border: 2.5px solid #1F5F7A; border-radius: 8px; font-size: 12px; line-height: 1.3; box-shadow: 0 0 0 4px #D7E4EA"><span><b>H3</b> Black hole star<br><span style="color: #143F52">active · leading · 3 claims</span></span></div>
+            <div style="position: absolute; left: 208px; top: 176px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #8A909B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>H1′</b> Compton-thick AGN<br><span style="color: #5B6270">active · supersedes H1</span></span></div>
+            <div style="position: absolute; left: 208px; top: 280px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #B4530A; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>H2</b> Compact starburst<br><span style="color: #B4530A">active · budget 95 %</span></span></div>
+            <div style="position: absolute; left: 208px; top: 384px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #F6F7F9; border: 1.5px dashed #8A909B; border-radius: 8px; font-size: 12px; line-height: 1.3; color: #5B6270"><span><b>H1</b> Dusty type-1 AGN<br>retired 9 Oct</span></div>
+
+            <div style="position: absolute; left: 400px; top: 40px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #2B7A4B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>P1</b> Balmer break vs quiescent<br><span style="color: #2B7A4B">tested</span></span></div>
+            <div style="position: absolute; left: 400px; top: 128px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #2B7A4B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>P2</b> X-ray stack depth<br><span style="color: #2B7A4B">tested · more running</span></span></div>
+            <div style="position: absolute; left: 400px; top: 216px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #2B7A4B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>P4</b> Line width vs density<br><span style="color: #2B7A4B">tested</span></span></div>
+            <div style="position: absolute; left: 400px; top: 304px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #1F5F7A; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>P3</b> MIRI hot dust<br><span style="color: #1F5F7A">running</span></span></div>
+            <div style="position: absolute; left: 400px; top: 392px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #2B7A4B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>P5</b> Rest-UV variability<br><span style="color: #2B7A4B">tested</span></span></div>
+            <div style="position: absolute; left: 400px; top: 480px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FBF1EA; border: 1.5px dashed #B4530A; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>P6</b> Deep X-ray, individual<br><span style="color: #B4530A">needs observation</span></span></div>
+
+            <div style="position: absolute; left: 592px; top: 40px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #2B7A4B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>an-0383</b> Balmer break fit<br><span style="color: #2B7A4B">done · v2 re-fit blocked</span></span></div>
+            <div style="position: absolute; left: 592px; top: 128px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #2B7A4B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>an-0398</b> xray-stack z 5–7<br><span style="color: #2B7A4B">done · 46 fields</span></span></div>
+            <div style="position: absolute; left: 592px; top: 216px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #2B7A4B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>an-0402</b> line fit, density<br><span style="color: #2B7A4B">done · locked likelihood</span></span></div>
+            <div style="position: absolute; left: 592px; top: 304px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #E6EEF2; border: 1.5px solid #1F5F7A; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>an-0420</b> sed-fit MIRI<br><span style="color: #1F5F7A">running · runner-3 · 6 m</span></span></div>
+            <div style="position: absolute; left: 592px; top: 392px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #B4530A; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>an-0395</b> variability<br><span style="color: #B4530A">done · input superseded</span></span></div>
+
+            <div style="position: absolute; left: 784px; top: 40px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #2B7A4B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>C1</b> break ×2 quiescent<br><span style="color: #2B7A4B">accepted · supports H3</span></span></div>
+            <div style="position: absolute; left: 784px; top: 128px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #B4530A; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>C4</b> X-ray &lt; 1/20 expected<br><span style="color: #B4530A">awaiting approval</span></span></div>
+            <div style="position: absolute; left: 784px; top: 216px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FFFFFF; border: 1.5px solid #2B7A4B; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>C5</b> widths track density<br><span style="color: #2B7A4B">accepted · supports H3</span></span></div>
+            <div style="position: absolute; left: 784px; top: 392px; width: 144px; height: 56px; box-sizing: border-box; padding: 6px 10px; display: flex; align-items: center; background: #FBF1EA; border: 1.5px dashed #B4530A; border-radius: 8px; font-size: 12px; line-height: 1.3"><span><b>C3</b> no UV variability<br><span style="color: #B4530A">stale · re-run needed</span></span></div>
+
+            <div style="position: absolute; left: 356px; top: 40px; width: 40px; text-align: center; font-size: 13px; line-height: 16px; color: #5B6270">tests</div>
+            <div style="position: absolute; left: 540px; top: 20px; width: 56px; text-align: center; font-size: 13px; line-height: 16px; color: #5B6270">derived</div>
+            <div style="position: absolute; left: 740px; top: 20px; width: 40px; text-align: center; font-size: 13px; line-height: 16px; color: #5B6270">cites</div>
+          </div>
+        </div>
+      </section>
+
+      <aside aria-label="Node inspector" style="flex: 1 1 300px; max-width: 340px; background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <span style="font-size: 12px; font-weight: 600; color: #FFFFFF; background: #1F5F7A; border-radius: 4px; padding: 3px 8px; text-transform: uppercase; letter-spacing: 0.04em">hypothesis</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #5B6270">H3 · active</span>
+          </div>
+          <h2 style="margin: 0; font-size: 17px; font-weight: 600; line-height: 1.3">Black hole star: an accreting black hole inside a dense, dust-poor gas envelope</h2>
+          <div style="font-size: 13px; color: #5B6270">Proposed by J. Lee, 22 Sep · approved by M. Park, 23 Sep · answers Q1</div>
+        </div>
+
+        <dl style="margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 12px; font-size: 13px; line-height: 1.5">
+          <dt style="color: #5B6270">Assumptions</dt><dd style="margin: 0">Envelope n<sub>H</sub> ≳ 10<sup>9</sup> cm<sup>−3</sup>; Balmer lines partly from the envelope; little hot dust</dd>
+          <dt style="color: #5B6270">Predictions</dt><dd style="margin: 0">P1, P2, P4 tested · P3 running · P6 needs observation</dd>
+          <dt style="color: #5B6270">Claims</dt><dd style="margin: 0"><span style="color: #2B7A4B">C1, C2, C5 support</span> · C4 awaiting approval</dd>
+          <dt style="color: #5B6270">Budget</dt><dd style="margin: 0">108 of 150 M tokens · 41 compute h</dd>
+          <dt style="color: #5B6270">Alternatives</dt><dd style="margin: 0">H1′ active · H2 active, 2 claims contradict · H1 retired. Group is open: other answers may exist.</dd>
+        </dl>
+
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; font-weight: 500; color: #5B6270">Pinned evidence</div>
+          <div style="border: 1px solid #DFE2E7; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px">
+            <div style="font-size: 13px; font-weight: 500">an-0383 · figure 2: host-subtracted break vs quiescent sample</div>
+            <div style="height: 72px; border-radius: 4px; background: #F6F7F9; border: 1px dashed #C9CED6; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #5B6270">[figure preview from the executed notebook]</div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #1F5F7A; background: #1F5F7A; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">Expand: propose new predictions</button>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+            <button type="button" style="min-height: 44px; padding: 0 10px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 13px; cursor: pointer">Refine (supersede)</button>
+            <button type="button" style="min-height: 44px; padding: 0 10px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 13px; cursor: pointer">Raise budget</button>
+            <button type="button" style="min-height: 44px; padding: 0 10px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 13px; cursor: pointer">History</button>
+            <button type="button" style="min-height: 44px; padding: 0 10px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 13px; cursor: pointer">Weakest evidence</button>
+          </div>
+          <a href="Failure.dc.html" style="font-size: 13px">Open the failed re-extraction blocking the v2 Balmer fit</a>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

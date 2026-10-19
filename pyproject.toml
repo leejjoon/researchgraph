@@ -1,0 +1,24 @@
+[project]
+name = "researchgraph"
+version = "0.0.1"
+description = "An append-only research graph in git, for humans and agents"
+requires-python = ">=3.11"
+license = {text = "BSD-3-Clause"}
+dependencies = ["pyyaml>=6", "click>=8.1", "jsonschema>=4"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "hypothesis>=6", "pytest-benchmark"]
+
+[project.scripts]
+rg = "researchgraph.cli:main"
+
+[project.entry-points."researchgraph.profiles"]
+research = "researchgraph.profiles.research:PROFILE"
+tasks = "researchgraph.profiles.tasks:PROFILE"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

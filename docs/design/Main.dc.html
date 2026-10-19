@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Researchgraph dashboard: little red dots</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1F5F7A}a:hover{color:#143F52}
+</style>
+</helmet>
+<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #16181D; background: #F1F2F4; min-height: 100%; display: flex; flex-wrap: wrap; align-items: stretch">
+
+  <nav aria-label="Project" style="flex: 1 1 220px; max-width: 240px; background: #FFFFFF; border-right: 1px solid #DFE2E7; box-sizing: border-box; padding: 20px 16px; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">researchgraph · astro profile</div>
+      <div style="font-size: 16px; font-weight: 600; line-height: 1.3">Little red dots: black hole star or dusty AGN?</div>
+      <div style="font-size: 12px; color: #5B6270">branch <span style="font-family: 'IBM Plex Mono', monospace">main</span> · 212 nodes · 4 collaborators</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <a href="#dashboard" style="text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; background: #E6EEF2; color: #143F52; font-weight: 500; font-size: 14px">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="10" width="8" height="11" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/></svg>Dashboard</a>
+      <a href="#graph" style="text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #16181D; font-size: 14px">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7.8 7.6 10.6 16M16.2 7.6 13.4 16"/></svg>Graph</a>
+      <a href="#review" style="text-decoration: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #16181D; font-size: 14px">
+        <span style="display: flex; align-items: center; gap: 10px"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h7"/><path d="m16 16 2 2 4-4"/></svg>Review queue</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #B4530A; color: #FFFFFF; border-radius: 10px; padding: 1px 8px">3</span></a>
+      <a href="#claims" style="text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #16181D; font-size: 14px">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 4 7v6c0 5 3.5 7.5 8 8 4.5-.5 8-3 8-8V7z"/><path d="m9 12 2 2 4-4"/></svg>Claims</a>
+      <a href="#log" style="text-decoration: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; color: #16181D; font-size: 14px">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Event log</a>
+    </div>
+    <div style="margin-top: auto; font-size: 12px; color: #5B6270; display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #2B7A4B; display: inline-block"></span>Live · index updated 2 s ago</div>
+      <div>Runner: <span style="font-family: 'IBM Plex Mono', monospace">slurm@cluster</span>, 3 of 6 slots</div>
+    </div>
+  </nav>
+
+  <main id="dashboard" style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 24px 28px 40px; display: flex; flex-direction: column; gap: 20px">
+
+    <header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-size: 22px; font-weight: 600; line-height: 1.2">Live monitoring</h1>
+        <div style="font-size: 13px; color: #5B6270">Wednesday 15 Oct 2026, 09:41 · as of <span style="font-family: 'IBM Plex Mono', monospace">now</span></div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px">
+        <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 14px; cursor: pointer">Rewind</button>
+        <button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 14px; cursor: pointer">Export digest</button>
+        <button type="button" onClick="{{ toggleDigest }}" style="min-height: 44px; padding: 0 14px; border-radius: 6px; border: 1px solid #1F5F7A; background: #1F5F7A; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">{{digestLabel}}</button>
+      </div>
+    </header>
+
+    <sc-if value="{{ showDigest }}" hint-placeholder-val="{{ true }}">
+    <section aria-label="Since you last looked" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px">
+      <div style="font-size: 13px; font-weight: 600; color: #5B6270; text-transform: uppercase; letter-spacing: 0.04em">Since you last looked · Tue 17:20</div>
+      <ul style="margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.55; display: flex; flex-direction: column; gap: 2px">
+        <li><strong>Finished:</strong> emission-line-fit batches 1 and 2 (64 of 98 objects); Balmer decrement stack for the z 5–7 bin.</li>
+        <li><strong>Failed:</strong> nirspec-prism-mos re-extraction, 7 objects below the S/N floor. <a href="Failure.dc.html">Open failure record</a>.</li>
+        <li><strong>Waiting on you:</strong> sample definition v2 (2 days), claim C4 promotion, one reduction departure.</li>
+        <li><strong>Watch:</strong> branch H2 (compact starburst) is at 95 percent of its budget with one prediction still running.</li>
+      </ul>
+    </section>
+    </sc-if>
+
+    <section aria-label="Key numbers" style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px">
+      <div style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+        <div style="font-size: 12px; color: #5B6270">Running</div>
+        <div style="font-size: 28px; font-weight: 600; line-height: 1; color: #1F5F7A">3</div>
+        <div style="font-size: 12px; color: #5B6270">leases, 3 slots free</div>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+        <div style="font-size: 12px; color: #5B6270">Ready, unclaimed</div>
+        <div style="font-size: 28px; font-weight: 600; line-height: 1">4</div>
+        <div style="font-size: 12px; color: #5B6270">oldest 41 min</div>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+        <div style="font-size: 12px; color: #5B6270">Blocked</div>
+        <div style="font-size: 28px; font-weight: 600; line-height: 1">6</div>
+        <div style="font-size: 12px; color: #5B6270">5 on one approval</div>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+        <div style="font-size: 12px; color: #5B6270">Needs decision</div>
+        <div style="font-size: 28px; font-weight: 600; line-height: 1; color: #B4530A">3</div>
+        <div style="font-size: 12px; color: #5B6270">oldest 2 d 16 h</div>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+        <div style="font-size: 12px; color: #5B6270">Failed, 24 h</div>
+        <div style="font-size: 28px; font-weight: 600; line-height: 1; color: #B4530A">2</div>
+        <div style="font-size: 12px; color: #5B6270">0 silent, 2 caught by checks</div>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+        <div style="font-size: 12px; color: #5B6270">Claims</div>
+        <div style="font-size: 28px; font-weight: 600; line-height: 1">4 <span style="font-size: 14px; font-weight: 500; color: #5B6270">accepted</span></div>
+        <div style="font-size: 12px; color: #B4530A">1 stale since Tue</div>
+      </div>
+    </section>
+
+    <section aria-label="Progress by hypothesis" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Progress by hypothesis</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: #5B6270">
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #2B7A4B; display: inline-block"></span>done</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #1F5F7A; display: inline-block"></span>running</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #9DB6C4; display: inline-block"></span>ready</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #DADDE2; display: inline-block"></span>blocked</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #B4530A; display: inline-block"></span>failed</span>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <sc-for list="{{ hyps }}" as="h" hint-placeholder-count="4">
+        <div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 1fr); gap: 16px; align-items: center">
+          <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 0">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">{{h.id}}</span>
+              <span style="font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{h.name}}</span>
+            </div>
+            <div style="font-size: 12px; color: {{h.statusColor}}">{{h.status}}</div>
+          </div>
+          <div style="display: flex; height: 14px; border-radius: 3px; overflow: hidden; background: #DADDE2">
+            <div style="width: {{h.wDone}}; background: #2B7A4B"></div>
+            <div style="width: {{h.wRun}}; background: #1F5F7A"></div>
+            <div style="width: {{h.wReady}}; background: #9DB6C4"></div>
+            <div style="width: {{h.wFail}}; background: #B4530A"></div>
+          </div>
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270; text-align: right">{{h.counts}}</div>
+        </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px">
+
+      <div aria-label="Activity" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Activity: who is working on what</h2>
+        <div style="overflow-x: auto">
+          <table style="border-collapse: collapse; width: 100%; font-size: 13px; min-width: 520px">
+            <thead>
+              <tr style="color: #5B6270; text-align: left">
+                <th style="font-weight: 500; padding: 6px 8px 8px 0; border-bottom: 1px solid #DFE2E7">Node</th>
+                <th style="font-weight: 500; padding: 6px 8px 8px; border-bottom: 1px solid #DFE2E7">Actor</th>
+                <th style="font-weight: 500; padding: 6px 8px 8px; border-bottom: 1px solid #DFE2E7">Running</th>
+                <th style="font-weight: 500; padding: 6px 0 8px 8px; border-bottom: 1px solid #DFE2E7">Lease</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #EEF0F3"><div style="font-weight: 500">xray-stack · Chandra, 46 fields</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">an-0412 · tests P2 under H3</div></td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 12px">claude-code · runner-2</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">1 h 12 m</td>
+                <td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #EEF0F3">38 m left</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #EEF0F3"><div style="font-weight: 500">emission-line-fit · batch 3 of 5</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">an-0418 · tests P4 under H3, H1′</div></td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 12px">codex · runner-1</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">24 m</td>
+                <td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #EEF0F3">1 h 36 m left</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #EEF0F3"><div style="font-weight: 500">sed-fit · MIRI, 12 objects</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">an-0420 · tests P3 under H1′</div></td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 12px">claude-code · runner-3</td>
+                <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">6 m</td>
+                <td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #EEF0F3">1 h 54 m left</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+          <div style="font-weight: 500; color: #5B6270">Ready, nobody has claimed</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #EEF0F3; border-radius: 4px; padding: 4px 8px">an-0421 lightcurve-extract · 41 m</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #EEF0F3; border-radius: 4px; padding: 4px 8px">an-0422 emission-line-fit batch 4</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #EEF0F3; border-radius: 4px; padding: 4px 8px">an-0423 emission-line-fit batch 5</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #EEF0F3; border-radius: 4px; padding: 4px 8px">ds-0097 archive query · MIRI F1800W</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="review" aria-label="Review queue" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Review queue</h2>
+          <span style="font-size: 12px; color: #B4530A">5 nodes blocked behind the first item</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <div style="border: 1px solid #DFE2E7; border-radius: 6px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px">
+              <div style="font-weight: 500; font-size: 14px">Approve sample definition v2</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #B4530A">waiting 2 d 16 h</div>
+            </div>
+            <div style="font-size: 13px; color: #3A404B; line-height: 1.5">Agent proposes: compact (r<sub>e</sub> &lt; 0.2″), red rest-optical slope, blue rest-UV, z 4–9, PRISM coverage. 98 objects from DJA v4.4. Supersedes v1 (112 objects) after removing 14 with brown-dwarf-like colours.</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px">
+              <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #1F5F7A; background: #1F5F7A; color: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Approve</button>
+              <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 13px; cursor: pointer">Send back with note</button>
+              <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 13px; cursor: pointer">Open diff vs v1</button>
+            </div>
+          </div>
+          <div style="border: 1px solid #DFE2E7; border-radius: 6px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px">
+              <div style="font-weight: 500; font-size: 14px">Promote claim C4</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">waiting 14 h</div>
+            </div>
+            <div style="font-size: 13px; color: #3A404B; line-height: 1.5">"Stacked 0.5–7 keV flux is below 1/20 of the level expected for an unobscured AGN at the observed Hα luminosity." Cites an-0398 notebook cell 23; held-out half agrees within 1.4σ. Contradicts H1, supports H3.</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px">
+              <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #1F5F7A; background: #1F5F7A; color: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Accept claim</button>
+              <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; font: inherit; font-size: 13px; cursor: pointer">Open evidence</button>
+            </div>
+          </div>
+          <div style="border: 1px solid #DFE2E7; border-radius: 6px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px">
+              <div style="font-weight: 500; font-size: 14px">Reduction departs from formula default</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">waiting 3 h</div>
+            </div>
+            <div style="font-size: 13px; color: #3A404B; line-height: 1.5">nirspec-prism-mos: agent requests extraction aperture 0.4″ instead of the default 0.3″ for 7 extended objects, after the S/N check failed. See the failure record.</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px">
+              <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #1F5F7A; background: #1F5F7A; color: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Allow for these 7</button>
+              <a href="Failure.dc.html" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9CED6; background: #FFFFFF; color: #16181D; text-decoration: none; font-size: 13px">Open failure</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div aria-label="Budget burn" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+          <h2 style="margin: 0; font-size: 16px; font-weight: 600">Budget burn by branch</h2>
+          <span style="font-size: 12px; color: #5B6270">tokens · compute hours</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 12px">
+          <sc-for list="{{ budgets }}" as="b" hint-placeholder-count="4">
+          <div style="display: flex; flex-direction: column; gap: 5px">
+            <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px">
+              <span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">{{b.id}}</span> {{b.name}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{b.color}}">{{b.label}}</span>
+            </div>
+            <div style="height: 10px; border-radius: 3px; background: #DADDE2; overflow: hidden">
+              <div style="height: 100%; width: {{b.width}}; background: {{b.color}}"></div>
+            </div>
+          </div>
+          </sc-for>
+        </div>
+        <div style="font-size: 12px; color: #5B6270; line-height: 1.5">Branch H2 will stop automatically at 100 percent; raising its budget is a gated action. Spend today: 18.4 M tokens, 11.2 compute hours.</div>
+      </div>
+
+      <div aria-label="Failures feed" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Failures, last 7 days</h2>
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <div style="display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 12px">
+            <div style="background: #B4530A; border-radius: 2px"></div>
+            <div style="display: flex; flex-direction: column; gap: 3px">
+              <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px"><span style="font-weight: 500; font-size: 14px">nirspec-prism-mos · re-extraction</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">Tue 22:14 · rd-0233</span></div>
+              <div style="font-size: 13px; color: #3A404B; line-height: 1.5">Acceptance check <span style="font-family: 'IBM Plex Mono', monospace">continuum_snr ≥ 5</span> failed for 7 of 98 objects (min 3.1). Dependent: an-0424 Balmer break fit, blocked.</div>
+              <a href="Failure.dc.html" style="font-size: 13px">Open failure record</a>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 12px">
+            <div style="background: #B4530A; border-radius: 2px"></div>
+            <div style="display: flex; flex-direction: column; gap: 3px">
+              <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px"><span style="font-weight: 500; font-size: 14px">emission-line-fit · envelope vs BLR</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">Mon 09:02 · an-0407</span></div>
+              <div style="font-size: 13px; color: #3A404B; line-height: 1.5">Model comparison inconclusive: Δln Z = 0.8 between dense-envelope and broad-line-region models on the full stack. Superseded by an-0418, which splits the sample by Balmer decrement.</div>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 12px">
+            <div style="background: #9DB6C4; border-radius: 2px"></div>
+            <div style="display: flex; flex-direction: column; gap: 3px">
+              <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px"><span style="font-weight: 500; font-size: 14px">archive query · HEASARC timeout</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">Sat 03:40 · ds-0091 · resolved</span></div>
+              <div style="font-size: 13px; color: #3A404B; line-height: 1.5">Retried by the runner after 10 minutes; completed. Kept for the record.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <section id="claims" aria-label="Claims" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600">Claims and what they rest on</h2>
+      <div style="overflow-x: auto">
+        <table style="border-collapse: collapse; width: 100%; font-size: 13px; min-width: 820px">
+          <thead>
+            <tr style="color: #5B6270; text-align: left">
+              <th style="font-weight: 500; padding: 6px 8px 8px 0; border-bottom: 1px solid #DFE2E7">Claim</th>
+              <th style="font-weight: 500; padding: 6px 8px 8px; border-bottom: 1px solid #DFE2E7">Bears on</th>
+              <th style="font-weight: 500; padding: 6px 8px 8px; border-bottom: 1px solid #DFE2E7">Evidence</th>
+              <th style="font-weight: 500; padding: 6px 0 8px 8px; border-bottom: 1px solid #DFE2E7">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #EEF0F3"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">C1</span> Host-subtracted Balmer break is more than twice that of massive quiescent galaxies at matched z</td>
+              <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">supports H3</td>
+              <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 12px">an-0381 cell 17 · an-0383 fig 2</td>
+              <td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #EEF0F3; color: #2B7A4B">accepted · 3 Oct</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #EEF0F3"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">C2</span> Hα/Hβ exceeds 10 in the stack, inconsistent with a standard dust screen</td>
+              <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">contradicts H1 · supports H3</td>
+              <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 12px">an-0390 cell 31</td>
+              <td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #EEF0F3; color: #2B7A4B">accepted · 6 Oct</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #EEF0F3"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">C3</span> No rest-frame UV variability above 0.1 mag over 1–2 yr for the 19 objects with repeat imaging</td>
+              <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">weakly contradicts H1</td>
+              <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 12px">an-0395 cell 12</td>
+              <td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #EEF0F3; color: #B4530A">stale · input rd-0233 superseded</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 8px 10px 0; border-bottom: 1px solid #EEF0F3"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">C4</span> Stacked X-ray flux below 1/20 of the unobscured-AGN expectation at the observed Hα luminosity</td>
+              <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3">contradicts H1 · supports H3</td>
+              <td style="padding: 10px 8px; border-bottom: 1px solid #EEF0F3; font-family: 'IBM Plex Mono', monospace; font-size: 12px">an-0398 cell 23</td>
+              <td style="padding: 10px 0 10px 8px; border-bottom: 1px solid #EEF0F3; color: #B4530A">awaiting approval</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 8px 10px 0"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">C5</span> Line widths correlate with density-sensitive ratios in the z 5–7 bin</td>
+              <td style="padding: 10px 8px">supports H3</td>
+              <td style="padding: 10px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px">an-0402 cell 40 · an-0402 fig 5</td>
+              <td style="padding: 10px 0 10px 8px; color: #2B7A4B">accepted · 12 Oct</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="log" aria-label="Event log" style="background: #FFFFFF; border: 1px solid #DFE2E7; border-radius: 8px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 600">Event log</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px">
+          <span style="border: 1px solid #C9CED6; border-radius: 12px; padding: 3px 10px">all actors</span>
+          <span style="border: 1px solid #C9CED6; border-radius: 12px; padding: 3px 10px">today</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 12px">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">Mon 13</span>
+        <label for="scrub" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Rewind the graph to a moment</label>
+        <input id="scrub" type="range" min="0" max="100" value="100" style="flex: 1; min-width: 0; accent-color: #1F5F7A; height: 44px">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #16181D">now</span>
+      </div>
+      <div style="display: flex; flex-direction: column; font-size: 13px">
+        <sc-for list="{{ events }}" as="e" hint-placeholder-count="6">
+        <div style="display: grid; grid-template-columns: 76px 150px minmax(0, 1fr); gap: 12px; padding: 7px 0; border-bottom: 1px solid #EEF0F3">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270">{{e.t}}</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5B6270; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{e.actor}}</span>
+          <span><span style="color: {{e.color}}; font-weight: 500">{{e.verb}}</span> {{e.what}}</span>
+        </div>
+        </sc-for>
+      </div>
+    </section>
+
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"showDigestByDefault":{"editor":"boolean","default":true,"section":"Behaviour"},"$preview":{"width":1440,"height":1720}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { digest: null };
+  }
+  renderVals() {
+    const open = this.state.digest === null ? (this.props.showDigestByDefault ?? true) : this.state.digest;
+    const pct = (n, total) => ((100 * n) / total).toFixed(1) + '%';
+    const hyps = [
+      { id: 'H3', name: 'Black hole star: BH in a dense, dust-poor envelope', status: 'active · leading · 3 claims support', statusColor: '#2B7A4B', done: 14, run: 2, ready: 3, fail: 0, blocked: 1 },
+      { id: 'H1′', name: 'Compton-thick AGN (supersedes H1 dusty AGN)', status: 'active · 1 prediction running', statusColor: '#1F5F7A', done: 6, run: 1, ready: 1, fail: 1, blocked: 3 },
+      { id: 'H2', name: 'Compact starburst, no AGN', status: 'active · 2 claims contradict · budget 95 %', statusColor: '#B4530A', done: 9, run: 0, ready: 0, fail: 1, blocked: 1 },
+      { id: 'H1', name: 'Dust-reddened type-1 AGN', status: 'retired 9 Oct · superseded by H1′', statusColor: '#5B6270', done: 7, run: 0, ready: 0, fail: 0, blocked: 0 }
+    ].map((h) => {
+      const total = h.done + h.run + h.ready + h.fail + h.blocked;
+      return { ...h, wDone: pct(h.done, total), wRun: pct(h.run, total), wReady: pct(h.ready, total), wFail: pct(h.fail, total), counts: `${h.done} done · ${h.run} run · ${h.ready} ready · ${h.blocked} blocked · ${h.fail} failed` };
+    });
+    const budgets = [
+      { id: 'H3', name: 'Black hole star', used: 108, cap: 150, hours: '41 h' },
+      { id: 'H1′', name: 'Compton-thick AGN', used: 49, cap: 120, hours: '17 h' },
+      { id: 'H2', name: 'Compact starburst', used: 95, cap: 100, hours: '22 h' },
+      { id: 'Q', name: 'Shared: sample and data', used: 31, cap: 80, hours: '9 h' }
+    ].map((b) => {
+      const frac = b.used / b.cap;
+      return { ...b, width: (100 * frac).toFixed(0) + '%', label: `${b.used} / ${b.cap} M · ${b.hours}`, color: frac >= 0.9 ? '#B4530A' : '#1F5F7A' };
+    });
+    const events = [
+      { t: '09:39', actor: 'runner-3', verb: 'claimed', what: 'an-0420 sed-fit MIRI, lease 2 h', color: '#1F5F7A' },
+      { t: '09:31', actor: 'runner-1', verb: 'completed', what: 'an-0417 emission-line-fit batch 2, 32 objects, notebook hash 7f3a…', color: '#2B7A4B' },
+      { t: '09:30', actor: 'codex · runner-1', verb: 'proposed', what: 'claim C6 draft: envelope density from Balmer decrement vs line width', color: '#16181D' },
+      { t: '08:55', actor: 'J. Lee', verb: 'approved', what: 'rd-0234 reduction departure for 2 objects (aperture 0.4″)', color: '#2B7A4B' },
+      { t: '08:12', actor: 'runner-2', verb: 'claimed', what: 'an-0412 xray-stack Chandra 46 fields, lease 2 h', color: '#1F5F7A' },
+      { t: 'Tue 22:14', actor: 'runner-2', verb: 'failed', what: 'rd-0233 nirspec-prism-mos re-extraction: continuum_snr check, 7 of 98 objects', color: '#B4530A' },
+      { t: 'Tue 18:40', actor: 'lit-watch', verb: 'proposed', what: 'Literature node: new arXiv on envelope column densities, bears on C2', color: '#16181D' },
+      { t: 'Tue 17:02', actor: 'claude-code · runner-1', verb: 'completed', what: 'an-0398 xray-stack, z 5–7 bin; evidence for C4 attached', color: '#2B7A4B' }
+    ];
+    return {
+      showDigest: open,
+      digestLabel: open ? 'Hide digest' : 'Show digest',
+      toggleDigest: () => this.setState({ digest: !open }),
+      hyps, budgets, events
+    };
+  }
+}
+</script>
+</body>
+</html>
