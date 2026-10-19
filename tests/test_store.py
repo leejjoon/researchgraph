@@ -15,10 +15,12 @@ from hypothesis import strategies as st
 from researchgraph.cli import main
 from researchgraph.model import (
     Actor,
+    Approval,
     Artifact,
     Edge,
     Node,
     RuleViolation,
+    Status,
 )
 from researchgraph.profiles import Profile
 from researchgraph.project import Project
@@ -133,7 +135,9 @@ def test_pinned_versions_unchanged(project):
 
 
 def test_getters_and_normalization(project):
-    question = Node("qu-aaaaaaaa", "Question", "Question", "", ALICE, NOW)
+    question = Node(
+        "qu-aaaaaaaa", "Question", "Question", "", ALICE, NOW, status=Status.ACTIVE
+    )
     task = node()
     relation = Edge("ed-aaaaaaaa", "relates-to", task.id, question.id, ALICE, NOW)
     project.apply(write(question, task, edges=[relation]), commit=False)
@@ -168,7 +172,9 @@ def test_invalid_write_changes_nothing(project, mutate, rule):
 
 
 def test_existing_fields_not_redefaulted(project):
-    question = Node("qu-aaaaaaaa", "Question", "Q", "", ALICE, NOW)
+    question = Node(
+        "qu-aaaaaaaa", "Question", "Q", "", ALICE, NOW, status=Status.ACTIVE
+    )
     project.apply(write(question), commit=False)
     path = project.path / "graph/nodes/qu-aaaaaaaa.yaml"
     path.write_text(
@@ -178,16 +184,23 @@ def test_existing_fields_not_redefaulted(project):
     )
     loaded = project.get_node(question.id)
     loaded.priority = 2
-    project.apply(write(loaded), commit=False)
+    project.apply(write(loaded, op="tag", args={"node": loaded.id}), commit=False)
     assert project.get_node(question.id).fields == {}
 
 
 def test_profile_validator_refuses_before_files(project):
     claim = Node("cl-aaaaaaaa", "Claim", "Claim", "", ALICE, NOW)
+    project.apply(write(claim), commit=False)
+    before = (project.path / f"graph/nodes/{claim.id}.yaml").read_bytes()
+    claim.status = Status.ACTIVE
+    claim.approvals.append(Approval(ALICE, NOW, "approve"))
     refusal(
-        "claim_needs_evidence", project.apply, write(claim, op="approve"), commit=False
+        "claim_needs_evidence",
+        project.apply,
+        write(claim, op="approve", args={"node": claim.id}),
+        commit=False,
     )
-    assert project.get_nodes() == []
+    assert (project.path / f"graph/nodes/{claim.id}.yaml").read_bytes() == before
 
 
 def test_missing_endpoint_and_edge_schema(project):
@@ -273,11 +286,10 @@ def test_clock_skew_before_effects(project):
 
 @pytest.mark.parametrize("failed_rename", [1, 2, 3])
 def test_rename_failure_restores_precall_bytes(project, monkeypatch, failed_rename):
-    first, second = node(), node("ta-bbbbbbbb")
-    project.apply(write(first, second))
+    first, second, third = node(), node("ta-bbbbbbbb"), node("ta-cccccccc")
+    project.apply(write(first, second, third))
     # Pending manual/--no-commit state, not HEAD, is the rollback baseline.
     pending = project.get_node(first.id)
-    pending.priority = 7
     artifact = project.path / f"artifacts/{first.id}/pending.txt"
     artifact.parent.mkdir(parents=True)
     artifact.write_bytes(b"pending attachment\n")
@@ -290,10 +302,12 @@ def test_rename_failure_restores_precall_bytes(project, monkeypatch, failed_rena
             ALICE,
         )
     )
-    project.apply(write(pending), commit=False)
+    project.apply(write(pending, op="attach", args={"node": pending.id}), commit=False)
+    pending.priority = 7
+    project.apply(write(pending, op="tag", args={"node": pending.id}), commit=False)
     before = {p: p.read_bytes() for p in (project.path / "graph/nodes").glob("*.yaml")}
     status = git(project.path, "status", "--porcelain")
-    pending.priority, second.priority = 8, 9
+    pending.tags, second.tags, third.tags = ["changed"], ["changed"], ["changed"]
     original = transaction.os.replace
     calls = 0
 
@@ -306,7 +320,7 @@ def test_rename_failure_restores_precall_bytes(project, monkeypatch, failed_rena
 
     monkeypatch.setattr(transaction.os, "replace", fail_once)
     error = refusal(
-        "write_failed", project.apply, write(pending, node("ta-cccccccc"), second)
+        "write_failed", project.apply, write(pending, third, second, op="tag")
     )
     assert error.ids
     assert {
@@ -349,9 +363,11 @@ def test_exact_commit_scope_preserves_staged_and_unstaged(project):
     artifact = path / "artifacts/ta-aaaaaaaa/output.txt"
     artifact.parent.mkdir(parents=True)
     artifact.write_text("artifact\n")
+    value = node()
+    value.created = value.updated = clock
     project.apply(
         write(
-            node(), now=clock, args={"artifacts": ["artifacts/ta-aaaaaaaa/output.txt"]}
+            value, now=clock, args={"artifacts": ["artifacts/ta-aaaaaaaa/output.txt"]}
         )
     )
     assert git(path, "diff", "--cached", "--binary") == staged
@@ -368,7 +384,9 @@ def test_events_real_commit_only_and_agent_identity(project):
     project.profile.event_hooks.append(lambda p, w, c: events.append((p, w, c)))
     assert project.apply(write(node()), commit=False) is None
     assert events == []
-    change = write(project.get_node("ta-aaaaaaaa"))
+    change = write(
+        project.get_node("ta-aaaaaaaa"), op="tag", args={"node": "ta-aaaaaaaa"}
+    )
     change.nodes[0].priority = 4
     change.actor = Actor("agent", "robot", model="test")
     commit = project.apply(change)

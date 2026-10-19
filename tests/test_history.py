@@ -2,12 +2,14 @@
 
 import json
 from datetime import timedelta
+from hashlib import sha256
 
 import pytest
 
 from researchgraph.model import (
     Approval,
     Artifact,
+    Lease,
     RuleViolation,
     Status,
     format_timestamp,
@@ -27,50 +29,84 @@ def rows(project):
 )
 def test_nested_project_committed_history_and_provenance(tmp_path, directory):
     repository(tmp_path)
-    nested = Project.init(tmp_path / directory, actor=ALICE, now=NOW)
-    value = node()
-    value.approvals = [Approval(ALICE, NOW, "activate")]
-    first = nested.apply(write(value))
-    value.status = Status.DONE
-    value.updated = NOW + timedelta(seconds=1)
-    second = nested.apply(write(value, now=value.updated))
-    expected = [
-        dict(
-            zip(
-                INTERVAL_KEYS,
-                [
-                    value.id,
-                    "active",
-                    first,
-                    format_timestamp(NOW),
-                    second,
-                    format_timestamp(value.updated),
-                ],
+    with Project.init(tmp_path / directory, actor=ALICE, now=NOW) as nested:
+        value = node()
+        first = nested.apply(write(value))
+        value.budget = {"tokens": 10}
+        value.approvals.append(Approval(ALICE, NOW, "budget", note="tokens=10"))
+        budget_commit = nested.apply(
+            write(value, op="budget", args={"node": value.id, "tokens": 10})
+        )
+        value.status = Status.RUNNING
+        value.updated = NOW + timedelta(seconds=1)
+        value.lease = Lease(ALICE, value.updated, value.updated + timedelta(seconds=30))
+        value.approvals.append(Approval(ALICE, value.updated, "claim"))
+        nested.apply(
+            write(
+                value,
+                op="claim",
+                args={"node": value.id, "lease_seconds": 30},
+                now=value.updated,
+            ),
+            commit=False,
+        )
+        value.status, value.lease = Status.DONE, None
+        value.updated = NOW + timedelta(seconds=2)
+        value.approvals.append(
+            Approval(ALICE, value.updated, "complete", note="nested")
+        )
+        second = nested.apply(
+            write(
+                value,
+                op="complete",
+                args={"node": value.id, "summary": "nested"},
+                now=value.updated,
             )
-        ),
-        dict(
-            zip(
-                INTERVAL_KEYS,
-                [value.id, "done", second, format_timestamp(value.updated), None, None],
-            )
-        ),
-    ]
-    assert rows(nested) == expected
-    assert (
-        nested.index.connection.execute("select from_commit from approvals").fetchone()[
-            0
+        )
+        expected = [
+            dict(
+                zip(
+                    INTERVAL_KEYS,
+                    [
+                        value.id,
+                        "active",
+                        first,
+                        format_timestamp(NOW),
+                        second,
+                        format_timestamp(value.updated),
+                    ],
+                )
+            ),
+            dict(
+                zip(
+                    INTERVAL_KEYS,
+                    [
+                        value.id,
+                        "done",
+                        second,
+                        format_timestamp(value.updated),
+                        None,
+                        None,
+                    ],
+                )
+            ),
         ]
-        == first
-    )
-    (nested.path / ".researchgraph/index.sqlite").unlink()
-    reopened = Project.open(nested.path)
-    assert rows(reopened) == expected
-    assert (
-        reopened.index.connection.execute(
-            "select from_commit from approvals"
-        ).fetchone()[0]
-        == first
-    )
+        assert rows(nested) == expected
+        assert (
+            nested.index.connection.execute(
+                "select from_commit from approvals where ordinal=0"
+            ).fetchone()[0]
+            == budget_commit
+        )
+        (nested.path / ".researchgraph/index.sqlite").unlink()
+        with Project.open(nested.path) as reopened:
+            assert rows(reopened) == expected
+            assert (
+                reopened.index.connection.execute(
+                    "select from_commit from approvals where ordinal=0"
+                ).fetchone()[0]
+                == budget_commit
+            )
 
 
 def test_commit_chain_pending_replacement_and_provenance(project):
@@ -78,24 +114,49 @@ def test_commit_chain_pending_replacement_and_provenance(project):
     first = project.apply(write(value))
     value.tags = ["metadata-only"]
     value.updated = NOW + timedelta(seconds=1)
-    project.apply(write(value, now=value.updated))
+    project.apply(write(value, op="tag", args={"node": value.id}, now=value.updated))
     assert len(rows(project)) == 1
     value.status = Status.RUNNING
-    from researchgraph.model import Lease
-
-    value.lease = Lease(ALICE, value.updated, value.updated + timedelta(seconds=30))
     value.updated = NOW + timedelta(seconds=2)
-    project.apply(write(value, now=value.updated), commit=False)
+    value.lease = Lease(ALICE, value.updated, value.updated + timedelta(seconds=30))
+    value.approvals.append(Approval(ALICE, value.updated, "claim"))
+    project.apply(
+        write(
+            value,
+            op="claim",
+            args={"node": value.id, "lease_seconds": 30},
+            now=value.updated,
+        ),
+        commit=False,
+    )
     value.status, value.lease = Status.DONE, None
     value.updated = NOW + timedelta(seconds=3)
-    value.approvals = [Approval(ALICE, value.updated, "activate")]
+    value.approvals.append(Approval(ALICE, value.updated, "complete", note="finished"))
     path = project.path / f"artifacts/{value.id}/result"
     path.parent.mkdir(parents=True)
     path.write_bytes(b"x")
     value.artifacts = [
-        Artifact(str(path.relative_to(project.path)), "a" * 64, 1, value.updated, ALICE)
+        Artifact(
+            str(path.relative_to(project.path)),
+            sha256(b"x").hexdigest(),
+            1,
+            value.updated,
+            ALICE,
+        )
     ]
-    project.apply(write(value, now=value.updated), commit=False)
+    project.apply(
+        write(
+            value,
+            op="complete",
+            args={
+                "node": value.id,
+                "summary": "finished",
+                "artifacts": [str(path.relative_to(project.path))],
+            },
+            now=value.updated,
+        ),
+        commit=False,
+    )
     pending = rows(project)
     assert [r["status"] for r in pending] == ["active", "done"]
     assert pending[0]["from_commit"] == first
@@ -107,7 +168,10 @@ def test_commit_chain_pending_replacement_and_provenance(project):
         ).fetchone()[0]
         is None
     )
-    final = project.apply(write(value, now=value.updated))
+    value.tags = ["committed", "metadata-only"]
+    final = project.apply(
+        write(value, op="tag", args={"node": value.id}, now=value.updated)
+    )
     committed = rows(project)
     assert committed[0]["to_commit"] == final
     assert committed[1]["from_commit"] == final
@@ -139,9 +203,25 @@ def test_archive_union_import_suppression_and_close(project):
     archive.write_text(json.dumps(old) + "\n" + json.dumps(old) + "\n")
     project.apply(write(value, op="import"))
     assert rows(project) == [old]
-    value.status = Status.DONE
+    value.status = Status.RUNNING
+    value.lease = Lease(ALICE, NOW, NOW + timedelta(seconds=30))
+    value.approvals.append(Approval(ALICE, NOW, "claim"))
+    project.apply(
+        write(value, op="claim", args={"node": value.id, "lease_seconds": 30}),
+        commit=False,
+    )
+    value.status, value.lease = Status.DONE, None
     value.updated = NOW + timedelta(seconds=1)
-    project.apply(write(value, now=value.updated), commit=False)
+    value.approvals.append(Approval(ALICE, value.updated, "complete", note="restored"))
+    project.apply(
+        write(
+            value,
+            op="complete",
+            args={"node": value.id, "summary": "restored"},
+            now=value.updated,
+        ),
+        commit=False,
+    )
     result = rows(project)
     assert len(result) == 2
     assert result[0]["from_commit"] == "old-commit"

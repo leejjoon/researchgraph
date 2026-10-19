@@ -24,6 +24,12 @@ from researchgraph.store.git import Git
 from researchgraph.store.index import Index
 from researchgraph.store.io import dump_edge, dump_node, load_edge, load_node
 from researchgraph.store.transaction import atomic_write, write_lock
+from researchgraph.validation import (
+    validate_edge_endpoints,
+    validate_permissions,
+    validate_references,
+    validate_write,
+)
 
 _IDENTIFIER = re.compile(r"[a-z]{2,4}-[a-z2-7]{8}", re.ASCII)
 
@@ -311,8 +317,20 @@ class Project:
         ):
             raise RuleViolation("schema", "Invalid actor")
 
+    def _before_state(self):
+        """Read validation inputs from source files, never from cache state."""
+        nodes = {
+            path.stem: self._read(path.relative_to(self.path).as_posix())
+            for path in (self.path / "graph/nodes").glob("*.yaml")
+        }
+        edges = {
+            path.stem: self._read(path.relative_to(self.path).as_posix(), edge=True)
+            for path in (self.path / "graph/edges").glob("*.yaml")
+        }
+        return nodes, edges
+
     def _validate(self, write: Write):
-        """One schema/profile boundary; full graph invariants belong to T07."""
+        """Normalize schemas, enforce core policy, then invoke profile callbacks."""
         if self.read_only:
             raise RuleViolation("read_only", "Project is read-only")
         try:
@@ -320,10 +338,11 @@ class Project:
             self._actor(write.actor)
             if not isinstance(write.op, str) or not write.op or "\n" in write.op:
                 raise RuleViolation("schema", "Invalid operation name")
-            if write.role is not None and write.role not in self.profile.roles:
-                raise RuleViolation("wrong_role", f"Unknown role: {write.role}")
             if not isinstance(write.args, dict):
                 raise RuleViolation("schema", "Write arguments must be a mapping")
+            before_nodes, before_edges = self._before_state()
+            validate_references(write, before_nodes)
+            validate_permissions(self.profile, write, before_nodes)
             nodes, edges = {}, set()
             for node in write.nodes:
                 self._identifier(node.id)
@@ -420,14 +439,21 @@ class Project:
                 self._safe_path(f"graph/edges/{edge.id}.yaml")
                 self._actor(edge.author)
                 definition = self.profile.edge_type(edge.type)
+                if write.op == "link":
+                    validate_edge_endpoints(
+                        self.profile, edge, {**before_nodes, **nodes}
+                    )
                 for endpoint in (edge.from_, edge.to):
                     self._identifier(endpoint)
-                    if endpoint not in nodes:
-                        self.get_node(endpoint)
+                    if endpoint not in nodes and endpoint not in before_nodes:
+                        raise RuleViolation(
+                            "not_found", "Edge endpoint not found", [endpoint]
+                        )
                 if type(edge.retired) is not bool:
                     raise RuleViolation("schema", "Retired must be boolean", [edge.id])
                 self._fields(edge, definition, edge=True)
                 Edge.from_dict(edge.to_dict())
+            validate_write(self.profile, write, before_nodes, before_edges)
             self._artifact_paths(write)
             for validator in self.profile.validators:
                 validator(self, write)
@@ -482,6 +508,8 @@ class Project:
             raise RuleViolation("schema", "Artifacts must be a list of paths")
         paths = list(paths)
         for node in write.nodes:
+            if write.op == "import":
+                continue
             existing = self.path / f"graph/nodes/{node.id}.yaml"
             old = (
                 self._read(f"graph/nodes/{node.id}.yaml").artifacts
@@ -531,9 +559,12 @@ class Project:
         self._git.check_clock(write.now)
         paths = []
         try:
-            self._refresh()
             with write_lock(self.path):
                 self._git.check_clock(write.now)
+                # Missing id arguments outrank a newly advanced profile pin.
+                if isinstance(write.args, dict):
+                    before_nodes, _ = self._before_state()
+                    validate_references(write, before_nodes)
                 self._refresh()
                 change = deepcopy(write)
                 self._validate(change)

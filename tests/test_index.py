@@ -11,8 +11,9 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from researchgraph.model import Edge, Lease, RuleViolation, Status
+from researchgraph.model import Approval, Edge, Lease, RuleViolation, Status
 from researchgraph.project import Project
+from researchgraph.store.io import dump_edge, dump_node
 from tests.helpers import ALICE, NOW, node, repository, write
 
 
@@ -80,7 +81,12 @@ def test_ready_clock_blockers_and_accounting(project):
         retired=True,
         retired_at=NOW,
     )
-    project.apply(write(parent, child, worker, zero, edges=[edge]), commit=False)
+    # Query fixtures are restored source snapshots, not synthetic propose calls.
+    for value in (parent, child, worker, zero):
+        (project.path / f"graph/nodes/{value.id}.yaml").write_text(
+            dump_node(value.to_dict())
+        )
+    (project.path / f"graph/edges/{edge.id}.yaml").write_text(dump_edge(edge.to_dict()))
     other = Project.open(project.path)
     assert [n.id for n in project.index.ready(NOW)] == [child.id]
     assert [n.id for n in other.index.ready(NOW + timedelta(seconds=10))] == [
@@ -90,28 +96,43 @@ def test_ready_clock_blockers_and_accounting(project):
     assert [r[0] for r in project.index.connection.execute("select id from ready")] == [
         child.id
     ]
-    edge.retired, edge.retired_at = False, None
-    project.apply(write(edges=[edge]), commit=False)
+    edge = Edge("ed-bbbbbbbb", "part-of", child.id, parent.id, ALICE, NOW)
+    project.apply(write(edges=[edge], op="link"), commit=False)
     assert project.index.ready(NOW) == []
 
 
 def test_apply_failures_recover_from_source(project, monkeypatch):
     project.apply(write(node()))
     changed = project.get_node("ta-aaaaaaaa")
+    changed.status = Status.RUNNING
+    changed.lease = Lease(ALICE, NOW, NOW + timedelta(seconds=7200))
+    changed.approvals.append(Approval(ALICE, NOW, "claim"))
+    project.apply(write(changed, op="claim", args={"node": changed.id}))
     changed.status = Status.DONE
+    changed.lease = None
     changed.updated = NOW + timedelta(seconds=1)
+    changed.approvals.append(Approval(ALICE, changed.updated, "complete"))
 
     def fail(*args, **kwargs):
         raise OSError("injected")
 
     monkeypatch.setattr(project._git, "commit", fail)
     with pytest.raises(RuleViolation):
-        project.apply(write(changed, now=changed.updated))
+        project.apply(
+            write(
+                changed, now=changed.updated, op="complete", args={"node": changed.id}
+            )
+        )
     assert project.get_node(changed.id).status == Status.DONE
     original = project.index.refresh
     monkeypatch.setattr(project.index, "refresh", fail)
     with pytest.raises(RuleViolation):
-        project.apply(write(changed, now=changed.updated), commit=False)
+        project.apply(
+            write(
+                changed, now=changed.updated, op="complete", args={"node": changed.id}
+            ),
+            commit=False,
+        )
     monkeypatch.setattr(project.index, "refresh", original)
     assert project.get_node(changed.id).status == Status.DONE
 
@@ -129,14 +150,30 @@ def test_pending_projection_equals_rebuild(statuses):
         path = repository(Path(directory))
         store = Project.init(path, actor=ALICE, now=NOW)
         for i, status in enumerate(statuses):
-            value = node()
-            value.status = status
-            value.updated = NOW + timedelta(seconds=i)
-            if status == Status.RUNNING:
-                value.lease = Lease(
-                    ALICE, value.updated, value.updated + timedelta(seconds=10)
-                )
+            value = node("ta-" + chr(97 + i) * 8)
+            value.created = value.updated = NOW + timedelta(seconds=i)
             store.apply(write(value, now=value.updated), commit=False)
+            if status in {Status.RUNNING, Status.DONE}:
+                value.status = Status.RUNNING
+                value.lease = Lease(
+                    ALICE, value.updated, value.updated + timedelta(seconds=7200)
+                )
+                value.approvals.append(Approval(ALICE, value.updated, "claim"))
+                store.apply(
+                    write(
+                        value, op="claim", now=value.updated, args={"node": value.id}
+                    ),
+                    commit=False,
+                )
+            if status == Status.DONE:
+                value.status, value.lease = Status.DONE, None
+                value.approvals.append(Approval(ALICE, value.updated, "complete"))
+                store.apply(
+                    write(
+                        value, op="complete", now=value.updated, args={"node": value.id}
+                    ),
+                    commit=False,
+                )
         before = list(store.index.connection.execute("select * from status_intervals"))
         (path / ".researchgraph/index.sqlite").unlink()
         assert store.get_node(value.id).to_dict() == value.to_dict()
