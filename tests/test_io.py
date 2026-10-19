@@ -1,4 +1,4 @@
-"""Canonical YAML examples and complete mapping strategies (promote in T03)."""
+"""Canonical YAML examples and complete mapping round trips."""
 
 import math
 import subprocess
@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 from hypothesis import given, settings
-from hypothesis import strategies as st
 
 from researchgraph.store.io import (
     ACTOR_KEYS,
@@ -23,105 +22,9 @@ from researchgraph.store.io import (
     load_edge,
     load_node,
 )
+from tests.strategies import complete_edges, complete_nodes
 
 FIXTURES = Path(__file__).parent / "fixtures" / "canonical"
-NOW = "2026-10-19T14:06:19Z"
-LATER = "2026-10-19T14:07:19Z"
-TEXT = st.text(st.characters(blacklist_categories=("Cs",)), max_size=50)
-SCALARS = st.one_of(st.none(), st.booleans(), st.integers(), st.floats(), TEXT)
-VALUES = st.recursive(
-    SCALARS,
-    lambda children: st.one_of(
-        st.lists(children, max_size=4),
-        st.dictionaries(TEXT, children, max_size=4),
-    ),
-    max_leaves=15,
-)
-FIELDS = st.dictionaries(TEXT, VALUES, max_size=5)
-
-
-@st.composite
-def actors(draw):
-    actor = {"kind": draw(st.sampled_from(["human", "agent"])), "name": draw(TEXT)}
-    for key in ("email", "model", "version"):
-        if draw(st.booleans()):
-            actor[key] = draw(TEXT)
-    return actor
-
-
-@st.composite
-def complete_nodes(draw):
-    author = draw(actors())
-    status = draw(
-        st.sampled_from(["proposed", "active", "running", "done", "failed", "retired"])
-    )
-    approval = {
-        "actor": draw(actors()),
-        "at": NOW,
-        "what": draw(st.sampled_from(["approve", "claim", "complete"])),
-    }
-    for key in ("role", "note"):
-        if draw(st.booleans()):
-            approval[key] = draw(TEXT)
-    artifact = {
-        "path": "artifacts/ta-abcdefgh/result.txt",
-        "sha256": "a" * 64,
-        "bytes": draw(st.integers(min_value=0)),
-        "added_at": NOW,
-        "added_by": draw(actors()),
-    }
-    dimensions = st.one_of(
-        st.none(),
-        st.fixed_dictionaries({"tokens": st.integers(min_value=0)}),
-        st.fixed_dictionaries({"compute_seconds": st.integers(min_value=0)}),
-        st.fixed_dictionaries(
-            {
-                "tokens": st.integers(min_value=0),
-                "compute_seconds": st.integers(min_value=0),
-            }
-        ),
-    )
-    return {
-        "id": "ta-abcdefgh",
-        "type": "Task",
-        "title": draw(
-            st.text(
-                st.characters(blacklist_categories=("Cs", "Cc", "Zl", "Zp")),
-                max_size=50,
-            )
-        ),
-        "body": draw(TEXT),
-        "author": author,
-        "created": NOW,
-        "fields": draw(FIELDS),
-        "status": status,
-        "updated": NOW,
-        "approvals": draw(st.lists(st.just(approval), max_size=3)),
-        "artifacts": draw(st.lists(st.just(artifact), max_size=3)),
-        "budget": draw(dimensions),
-        "usage": draw(dimensions),
-        "tags": sorted(draw(st.sets(TEXT, max_size=4))),
-        "priority": draw(st.one_of(st.none(), st.integers())),
-        "lease": {"actor": draw(actors()), "acquired_at": NOW, "expires_at": LATER}
-        if status == "running"
-        else None,
-    }
-
-
-@st.composite
-def complete_edges(draw):
-    retired = draw(st.booleans())
-    return {
-        "id": "ed-abcdefgh",
-        "type": "tests",
-        "from": "ta-abcdefgh",
-        "to": "hy-abcdefgh",
-        "author": draw(actors()),
-        "created": NOW,
-        "fields": draw(FIELDS),
-        "retired": retired,
-        "retired_at": NOW if retired else None,
-    }
 
 
 def assert_same_scalars(actual, expected):
