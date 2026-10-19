@@ -1,6 +1,6 @@
 # Profiles (normative)
 
-A profile is a Python package exposing an entry point in group `researchgraph.profiles` whose value is a `Profile` object. `Profile.register(profile)` adds one at runtime for the current process (used by API tests for ad-hoc profiles); `Profile.load(name)` resolves registered profiles before entry points. The test suite also ships an installable `researchgraph-testprofiles` package exposing the ad-hoc profiles through entry points, so the CLI (subprocess) half of the suite can load them.
+A profile is a Python package exposing an entry point in group `researchgraph.profiles` whose value is a `Profile` object. `Profile.register(profile)` adds one at runtime for the current process (used by API tests for ad-hoc profiles); `Profile.load(name)` resolves registered profiles before entry points. The test suite also ships an installable `researchgraph-testprofiles` package under `tests/testprofiles/` exposing the ad-hoc profiles through entry points, so the CLI (subprocess) half of the suite can load them.
 
 ```python
 @dataclass
@@ -45,14 +45,14 @@ class Profile:
     validators: list[Callable[["Project", Write], None]]   # raise RuleViolation
     expansion_hook: Callable | None = None   # NOT called by the core; documented for consumers
     renderers: dict[str, Callable] = field(default_factory=dict)  # v0.2
-    event_hooks: list[Callable] = field(default_factory=list)     # called after a committed write
+    event_hooks: list[Callable[["Project", Write, str], None]] = field(default_factory=list)  # (project, write, commit id) after a committed write
     agent_guidance: str = ""
     migrations: dict[str, Callable] = field(default_factory=dict) # from-version -> fn(project)
 ```
 
 A type requires approval iff some gate's `node_type` is its name or `"*"`; when several gates match, each must be satisfied. A gate is satisfied by one approval whose actor fits `roles`: a human fits when its declared role is in `roles` or `roles` contains `"human"`; an agent fits only when `agents_allowed` and its declared role is in `roles` or `roles` contains `"agent"`. An agent approving a gate without `agents_allowed` gets `human_only_approval`; any other misfit gets `wrong_role`.
 
-A project's `.researchgraph/profile.yaml` pins `name` and `version`. Opening a project whose pinned version is newer than the installed profile fails with `profile_too_new`; an older pinned version runs the migration chain in v0.3 and in v0.1 opens unchanged.
+A project's `.researchgraph/profile.yaml` pins `name` and `version`. Versions are dotted integers compared as tuples (`1.10` > `1.9`). Opening a project whose pinned version is newer than the installed profile fails with `profile_too_new`; an older pinned version runs the migration chain in v0.3 and in v0.1 opens unchanged.
 
 All schemas are closed: the core sets `additionalProperties: false` on every node and edge schema, overriding any value the profile gave. Schema `default` values are materialised into `fields` at write time.
 

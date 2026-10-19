@@ -12,7 +12,7 @@
 | Committee members | Claude Fable 5.1 (plan mode, xhigh reasoning) and OpenAI Codex GPT-6-Astra (xhigh reasoning), both run through Paseo 0.12.0 on host z2mini |
 | Synthesis | Claude Fable 5.1 (Claude Code session), which wrote the prompts, relayed the reports between members and drafted this document |
 | Maintainer decisions | The three splits in *Maintainer decisions* were resolved by the maintainer on 2026-10-19 by accepting the recommendations |
-| Applied in | The same commit that adds this file: decision records `docs/decisions/006`–`011`, the rewritten `spec/`, the revised acceptance suite and task list. Further provisional choices made while applying are listed in `tasks/questions.md` |
+| Applied in | Commit `9905c65` (this file, decision records `docs/decisions/006`–`011`, the rewritten `spec/`, the revised acceptance suite and task list), then `14ed4d2`, `c6b2198` and the commit after it, each closing what the next readiness check found. Provisional choices made while applying are listed in `tasks/questions.md` |
 | Also published | https://claude.ai/code/artifact/34dea7a9-31cb-40c5-a308-9e01af7a4f65 (private Claude doc, same content) |
 | Full transcript | Kept outside the repository in the session scratchpad; the two agents remain in the Paseo workspace under "[Committee] Spec review" |
 
@@ -113,3 +113,15 @@ Both members also judged export's classification as a write settled by the text 
 ## Post-application check
 
 After the changes were applied, an independent agent traced the revised supersede, lease, gate, export and task-ordering rules by hand and found 25 further small conflicts, all fixed in the same commit. The most significant: the first draft of the supersede rule would have retired preserved evidence edges and broken `stale`.
+
+## Readiness re-checks
+
+After the review was applied, fresh committees (new agents each time, same two providers and reasoning settings, no memory of earlier rounds) were asked a single question: is the spec ready to implement test-first without guessing? The standard: an implementer never has to choose between two reasonable readings that produce different bytes on disk or different query results, and never finds two texts that cannot both hold. Each committee also traced seven acceptance scenarios by hand (supersede 9 and 13, claim 3 and 8, queries 2, export 1, budget 4); all passed in every round.
+
+| Date | Commit checked | Verdict | Blockers found | Fixed in |
+| --- | --- | --- | --- | --- |
+| 2026-10-20 | `9905c65` | Not ready | Key order inside `fields` undefined; commit time versus the `now` clock; usage of superseded descendants dropped from ancestor budgets; imported open status intervals never closed. Plus two Codex-only items: rollback from HEAD discarding uncommitted writes, and null leases under `--as-of`. | `14ed4d2` |
+| 2026-10-20 | `14ed4d2` | Not ready | Float spelling contradicted PyYAML's representer; the new error-precedence rule contradicted propose scenario 10. Both members conceded one of the two after exchange. | `c6b2198` |
+| 2026-10-20 | `c6b2198` | **Ready**, both members independently | None. Thirteen non-blocking notes (consecutive uncommitted intervals, generated-node author and created, title truncation, history file value encoding, archive details, shared-rule precedence, event hook signature, version comparison, remaining `--json` shapes, task ordering) | the commit after `c6b2198` |
+
+The spec is therefore certified ready as of `c6b2198`; the following commit applies the non-blocking notes without changing any decision.

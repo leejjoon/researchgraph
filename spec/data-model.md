@@ -14,7 +14,7 @@ A node is a YAML mapping with these keys, always written in this order. Keys mar
 | `body` | string | yes | Markdown. May be empty. |
 | `author` | Actor | yes | See *Actor* below. |
 | `created` | RFC 3339 timestamp | yes | UTC, whole seconds, `Z` suffix. |
-| `fields` | mapping | yes | Profile-defined extras; validated against the profile's JSON Schema for the type (closed: no undeclared keys). Schema defaults are materialised at write time. Optional keys with no value are omitted from the file and read as null. Keys are stored in sorted order (`store-layout.md`). |
+| `fields` | mapping | yes | Profile-defined extras; validated against the profile's JSON Schema for the type (closed: no undeclared keys). Schema defaults are materialised at write time. Optional keys with no value are omitted from the file and read as null; an explicit null in a `fields` argument is dropped before validation. Keys are stored in sorted order (`store-layout.md`). |
 | `status` | enum | no | `proposed | active | running | done | failed | retired` |
 | `updated` | RFC 3339 | no | Equals `created` until a mutable key changes. |
 | `approvals` | list | no | Append-only event log of `{actor, role, at, what, note}` (section 2.2). |
@@ -49,7 +49,7 @@ Every stored reference to a person or agent (`author`, `lease.actor`, `approvals
 `role` is the role the actor declared for the call, or null. `at` is the operation's timestamp. Null `role` and `note` are omitted from the file and read as null. `tag` does not append a record.
 
 ### 2.3 Generated nodes
-Operations that create a node other than `propose` fill it as follows. `title` is truncated to 200 chars.
+Operations that create a node other than `propose` fill it as follows. A computed `title` is truncated to 200 chars; an explicit `title` argument is validated as in `propose` and raises `schema` when over-long or multi-line.
 
 | Operation | Type | `title` | `body` | `fields` |
 | --- | --- | --- | --- | --- |
@@ -58,7 +58,7 @@ Operations that create a node other than `propose` fill it as follows. `title` i
 | `fail` | Failure | `Failure: <old title>` | `summary` | `{step, check, measured, error}` as given, absent ones omitted |
 | `expand` | Task | `Expand: <titles of targets, comma-separated>` | `hint`, else empty | `{kind: expansion, targets: nodes}` |
 
-Each is created `proposed` if the profile has an activate gate for its type, else `active`. `supersede` and `fail` may create types the profile must declare; if the profile lacks `Failure` or `Instruction`, `fail` and `instruct` raise `unsupported_by_profile`.
+Each has `author` = the calling actor, `created` = `updated` = `now`, and is created `proposed` if the profile has an activate gate for its type, else `active`. `supersede` and `fail` may create types the profile must declare; if the profile lacks `Failure` or `Instruction`, `fail` and `instruct` raise `unsupported_by_profile`.
 
 ## 3. Edge
 An edge is a YAML mapping `{id, type, from, to, author, created, fields, retired, retired_at}`, keys in that order. `id` is `ed-<8 chars>` with the same alphabet as node ids. All keys except `retired` and `retired_at` are immutable. Edges are directed from `from` to `to`. `retired_at` is null until the edge is retired.
@@ -67,7 +67,7 @@ An edge is a YAML mapping `{id, type, from, to, author, created, fields, retired
 
 ### Core edge types (every profile has these; profiles may add, never remove)
 
-`inherit` says what `supersede` does with the old node's edges (decision 006). An edge incident to the superseded node X is *transferable* when its type is `both`, or its type is `outgoing` and the edge's `from` is X. `supersede` retires each transferable edge and (if `inherit_edges`) recreates it with the replacement in X's place; every other edge is left untouched, non-retired, still pointing at the retired X. Recreated edges copy `fields`, have the superseding actor as `author`, and a new id.
+`inherit` says what `supersede` does with the old node's edges (decision 006). An edge incident to the superseded node X is *transferable* when its type is `both`, or its type is `outgoing` and the edge's `from` is X. `supersede` retires each transferable edge and (if `inherit_edges`) recreates it with the replacement in X's place; every other edge is left untouched, non-retired, still pointing at the retired X. Recreated edges copy `fields`, have the superseding actor as `author`, `created` = `now`, and a new id.
 
 | Type | from → to | inherit | Meaning |
 | --- | --- | --- | --- |
@@ -126,7 +126,7 @@ All predicates take an evaluation time `now`; the CLI uses the wall clock and te
 - `subtree(n)`: `n` plus every node reachable from `n` by following non-retired `part-of`, `tests`, `addresses` or `derived-from` edges *backwards* (i.e. nodes that are part of, test, address or derive from `n`), transitively, as a set (cycles through `tests` or `addresses` terminate because visited nodes are not revisited). `ancestors(n)` is the inverse: every `m` with `n ∈ subtree(m)`, excluding `n`. Progress counts use `subtree(n)` as defined. For `over_budget` and the `usage` sum reported by `subtree <id>`, the same traversal is taken over *all* `part-of`, `tests`, `addresses` and `derived-from` edges **including retired ones**, so a retired or superseded descendant still contributes its usage to every ancestor it ever belonged to (decision 010). `ancestors(n)` uses non-retired edges.
 - `over_budget(n)`: `n.budget` is set and, for some dimension present in the budget, the sum of `usage` over the accounting traversal of `n` (above; missing values count as 0) is **≥** the limit. A budget of 0 therefore stops work immediately.
 - `predictions(h)`: for Hypothesis `h`, the non-retired `tests` edges into it, each with its source node and `fields.expected`; the matrix for a question is `predictions` over its exclusion group. Where two non-retired `tests` edges share `from` and `to` (impossible under I5) or a hypothesis lacks a prediction, the cell is empty.
-- `non_discriminating(p)`: for a Prediction `p` with two or more non-retired `tests` edges, every edge's `expected` is equal. A prediction with one edge is not flagged. This is the single definition used by `show`, `matrix` and the research profile's warning.
+- `non_discriminating(p)`: for a `tests` source node `p` (Prediction or Task) with two or more non-retired `tests` edges, every edge's `expected` is equal. A prediction with one edge is not flagged. This is the single definition used by `show`, `matrix` and the research profile's warning.
 
 ## 7. Competing hypotheses
 A Question node has a profile-defined boolean field `closed` (default false), set at creation. The group is informational: no operation retires a hypothesis because of group membership. Auto-proposing the last member of a closed group is **reserved**: no profile attribute declares it in v0.1 and the core does not do it.
