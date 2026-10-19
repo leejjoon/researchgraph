@@ -1,0 +1,62 @@
+id: ta-abcdefgh
+type: Task
+title: Measure the sky
+body: |
+  First line.
+  Second line.
+author:
+  kind: human
+  name: Ada
+  email: ada@example.org
+  model: local
+  version: "1.0"
+created: "2026-10-19T14:06:19Z"
+fields:
+  command: measure
+  nested:
+    a: 1
+    z: 2
+status: running
+updated: "2026-10-19T14:06:20Z"
+approvals:
+- actor:
+    kind: human
+    name: Ada
+    email: ada@example.org
+  role: reviewer
+  at: "2026-10-19T14:06:19Z"
+  what: approve
+  note: Approved.
+- actor:
+    kind: agent
+    name: worker
+    model: local
+    version: "1.0"
+  at: "2026-10-19T14:06:20Z"
+  what: claim
+artifacts:
+- path: artifacts/ta-abcdefgh/report.txt
+  sha256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  bytes: 42
+  added_at: "2026-10-19T14:06:19Z"
+  added_by:
+    kind: human
+    name: Ada
+budget:
+  tokens: 1000
+  compute_seconds: 60
+usage:
+  tokens: 0
+  compute_seconds: 1
+tags:
+- sky
+- α
+priority: 2
+lease:
+  actor:
+    kind: agent
+    name: worker
+    model: local
+    version: "1.0"
+  acquired_at: "2026-10-19T14:06:20Z"
+  expires_at: "2026-10-19T14:07:20Z"

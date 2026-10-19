@@ -1,0 +1,16 @@
+id: ed-abcdefgh
+type: tests
+from: ta-abcdefgh
+to: hy-abcdefgh
+author:
+  kind: human
+  name: Ada
+created: "2026-10-19T14:06:19Z"
+fields:
+  discriminating: true
+  expected: "yes"
+  nested:
+    a: []
+    z: {}
+retired: false
+retired_at: null

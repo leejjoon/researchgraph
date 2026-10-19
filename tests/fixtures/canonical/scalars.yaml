@@ -1,0 +1,84 @@
+id: ta-abcdefgh
+type: Task
+title: Scalar spellings
+body: ""
+author:
+  kind: human
+  name: Ada
+created: "2026-10-19T14:06:19Z"
+fields:
+  booleans:
+  - true
+  - false
+  carriage_return: "first\r\nsecond\r"
+  double_quote: "\"hello\""
+  empty_map: {}
+  empty_sequence: []
+  empty_string: ""
+  floats:
+  - 1.0
+  - -0.0
+  - 1.0e-06
+  - 1.0e+20
+  - 1.25e-10
+  - .inf
+  - -.inf
+  - .nan
+  integers:
+  - 0
+  - -12
+  - 10000000000000000000000000000000000000000
+  literal_clip: |
+    first
+    second
+  literal_keep: |+
+    first
+    second
+
+
+  literal_strip: |-
+    first
+    second
+  long: This is an intentionally long unwrapped scalar containing enough words to exceed the ordinary PyYAML eighty-column wrapping width while remaining one physical line.
+  nested:
+    A: 1
+    a: 2
+    z: 3
+    é: 4
+    Ω: 5
+  null_value: null
+  quoted:
+  - "yes"
+  - "Yes"
+  - "YES"
+  - "no"
+  - "on"
+  - "off"
+  - "true"
+  - "false"
+  - "null"
+  - "Null"
+  - "~"
+  - "1.0"
+  - "012"
+  - "0x10"
+  - "1:20"
+  - 1e3
+  - "2026-10-19"
+  - "2026-10-19T14:06:19Z"
+  - " leading"
+  - "trailing "
+  - "a: b"
+  - "a # b"
+  single_quote: "'hello'"
+  trailing_spaces: "first \nsecond  \n"
+  unicode: 별 α café 😀
+status: active
+updated: "2026-10-19T14:06:19Z"
+approvals: []
+artifacts: []
+budget: null
+usage: null
+tags: []
+priority: null
+lease: null
