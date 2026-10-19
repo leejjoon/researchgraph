@@ -16,7 +16,8 @@ from researchgraph.model import (
     RuleViolation,
     Status,
 )
-from researchgraph.store.io import dump_node
+from researchgraph.queries import View
+from researchgraph.store.io import _canonical_equal
 
 ACYCLIC_RELATIONS = frozenset(
     {"blocks", "derived-from", "supersedes", "cites", "part-of"}
@@ -268,64 +269,12 @@ def validate_graph(profile, nodes, edges):
         _refuse("duplicate_edge", "Duplicate live edge", *duplicates)
 
 
-def _canonical_equal(before, after):
-    """Compare stored YAML values, not Python's numeric coercion equality.
-
-    The fields codec recursively sorts mappings and canonically emits scalars:
-    NaNs share one spelling, while bool/int/float and signed zero stay distinct.
-    A fields envelope reuses those exact rules for arbitrary record subsets.
-    """
-    return dump_node({"fields": before}) == dump_node({"fields": after})
-
-
 def _prefix(before, after):
     return len(after) >= len(before) and _canonical_equal(after[: len(before)], before)
 
 
 def _ready(profile, target, nodes, edges, now):
-    if not profile.node_type(target.type).claimable or not (
-        target.status == Status.ACTIVE
-        or (
-            target.status == Status.RUNNING
-            and target.lease is not None
-            and now >= target.lease.expires_at
-        )
-    ):
-        return False
-    if any(
-        not e.retired
-        and e.type == "blocks"
-        and e.to == target.id
-        and nodes[e.from_].status != Status.DONE
-        for e in edges.values()
-    ):
-        return False
-    relations = {"part-of", "tests", "addresses", "derived-from"}
-    parents, children = {}, {}
-    for edge in edges.values():
-        if edge.type in relations:
-            children.setdefault(edge.to, []).append(edge.from_)
-            if not edge.retired:
-                parents.setdefault(edge.from_, []).append(edge.to)
-
-    def closure(start, links):
-        seen, pending = set(), [start]
-        while pending:
-            current = pending.pop()
-            if current not in seen:
-                seen.add(current)
-                pending.extend(links.get(current, []))
-        return seen
-
-    for ancestor in closure(target.id, parents):
-        budget = nodes[ancestor].budget or {}
-        descendants = closure(ancestor, children)
-        if any(
-            sum((nodes[d].usage or {}).get(key, 0) for d in descendants) >= limit
-            for key, limit in budget.items()
-        ):
-            return False
-    return True
+    return View(profile, nodes, edges, now).ready(target)
 
 
 def validate_changes(profile, write, before_nodes, before_edges):

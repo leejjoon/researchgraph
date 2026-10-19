@@ -19,7 +19,7 @@ from researchgraph.store.hashing import HashScanner, hash_file
 from researchgraph.store.history import History, record_key
 
 PARALLEL_HASH_THRESHOLD = 5000
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE nodes (
@@ -29,7 +29,7 @@ CREATE TABLE nodes (
  payload TEXT NOT NULL
 );
 CREATE TABLE edges (id TEXT PRIMARY KEY, type TEXT, from_id TEXT, to_id TEXT,
- retired INTEGER, payload TEXT NOT NULL);
+ retired INTEGER, payload TEXT NOT NULL, from_commit TEXT);
 CREATE INDEX edge_targets ON edges(to_id,type);
 CREATE TABLE approvals (node_id TEXT, ordinal INTEGER, payload TEXT, from_commit TEXT,
  PRIMARY KEY(node_id,ordinal));
@@ -75,6 +75,7 @@ class Index:
         self.connection = None
         self._identity = None
         self._loaded_hash = None
+        self._verified_cache_token = None
         self._profile = None
         self._hash_scanner = None
         self._nodes, self._edges = {}, {}
@@ -172,6 +173,46 @@ class Index:
         stat = self.path.stat()
         self._identity = (stat.st_dev, stat.st_ino)
         self._loaded_hash = None
+        self._verified_cache_token = None
+
+    def _cache_token(self):
+        # data_version observes external commits; total_changes and schema_version
+        # also observe changes through our own connection. Neither replaces the
+        # mandatory full source-content scan at the beginning of refresh().
+        return (
+            self.connection.execute("PRAGMA data_version").fetchone()[0],
+            self.connection.total_changes,
+            self.connection.execute("PRAGMA schema_version").fetchone()[0],
+        )
+
+    def _projection_hash(self):
+        """Check disposable rows and SQL definitions for accidental corruption."""
+        digest = hashlib.sha256()
+        queries = (
+            (
+                "schema",
+                "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name",
+            ),
+            (
+                "meta",
+                "SELECT key,value FROM meta WHERE key!='projection_hash' ORDER BY key",
+            ),
+            ("nodes", "SELECT * FROM nodes ORDER BY id"),
+            ("edges", "SELECT * FROM edges ORDER BY id"),
+            ("approvals", "SELECT * FROM approvals ORDER BY node_id,ordinal"),
+            ("artifacts", "SELECT * FROM artifacts ORDER BY node_id,ordinal"),
+            (
+                "intervals",
+                "SELECT * FROM status_intervals ORDER BY node_id,from_time,from_commit,to_time,to_commit,status",
+            ),
+        )
+        for name, query in queries:
+            digest.update(name.encode("ascii") + b"\0")
+            for row in self.connection.execute(query):
+                encoded = record_key(row).encode("utf-8")
+                digest.update(len(encoded).to_bytes(8, "big"))
+                digest.update(encoded)
+        return digest.hexdigest()
 
     def refresh(self):
         """Scan authoritative content; return whether the cache was rebuilt."""
@@ -196,6 +237,9 @@ class Index:
                 and metadata.get("content_hash") == content
                 and metadata.get("profile") == json.dumps(profile)
             )
+            token = self._cache_token()
+            if valid and token != self._verified_cache_token:
+                valid = metadata.get("projection_hash") == self._projection_hash()
             if valid:
                 # Check actual tables/view too, not just the metadata version.
                 for table in (
@@ -217,6 +261,7 @@ class Index:
                         for r in self.connection.execute("SELECT id,payload FROM edges")
                     }
                 self._loaded_hash, self._profile = content, profile
+                self._verified_cache_token = token
                 return False
         except (sqlite3.Error, ValueError, TypeError, KeyError):
             # Only the disposable database is discarded, never source/history.
@@ -267,7 +312,7 @@ class Index:
                 ],
             )
             self.connection.executemany(
-                "INSERT INTO edges VALUES (?,?,?,?,?,?)",
+                "INSERT INTO edges VALUES (?,?,?,?,?,?,?)",
                 [
                     (
                         e.id,
@@ -276,6 +321,7 @@ class Index:
                         e.to,
                         int(e.retired),
                         json.dumps(e.to_dict(), ensure_ascii=False),
+                        self.history.edge_commits.get(e.id),
                     )
                     for e in edges
                 ],
@@ -305,6 +351,11 @@ class Index:
                     ("profile", json.dumps(profile)),
                 ],
             )
+            self.connection.execute(
+                "INSERT INTO meta VALUES ('projection_hash',?)",
+                (self._projection_hash(),),
+            )
+        self._verified_cache_token = self._cache_token()
         self._nodes, self._edges = {n.id: n for n in nodes}, {e.id: e for e in edges}
         self._loaded_hash, self._profile = content, profile
         self.last_rebuild_seconds = perf_counter() - started - self.last_history_seconds

@@ -235,3 +235,22 @@ def rule_violations():
     return st.builds(
         RuleViolation, rule=TEXT, message=TEXT, ids=st.lists(TEXT, max_size=4)
     )
+
+
+def query_nodes():
+    """Restorable Task snapshots with meaningful query ordering/filter inputs."""
+    return st.builds(
+        Node,
+        id=st.just("ta-aaaaaaaa"),
+        type=st.just("Task"),
+        title=st.sampled_from(["Fit model", "Check residuals"]),
+        body=st.just("A reproducible task"),
+        author=st.just(Actor("human", "alice", "alice@example.test")),
+        created=st.just(datetime(2026, 10, 20, tzinfo=UTC)),
+        status=st.sampled_from([Status.ACTIVE, Status.DONE, Status.FAILED]),
+        priority=st.one_of(st.none(), st.integers(-5, 5)),
+        tags=st.sampled_from([[], ["x"], ["x", "y"]]),
+        usage=st.one_of(
+            st.none(), st.fixed_dictionaries({"tokens": st.integers(0, 20)})
+        ),
+    )

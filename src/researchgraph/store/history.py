@@ -12,7 +12,13 @@ from time import perf_counter
 
 import yaml
 
-from researchgraph.model import Node, RuleViolation, format_timestamp, parse_timestamp
+from researchgraph.model import (
+    Edge,
+    Node,
+    RuleViolation,
+    format_timestamp,
+    parse_timestamp,
+)
 from researchgraph.store.io import _load_mapping
 
 INTERVAL_KEYS = (
@@ -46,6 +52,7 @@ class History:
         self.head = object()
         self.transitions = []
         self.provenance = {}
+        self.edge_commits = {}
         self.latest = {}
         self.last_walk_seconds = 0.0
 
@@ -54,12 +61,13 @@ class History:
             self.last_walk_seconds = 0.0
             return
         started = perf_counter()
-        transitions, provenance, latest = [], {}, {}
+        transitions, provenance, latest, edge_commits = [], {}, {}, {}
         if head is not None:
             # Pathspecs are relative to our cwd, but raw diff paths are relative
             # to the worktree root. Project may occupy only a nested directory.
             prefix = self.git.run("rev-parse", "--show-prefix").stdout.rstrip("\n")
             node_prefix = prefix + "graph/nodes/"
+            edge_prefix = prefix + "graph/edges/"
             # A single walk provides changed blob identifiers and commit clocks.
             output = self.git.run(
                 "log",
@@ -74,6 +82,7 @@ class History:
                 head,
                 "--",
                 "graph/nodes",
+                "graph/edges",
             ).stdout
             changes = []
             commit = time = subject = None
@@ -89,11 +98,19 @@ class History:
                     path = next(tokens)
                     parts = record.split()
                     if (
-                        path.startswith(node_prefix)
+                        path.startswith((node_prefix, edge_prefix))
                         and path.endswith(".yaml")
                         and parts[4] != "D"
                     ):
-                        changes.append((commit, time, subject, parts[3]))
+                        changes.append(
+                            (
+                                commit,
+                                time,
+                                subject,
+                                parts[3],
+                                path.startswith(edge_prefix),
+                            )
+                        )
                 else:
                     raise ValueError("Unexpected git history record")
             identifiers = list(dict.fromkeys(change[3] for change in changes))
@@ -110,14 +127,18 @@ class History:
                     end = result.index(b"\n", offset)
                     _, kind, size = result[offset:end].split()
                     if kind != b"blob":
-                        raise ValueError("Expected git node blob")
+                        raise ValueError("Expected git graph blob")
                     offset = end + 1
-                    blobs[identifier] = Node.from_dict(
-                        _load_mapping(result[offset : offset + int(size)])
+                    blobs[identifier] = _load_mapping(
+                        result[offset : offset + int(size)]
                     )
                     offset += int(size) + 1
-            for commit, time, subject, blob in changes:
-                node = blobs[blob]
+            for commit, time, subject, blob, is_edge in changes:
+                if is_edge:
+                    edge = Edge.from_dict(blobs[blob])
+                    edge_commits.setdefault(edge.id, commit)
+                    continue
+                node = Node.from_dict(blobs[blob])
                 if latest.get(node.id) != str(node.status):
                     transitions.append(
                         (
@@ -139,6 +160,7 @@ class History:
                             (kind, node.id, record_key(record.to_dict())), commit
                         )
         self.transitions, self.provenance, self.latest = transitions, provenance, latest
+        self.edge_commits = edge_commits
         self.head = head
         self.last_walk_seconds = perf_counter() - started
 

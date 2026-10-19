@@ -301,3 +301,60 @@ def test_later_explicit_read_can_recover_after_reported_helper_crash(
         assert project.index._hash_scanner is not previous
     finally:
         project.close()
+
+
+@pytest.mark.parametrize("mode", ["same", "external", "reopened"])
+@pytest.mark.parametrize(
+    "corruption", ["payload", "column", "view", "approval", "interval"]
+)
+def test_semantic_cache_corruption_rebuilds_from_source(project, mode, corruption):
+    import json
+    import sqlite3
+
+    project.apply(write(node()))
+    expected = project.get_node("ta-aaaaaaaa").to_dict()
+    source = project.path / "graph/nodes/ta-aaaaaaaa.yaml"
+    before_bytes, before_head = source.read_bytes(), project._git.head()
+    cache = project.path / ".researchgraph/index.sqlite"
+    if mode == "reopened":
+        project.close()
+    database = project.index.connection if mode == "same" else sqlite3.connect(cache)
+    with database:
+        if corruption == "payload":
+            payload = dict(expected, title="corrupted cache")
+            database.execute("UPDATE nodes SET payload=?", (json.dumps(payload),))
+        elif corruption == "column":
+            database.execute("UPDATE nodes SET status='retired'")
+        elif corruption == "view":
+            database.execute("DROP VIEW ready")
+            database.execute("CREATE VIEW ready AS SELECT * FROM nodes WHERE 0")
+        elif corruption == "approval":
+            database.execute(
+                "INSERT INTO approvals VALUES (?,0,'{}','corrupt')", (expected["id"],)
+            )
+        else:
+            database.execute("UPDATE status_intervals SET status='retired'")
+    if mode != "same":
+        database.close()
+    reader = Project.open(project.path) if mode == "reopened" else project
+    try:
+        assert reader.get_node(expected["id"]).to_dict() == expected
+        connection = reader.index.connection
+        assert (
+            json.loads(connection.execute("SELECT payload FROM nodes").fetchone()[0])
+            == expected
+        )
+        assert connection.execute("SELECT status FROM nodes").fetchone()[0] == "active"
+        assert [n.id for n in reader.index.ready(NOW)] == [expected["id"]]
+        assert connection.execute("SELECT COUNT(*) FROM approvals").fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT status FROM status_intervals").fetchone()[0]
+            == "active"
+        )
+        cache.unlink()
+        assert reader.get_node(expected["id"]).to_dict() == expected
+        assert source.read_bytes() == before_bytes
+        assert reader._git.head() == before_head
+    finally:
+        if reader is not project:
+            reader.close()

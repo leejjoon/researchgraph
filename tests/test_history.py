@@ -234,3 +234,58 @@ def test_bad_history_is_not_treated_as_bad_cache(project, text):
     (project.path / ".researchgraph/history.jsonl").write_text(text)
     with pytest.raises(RuleViolation, match="history"):
         project.get_nodes()
+
+
+@pytest.mark.parametrize("directory", ["plain", 'projects/연구-\n"/edges'])
+def test_edge_introduction_provenance_survives_retirement(tmp_path, directory):
+    from researchgraph.model import Edge
+
+    repository(tmp_path)
+    with Project.init(
+        tmp_path / directory, profile="tasks", actor=ALICE, now=NOW
+    ) as project:
+        first, second = node(), node("ta-bbbbbbbb")
+        project.apply(write(first, second))
+        edge = Edge("ed-aaaaaaaa", "relates-to", first.id, second.id, ALICE, NOW)
+        project.apply(write(edges=[edge], op="link"), commit=False)
+        assert (
+            project.index.connection.execute(
+                "SELECT from_commit FROM edges"
+            ).fetchone()[0]
+            is None
+        )
+        introduced = project.apply(write(edges=[edge], op="link"))
+        first.status = Status.RETIRED
+        first.updated = NOW + timedelta(seconds=1)
+        first.approvals.append(
+            Approval(ALICE, first.updated, "retire", note="obsolete")
+        )
+        edge.retired, edge.retired_at = True, first.updated
+        retired = project.apply(
+            write(
+                first,
+                edges=[edge],
+                op="retire",
+                now=first.updated,
+                args={"node": first.id, "reason": "obsolete"},
+            )
+        )
+        assert introduced != retired
+        assert (
+            project.index.connection.execute(
+                "SELECT from_commit FROM edges"
+            ).fetchone()[0]
+            == introduced
+        )
+        cache = project.path / ".researchgraph/index.sqlite"
+        for remove_cache in (False, True):
+            if remove_cache:
+                cache.unlink()
+            with Project.open(project.path) as reopened:
+                assert reopened.get_edges()[0].retired
+                assert (
+                    reopened.index.connection.execute(
+                        "SELECT from_commit FROM edges"
+                    ).fetchone()[0]
+                    == introduced
+                )

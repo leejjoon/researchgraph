@@ -182,3 +182,13 @@ def dump_node(mapping: Mapping) -> str:
 def dump_edge(mapping: Mapping) -> str:
     """Return an edge mapping in canonical YAML form without mutating it."""
     return _dump(mapping, EDGE_KEYS)
+
+
+def _canonical_equal(before, after):
+    """Compare stored YAML values, not Python's numeric coercion equality.
+
+    The fields codec recursively sorts mappings and canonically emits scalars:
+    NaNs share one spelling, while bool/int/float and signed zero stay distinct.
+    A fields envelope reuses those exact rules for arbitrary record subsets.
+    """
+    return dump_node({"fields": before}) == dump_node({"fields": after})

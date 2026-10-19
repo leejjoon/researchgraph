@@ -20,6 +20,7 @@ from researchgraph.model import (
     format_timestamp,
 )
 from researchgraph.profiles import Profile, version_tuple
+from researchgraph.queries import QueryView, evaluation_time
 from researchgraph.store.git import Git
 from researchgraph.store.index import Index
 from researchgraph.store.io import dump_edge, dump_node, load_edge, load_node
@@ -301,6 +302,118 @@ class Project:
     def get_edges(self) -> list[Edge]:
         self._refresh()
         return self.index.get_edges()
+
+    def _query_view(self, *, actor, now, role=None, as_of=None):
+        self._refresh()
+        self._actor(actor)
+        clock = evaluation_time(self, now, as_of)
+        return QueryView(self, clock, as_of)
+
+    def ready(self, *, actor, now, role=None, as_of=None):
+        """Return claimable, unblocked nodes in priority order."""
+        view = self._query_view(actor=actor, now=now, role=role, as_of=as_of)
+        return {"items": view.ready_items()}
+
+    def blocked(self, *, actor, now, role=None, as_of=None):
+        """Return blocked active/running nodes and their blocker IDs."""
+        view = self._query_view(actor=actor, now=now, role=role, as_of=as_of)
+        return {"items": view.blocked_items()}
+
+    def queue(self, *, actor, now, role=None, as_of=None):
+        """Return proposed gated nodes, oldest first."""
+        view = self._query_view(actor=actor, now=now, role=role, as_of=as_of)
+        return {"items": view.queue_items()}
+
+    def history(self, id, *, actor, now, role=None, as_of=None):
+        """Return events and introduction commits across a supersession family."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).history(
+            id
+        )
+
+    def evidence(self, claim, *, actor, now, role=None, as_of=None):
+        """Return a Claim's transitive evidence, excluding the Claim itself."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).evidence(
+            claim
+        )
+
+    def stale(self, *, actor, now, role=None, as_of=None):
+        """Return stale Claims with sorted distinct replacement-head IDs."""
+        view = self._query_view(actor=actor, now=now, role=role, as_of=as_of)
+        return {"items": view.stale_items()}
+
+    def weakest(self, claim, *, actor, now, role=None, as_of=None):
+        """Rank cited evidence by supersession, run count and held-out flag."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).weakest(
+            claim
+        )
+
+    def alternatives(self, hypothesis, *, actor, now, role=None, as_of=None):
+        """Return other members of all answered-question groups."""
+        return self._query_view(
+            actor=actor, now=now, role=role, as_of=as_of
+        ).alternatives(hypothesis)
+
+    def predictions(self, hypothesis, *, actor, now, role=None, as_of=None):
+        """Return incoming tests with full sources and expected outcomes."""
+        return self._query_view(
+            actor=actor, now=now, role=role, as_of=as_of
+        ).predictions(hypothesis)
+
+    def matrix(self, question, *, actor, now, role=None, as_of=None):
+        """Return the question's prediction matrix and discrimination warnings."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).matrix(
+            question
+        )
+
+    def notes(self, id, *, actor, now, role=None, as_of=None):
+        """Return Notes about a node, newest first."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).notes(id)
+
+    def subtree(self, id, *, actor, now, role=None, as_of=None):
+        """Return live descendants, progress counts and all-edge usage totals."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).subtree(
+            id
+        )
+
+    def since(self, time, *, actor, now, role=None, as_of=None):
+        """Return nodes/edges with timestamps strictly later than time."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).since(
+            time
+        )
+
+    def where(
+        self,
+        *,
+        actor,
+        now,
+        role=None,
+        as_of=None,
+        type=None,
+        status=None,
+        author=None,
+        field=None,
+        tag=None,
+        text=None,
+        over_budget=False,
+    ):
+        """Return nodes matching all supplied filters, in creation order."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).where(
+            type=type,
+            status=status,
+            author=author,
+            field=field,
+            tag=tag,
+            text=text,
+            over_budget=over_budget,
+        )
+
+    def digest(self, *, actor, now, role=None, as_of=None):
+        """Return counted operational groups evaluated at the read clock."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).digest()
+
+    def show(self, id, *, actor, now, role=None, as_of=None):
+        """Return an edge or a node with live relations, flags and warnings."""
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).show(id)
 
     @staticmethod
     def _actor(actor):
