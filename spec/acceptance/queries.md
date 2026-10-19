@@ -6,7 +6,7 @@
 5. `alternatives H1` returns exactly the other hypotheses with a non-retired `answers` edge to the same question; if H1 answers two questions, the union of both groups minus H1.
 6. `--as-of <commit before approval>` reports H1 as proposed; `--as-of HEAD` reports it active; `--as-of <time between the two commits>` reports it proposed; an edge created after the as-of time is absent from `show`.
 7. Every query gives identical output with and without the index file present.
-8. `predictions H3` lists every non-retired `tests` edge into H3 with its `expected`; `matrix Q1` has one row per prediction and one column per hypothesis in Q1's group, and flags a row whose two or more cells are all equal as `non_discriminating`; a row with a single cell is not flagged.
+8. `predictions H3` lists every non-retired `tests` edge into H3 with its `expected`; `matrix Q1` has one row per prediction and one column per hypothesis in Q1's group, and flags a row as `non_discriminating` per §6 (all of that prediction's `tests` edges, inside or outside the group, have equal `expected`); a prediction with a single `tests` edge is not flagged.
 9. `blocked` lists T2 blocked by T1 with `blocking == [T1]`, and stops listing it when T1 completes or T1's blocking edge is retired.
 10. `queue` lists proposed H1 (gated) and not Note N1 (no gate, so created `active`), oldest first, with the gate roles.
 11. `since <t>` lists a node approved after `t` even though it was created before `t`, and an edge retired after `t`.

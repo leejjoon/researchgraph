@@ -14,7 +14,7 @@ A node is a YAML mapping with these keys, always written in this order. Keys mar
 | `body` | string | yes | Markdown. May be empty. |
 | `author` | Actor | yes | See *Actor* below. |
 | `created` | RFC 3339 timestamp | yes | UTC, whole seconds, `Z` suffix. |
-| `fields` | mapping | yes | Profile-defined extras; validated against the profile's JSON Schema for the type (closed: no undeclared keys). Schema defaults are materialised at write time. Optional keys with no value are omitted from the file and read as null. |
+| `fields` | mapping | yes | Profile-defined extras; validated against the profile's JSON Schema for the type (closed: no undeclared keys). Schema defaults are materialised at write time. Optional keys with no value are omitted from the file and read as null. Keys are stored in sorted order (`store-layout.md`). |
 | `status` | enum | no | `proposed | active | running | done | failed | retired` |
 | `updated` | RFC 3339 | no | Equals `created` until a mutable key changes. |
 | `approvals` | list | no | Append-only event log of `{actor, role, at, what, note}` (section 2.2). |
@@ -44,7 +44,7 @@ Every stored reference to a person or agent (`author`, `lease.actor`, `approvals
 | `complete` | `complete` | the summary |
 | `fail` | `fail` | the summary |
 | `superseded` | `supersede` (on the old node) | the replacement's id |
-| `budget` | `budget` | the new budget as `tokens=N compute_seconds=M` |
+| `budget` | `budget` | the new budget as `tokens=N compute_seconds=M`, omitting absent dimensions; `none` when cleared |
 
 `role` is the role the actor declared for the call, or null. `at` is the operation's timestamp. Null `role` and `note` are omitted from the file and read as null. `tag` does not append a record.
 
@@ -123,8 +123,8 @@ All predicates take an evaluation time `now`; the CLI uses the wall clock and te
 - `ready` order: `priority` descending with null last, then `created` ascending, then `id` ascending.
 - `stale(c)`: `c.type == Claim`, `c.status != retired`, and some node reachable from `c` via non-retired `cites` or `derived-from` edges has a non-retired incoming `supersedes` edge.
 - `exclusion_group(q)`: all Hypothesis nodes with a non-retired `answers` edge to Question `q`. A hypothesis may answer several questions and then belongs to several groups.
-- `subtree(n)`: `n` plus every node reachable from `n` by following non-retired `part-of`, `tests`, `addresses` or `derived-from` edges *backwards* (i.e. nodes that are part of, test, address or derive from `n`), transitively, as a set (cycles through `tests` or `addresses` terminate because visited nodes are not revisited). `ancestors(n)` is the inverse: every `m` with `n ∈ subtree(m)`, excluding `n`. Budgets, `usage` sums and progress counts are computed over `subtree(n)`; retired and superseded members still count.
-- `over_budget(n)`: `n.budget` is set and, for some dimension present in the budget, the sum of `usage` over `subtree(n)` (missing values count as 0) is **≥** the limit. A budget of 0 therefore stops work immediately.
+- `subtree(n)`: `n` plus every node reachable from `n` by following non-retired `part-of`, `tests`, `addresses` or `derived-from` edges *backwards* (i.e. nodes that are part of, test, address or derive from `n`), transitively, as a set (cycles through `tests` or `addresses` terminate because visited nodes are not revisited). `ancestors(n)` is the inverse: every `m` with `n ∈ subtree(m)`, excluding `n`. Progress counts use `subtree(n)` as defined. For `over_budget` and the `usage` sum reported by `subtree <id>`, the same traversal is taken over *all* `part-of`, `tests`, `addresses` and `derived-from` edges **including retired ones**, so a retired or superseded descendant still contributes its usage to every ancestor it ever belonged to (decision 010). `ancestors(n)` uses non-retired edges.
+- `over_budget(n)`: `n.budget` is set and, for some dimension present in the budget, the sum of `usage` over the accounting traversal of `n` (above; missing values count as 0) is **≥** the limit. A budget of 0 therefore stops work immediately.
 - `predictions(h)`: for Hypothesis `h`, the non-retired `tests` edges into it, each with its source node and `fields.expected`; the matrix for a question is `predictions` over its exclusion group. Where two non-retired `tests` edges share `from` and `to` (impossible under I5) or a hypothesis lacks a prediction, the cell is empty.
 - `non_discriminating(p)`: for a Prediction `p` with two or more non-retired `tests` edges, every edge's `expected` is equal. A prediction with one edge is not flagged. This is the single definition used by `show`, `matrix` and the research profile's warning.
 
@@ -144,6 +144,7 @@ The core recognises these names when a profile declares them, and behaves as sta
 | node `Claim` | `stale`, `evidence`, `weakest`, `digest.claims` | those queries return empty |
 | node `Hypothesis`, `Question`, `Prediction` | `exclusion_group`, `alternatives`, `predictions`, `matrix` | those queries return empty |
 | node `Note` | `notes` | returns empty |
+| node `Task`, `Result` | `supersede`'s agent permission | an agent may supersede only those two types; a profile without them gives agents no supersede rights |
 | node `Result`, `Reference` | endpoints of core `cites` and `pins`; `weakest` | an endpoint rule naming an undeclared type never matches (I5 refuses the edge); `weakest` returns empty |
 | field `Question.closed` | section 7 | treated as false |
 | field `Result.runs: int`, `Result.held_out: bool` | `weakest` | treated as 0 and false |

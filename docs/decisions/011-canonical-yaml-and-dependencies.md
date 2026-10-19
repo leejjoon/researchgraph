@@ -4,7 +4,8 @@ Status: accepted · 2026-10-19
 
 ## Decision
 - The on-disk format is YAML as emitted by PyYAML (a YAML 1.1 library) with a fixed set of options, specified as a "Canonical form" in `store-layout.md`. Strings that YAML 1.1 would read as anything but a string are double-quoted; multi-line strings use the literal block style; no line wrapping; timestamps are whole seconds.
-- Top-level node and edge keys are always written, in the order of the data-model tables, with explicit `null`, `[]` or `{}` when empty. Inside `fields`, optional keys with no value are omitted and schema defaults are materialised at write time.
+- Top-level node and edge keys are always written, in the order of the data-model tables, with explicit `null`, `[]` or `{}` when empty. Inside `fields`, optional keys with no value are omitted, schema defaults are materialised at write time, and keys (recursively) are sorted, because profile fields have no other total order.
+- Commits made by operations carry `now` as both author and committer date, so git-derived status intervals and stored timestamps share one clock.
 - Dependencies: `pyyaml`, `click`, `jsonschema` (fields validation), `zstandard` (export archives). Test extras: `pytest`, `hypothesis`, `pytest-benchmark`. Lint: `ruff`.
 
 ## Why

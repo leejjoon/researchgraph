@@ -1,6 +1,6 @@
 # Profiles (normative)
 
-A profile is a Python package exposing an entry point in group `researchgraph.profiles` whose value is a `Profile` object.
+A profile is a Python package exposing an entry point in group `researchgraph.profiles` whose value is a `Profile` object. `Profile.register(profile)` adds one at runtime for the current process (used by tests for ad-hoc profiles); `Profile.load(name)` resolves registered profiles before entry points.
 
 ```python
 @dataclass
@@ -54,7 +54,7 @@ A type requires approval iff some gate's `node_type` is its name or `"*"`; when 
 
 A project's `.researchgraph/profile.yaml` pins `name` and `version`. Opening a project whose pinned version is newer than the installed profile fails with `profile_too_new`; an older pinned version runs the migration chain in v0.3 and in v0.1 opens unchanged.
 
-All schemas are closed: the core wraps every node and edge schema with `additionalProperties: false` unless the schema sets it explicitly. Schema `default` values are materialised into `fields` at write time.
+All schemas are closed: the core sets `additionalProperties: false` on every node and edge schema, overriding any value the profile gave. Schema `default` values are materialised into `fields` at write time.
 
 ## `research` profile (ships with core)
 
