@@ -3,7 +3,9 @@ that `rg init`s a temporary git repository with the research profile and actors 
 bob (reviewer), agent1, agent2. Every acceptance test must be parametrised over
 index_mode in ("kept", "deleted"), deleting .researchgraph/index.sqlite before the When step
 when mode == "deleted" (spec/store-layout.md, Index)."""
+
 import pytest
+
 
 @pytest.fixture(params=["kept", "deleted"])
 def index_mode(request):
