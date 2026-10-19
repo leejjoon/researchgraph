@@ -1,3 +1,5 @@
 # export
-1. Given any project with ≥ 50 nodes and history. When alice exports to `out.tar.zst` and it is imported into an empty directory. Then `graph/` and `.researchgraph/profile.yaml` are byte-identical and every query returns the same result.
-2. When exported with `--since <t>`. Then only nodes/edges changed after `t` are included, plus everything they reference by `supersedes`, `cites`, `derived-from`.
+1. Given any project with ≥ 50 nodes and history. When alice exports to `out.tar.zst` and it is imported into an empty directory. Then `graph/` and `.researchgraph/profile.yaml` are byte-identical to the source and `.researchgraph/history.jsonl` to the archive member; every query, including `--as-of` for any time recorded in `history.jsonl`, returns the same result in both projects, with and without the index, except that `history` attributes approval and artifact records to the `rg: import` commit while status intervals keep the archive's commit ids.
+2. When exported with `--since <t>`. Then only nodes and edges changed after `t` are included, plus both endpoints of every included edge, plus everything reachable from that set by `supersedes`, `cites`, `derived-from`; importing the archive satisfies I5.
+3. Given a read-only project. When bob exports. Then success (export is a read).
+4. When the same project is exported twice with the same arguments. Then the two archives are byte-identical.

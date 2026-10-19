@@ -12,3 +12,9 @@
 - `duplicate-of` / `relates-to` surfacing in the viewer
 - Full-text index (FTS5) if `where --text` scans become slow
 - Layout persistence UI in the viewer (`.researchgraph/layout.json`)
+- `export --bundle`: include a git bundle so imported projects keep original commit identities (decision 008)
+- Full historical reconstruction (budget, usage, tags, priority, lease under `--as-of`) from git trees (decision 008 limitation)
+- Sidecar event log if `approvals` growth on every claim becomes a problem (decision 010)
+- `run` and `complete` gates (decision 009)
+- Role assignment file or signed-commit validator instead of self-declared roles (decision 010)
+- `unlink`: retire a single edge, so a superseded claim can drop stale evidence without `inherit_edges: false`

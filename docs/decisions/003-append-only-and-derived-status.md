@@ -1,6 +1,6 @@
 # 003: Append-only nodes and edges; blocked and ready are derived
 
-Status: accepted · 2026-10-15
+Status: accepted · 2026-10-15 · amended by 005, 006, 010
 
 ## Decision
 A node's meaning (type, title, body, fields, author, created) never changes after creation. Only status, approvals, artifacts, budget and lease are mutable. Edges are never edited: superseding a node retires its edges and creates new ones from the replacement. `blocked` and `ready` are not stored; they are computed from `blocks` edges and approval state.

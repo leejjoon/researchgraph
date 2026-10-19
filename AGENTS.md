@@ -19,10 +19,10 @@ You are building **researchgraph**: a small Python package that stores a researc
 - **No runner, no scheduler, no agent prompts in the core.** The only scheduling primitive is `claim` with a lease. If you find yourself writing a loop that decides what to run next, stop; it belongs in `examples/` or a consumer package.
 - **No field knowledge in the core.** Anything that mentions astronomy, biology, or any discipline belongs in a profile.
 - **One commit per task item**, small and reviewable. Commit message starts with the task id (`T07:`).
-- **Python 3.11+**, `pyproject.toml` with `uv` or `pip`. Dependencies: `pyyaml`, `click`, `hypothesis` (tests). Add others only with a decision record.
+- **Python 3.11+**, `pyproject.toml` with `uv` or `pip`. Dependencies: `pyyaml`, `click`, `jsonschema`, `zstandard`; `hypothesis`, `pytest-benchmark`, `ruff` (tests). Add others only with a decision record (see 011).
 - **Do not build the viewer or MCP server in v0.1.** They are v0.2. The v0.1 CLI must expose every operation with `--json` output so the viewer and MCP can be thin wrappers later.
 - Ask (leave a question in `tasks/questions.md`) rather than guess when the spec is silent on something that affects the file format. File format mistakes are expensive to migrate.
 
 ## Definition of done for the whole v0.1
 
-`pytest` passes; `rg init`, `rg propose`, `rg approve`, `rg ready`, `rg claim`, `rg complete`, `rg fail`, `rg history`, `rg evidence` work end to end on a fresh repository; `examples/minimal_runner.py` runs a three-node project to completion; `docs/quickstart.md` reproduces that in under 30 lines.
+`pytest` passes; `rg init`, `rg propose`, `rg link`, `rg approve`, `rg ready`, `rg claim`, `rg complete`, `rg fail`, `rg history`, `rg evidence`, `rg export`, `rg import` work end to end on a fresh repository; `examples/minimal_runner.py` runs a three-node project to completion; `docs/quickstart.md` reproduces that in under 30 lines.

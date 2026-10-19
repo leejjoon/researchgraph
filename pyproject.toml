@@ -4,10 +4,10 @@ version = "0.0.1"
 description = "An append-only research graph in git, for humans and agents"
 requires-python = ">=3.11"
 license = {text = "BSD-3-Clause"}
-dependencies = ["pyyaml>=6", "click>=8.1", "jsonschema>=4"]
+dependencies = ["pyyaml>=6", "click>=8.1", "jsonschema>=4", "zstandard>=0.22"]
 
 [project.optional-dependencies]
-test = ["pytest>=8", "hypothesis>=6", "pytest-benchmark"]
+test = ["pytest>=8", "hypothesis>=6", "pytest-benchmark", "ruff"]
 
 [project.scripts]
 rg = "researchgraph.cli:main"
