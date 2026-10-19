@@ -1,4 +1,4 @@
-"""Public T09 lifecycle operations, file authority and transaction boundaries."""
+"""Public lifecycle operations, file authority and transaction boundaries."""
 
 import fcntl
 import os
@@ -535,7 +535,10 @@ def test_all_lifecycle_no_commit_callbacks_and_visibility(tmp_path):
         assert validations[4].args == {"node": b["id"], "reason": "no"}
 
 
-@pytest.mark.parametrize("operation", ["propose", "link", "approve", "reject"])
+@pytest.mark.parametrize(
+    "operation",
+    ["propose", "link", "approve", "reject", "supersede", "instruct", "retire"],
+)
 def test_shared_error_precedence(project, operation):
     missing = "ta-zzzzzzzz"
     args = {
@@ -543,6 +546,9 @@ def test_shared_error_precedence(project, operation):
         "link": ("supersedes", missing, missing),
         "approve": (missing,),
         "reject": (missing, "no"),
+        "supersede": (missing,),
+        "instruct": (missing, "text"),
+        "retire": (missing, "reason"),
     }[operation]
     kwargs = (
         {"edges": [{"type": "blocks", "to": missing}]} if operation == "propose" else {}

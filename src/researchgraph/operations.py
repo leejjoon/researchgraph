@@ -1,4 +1,4 @@
-"""Candidate construction for the four proposal lifecycle operations.
+"""Candidate construction for proposal and revision lifecycle operations.
 
 Builders run only inside Project's writer lock, after shared preflight. They
 modify private candidates, never caller objects or the file-authoritative state.
@@ -49,9 +49,55 @@ def _edge(project, write, pending, type_, source, target, fields):
     )
 
 
+def _node(project, write, pending, type_, title, body, fields):
+    definition = project.profile.node_type(type_)
+    return Node(
+        _identifier(project, definition.prefix, pending),
+        type_,
+        title,
+        body,
+        write.actor,
+        write.now,
+        deepcopy(fields),
+        status=Status.PROPOSED if project.profile.gates_for(type_) else Status.ACTIVE,
+    )
+
+
+def _retired_edge(edge, now):
+    retired = deepcopy(edge)
+    retired.retired, retired.retired_at = True, now
+    return retired
+
+
+def _retired_node(write, original, what, note):
+    node = deepcopy(original)
+    node.status = Status.RETIRED
+    node.updated = write.now
+    node.approvals.append(Approval(write.actor, write.now, what, write.role, note))
+    return node
+
+
+def _instruction(project, write, pending, target, text):
+    if not isinstance(text, str):
+        raise RuleViolation("schema", "Instruction text must be a string")
+    lines = text.splitlines()
+    node = _node(
+        project,
+        write,
+        pending,
+        "Instruction",
+        lines[0][:200] if lines else "",
+        text,
+        {},
+    )
+    write.nodes.append(node)
+    write.edges.append(_edge(project, write, pending, "instructs", node.id, target, {}))
+    return node
+
+
 def _propose(project, write, nodes, edges):
     args = write.args
-    definition = project.profile.node_type(args["type"])
+    project.profile.node_type(args["type"])
     specs = args["edges"]
     if specs is None:
         specs = []
@@ -74,17 +120,14 @@ def _propose(project, write, nodes, edges):
                 "schema", "Each edge needs a type and exactly one from or to"
             )
     pending = set()
-    node = Node(
-        _identifier(project, definition.prefix, pending),
+    node = _node(
+        project,
+        write,
+        pending,
         args["type"],
         args["title"],
         args["body"],
-        write.actor,
-        write.now,
-        deepcopy({} if args["fields"] is None else args["fields"]),
-        status=Status.PROPOSED
-        if project.profile.gates_for(args["type"])
-        else Status.ACTIVE,
+        {} if args["fields"] is None else args["fields"],
     )
     write.nodes = [node]
     write.edges = [
@@ -133,16 +176,77 @@ def _approve(project, write, nodes, edges):
 def _reject(project, write, nodes, edges):
     if not isinstance(write.args["reason"], str):
         raise RuleViolation("schema", "Rejection reason must be a string")
-    node = deepcopy(nodes[write.args["node"]])
-    node.status = Status.RETIRED
-    node.updated = write.now
-    node.approvals.append(
-        Approval(write.actor, write.now, "reject", write.role, write.args["reason"])
+    node = _retired_node(
+        write, nodes[write.args["node"]], "reject", write.args["reason"]
     )
     write.nodes = [node]
     for edge in edges.values():
         if not edge.retired and node.id in (edge.from_, edge.to):
-            retired = deepcopy(edge)
-            retired.retired, retired.retired_at = True, write.now
-            write.edges.append(retired)
+            write.edges.append(_retired_edge(edge, write.now))
+    return node.id, False
+
+
+def _supersede(project, write, nodes, edges):
+    args = write.args
+    if type(args["inherit_edges"]) is not bool:
+        raise RuleViolation("schema", "inherit_edges must be a boolean")
+    old = nodes[args["node"]]
+    pending = set()
+    replacement = _node(
+        project,
+        write,
+        pending,
+        old.type,
+        old.title if args["title"] is None else args["title"],
+        old.body if args["body"] is None else args["body"],
+        old.fields if args["fields"] is None else args["fields"],
+    )
+    write.nodes = [
+        _retired_node(write, old, "superseded", replacement.id),
+        replacement,
+    ]
+    write.edges = [
+        _edge(project, write, pending, "supersedes", replacement.id, old.id, {})
+    ]
+    for edge in edges.values():
+        if edge.retired or old.id not in (edge.from_, edge.to):
+            continue
+        inherit = project.profile.edge_type(edge.type).inherit
+        if inherit != "both" and not (inherit == "outgoing" and edge.from_ == old.id):
+            continue
+        write.edges.append(_retired_edge(edge, write.now))
+        if args["inherit_edges"]:
+            write.edges.append(
+                _edge(
+                    project,
+                    write,
+                    pending,
+                    edge.type,
+                    replacement.id if edge.from_ == old.id else edge.from_,
+                    replacement.id if edge.to == old.id else edge.to,
+                    edge.fields,
+                )
+            )
+    if args["instruction"] is not None:
+        _instruction(project, write, pending, replacement.id, args["instruction"])
+    return replacement.id, False
+
+
+def _instruct(project, write, nodes, edges):
+    node = _instruction(project, write, set(), write.args["node"], write.args["text"])
+    return node.id, False
+
+
+def _retire(project, write, nodes, edges):
+    if not isinstance(write.args["reason"], str):
+        raise RuleViolation("schema", "Retirement reason must be a string")
+    node = _retired_node(
+        write, nodes[write.args["node"]], "retire", write.args["reason"]
+    )
+    write.nodes = [node]
+    write.edges = [
+        _retired_edge(edge, write.now)
+        for edge in edges.values()
+        if not edge.retired and node.id in (edge.from_, edge.to)
+    ]
     return node.id, False

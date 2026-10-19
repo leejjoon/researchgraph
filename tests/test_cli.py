@@ -262,3 +262,130 @@ def test_explicit_empty_clock_is_not_replaced_by_wall_time(root):
 
 def test_init_read_only_precedes_invalid_clock(root):
     refused(invoke(root, "init", "--read-only", "--now", "invalid"), "read_only")
+
+
+def test_revision_cli_supersession_transfers_edges(root):
+    old = succeeds(
+        invoke(
+            root,
+            "propose",
+            "Task",
+            "old",
+            "--body",
+            "original",
+            "--fields",
+            '{"kind":"old"}',
+        )
+    )
+    target = succeeds(invoke(root, "propose", "Task", "downstream"))
+    edge = succeeds(invoke(root, "link", "blocks", old["id"], target["id"]))
+    replacement = succeeds(
+        invoke(
+            root,
+            "supersede",
+            old["id"],
+            "--title",
+            "new",
+            "--body",
+            "",
+            "--fields",
+            '{"kind":"new"}',
+            agent="worker:model:v2",
+        )
+    )
+    assert replacement["title"] == "new" and replacement["body"] == ""
+    assert replacement["fields"] == {"kind": "new"}
+    assert replacement["author"]["version"] == "v2"
+    with Project.open(root) as project:
+        previous = project.get_node(old["id"])
+        edges = project.get_edges()
+        assert previous.title == "old" and previous.body == "original"
+        assert previous.status == "retired"
+        assert previous.approvals[-1].note == replacement["id"]
+        assert next(e for e in edges if e.id == edge["id"]).retired
+        assert any(
+            e.type == "blocks"
+            and e.from_ == replacement["id"]
+            and e.to == target["id"]
+            and not e.retired
+            for e in edges
+        )
+    assert git(root, "log", "-1", "--format=%s") == "rg: supersede " + old["id"]
+
+
+def test_revision_cli_instruction_and_supersede_instruction(root):
+    task = succeeds(invoke(root, "propose", "Task", "T"))
+    instruction = succeeds(
+        invoke(root, "instruct", task["id"], "first line\nsecond line")
+    )
+    assert instruction["title"] == "first line"
+    assert instruction["body"] == "first line\nsecond line"
+    replacement = succeeds(
+        invoke(root, "supersede", task["id"], "--instruction", "retry", agent="worker")
+    )
+    with Project.open(root) as project:
+        shown = project.show(replacement["id"], actor=ALICE, now=NOW)
+        assert {n["body"] for n in shown["instructions"]} == {
+            "first line\nsecond line",
+            "retry",
+        }
+        assert all(n["type"] == "Instruction" for n in shown["instructions"])
+
+
+def test_revision_cli_no_inheritance_and_no_commit(root):
+    old = succeeds(invoke(root, "propose", "Task", "old"))
+    target = succeeds(invoke(root, "propose", "Task", "target"))
+    edge = succeeds(invoke(root, "link", "blocks", old["id"], target["id"]))
+    head = git(root, "rev-parse", "HEAD")
+    replacement = succeeds(
+        invoke(root, "supersede", old["id"], "--no-inherit-edges", "--no-commit")
+    )
+    assert git(root, "rev-parse", "HEAD") == head
+    with Project.open(root) as project:
+        edges = project.get_edges()
+        assert next(e for e in edges if e.id == edge["id"]).retired
+        assert not any(
+            e.type == "blocks" and e.from_ == replacement["id"] for e in edges
+        )
+        assert any(
+            e.type == "supersedes" and e.from_ == replacement["id"] for e in edges
+        )
+
+
+def test_revision_cli_retirement_retires_incident_edges(root):
+    hypothesis = succeeds(invoke(root, "propose", "Hypothesis", "H"))
+    succeeds(invoke(root, "approve", hypothesis["id"]))
+    task = succeeds(invoke(root, "propose", "Task", "T"))
+    succeeds(invoke(root, "link", "blocks", hypothesis["id"], task["id"]))
+    retired = succeeds(
+        invoke(root, "retire", hypothesis["id"], "abandoned", role="owner")
+    )
+    assert retired["status"] == "retired"
+    assert retired["approvals"][-1]["what"] == "retire"
+    assert retired["approvals"][-1]["note"] == "abandoned"
+    with Project.open(root) as project:
+        assert project.get_edges()[0].retired
+        assert project.ready(actor=ALICE, now=NOW)["items"][0]["id"] == task["id"]
+
+
+@pytest.mark.parametrize(
+    "operation,argument", [("instruct", "text"), ("retire", "reason")]
+)
+def test_revision_cli_human_permissions_are_structured(root, operation, argument):
+    task = succeeds(invoke(root, "propose", "Task", "T"))
+    before = snapshot(root)
+    refused(
+        invoke(root, operation, task["id"], argument, agent="worker"),
+        "human_only_approval",
+    )
+    assert snapshot(root) == before
+
+
+def test_revision_cli_agent_hypothesis_supersession_refused(root):
+    hypothesis = succeeds(invoke(root, "propose", "Hypothesis", "H"))
+    before = snapshot(root)
+    refused(
+        invoke(root, "supersede", hypothesis["id"], agent="worker"),
+        "agent_cannot_supersede_type",
+    )
+    assert snapshot(root) == before

@@ -19,7 +19,15 @@ from researchgraph.model import (
     Write,
     format_timestamp,
 )
-from researchgraph.operations import _approve, _link, _propose, _reject
+from researchgraph.operations import (
+    _approve,
+    _instruct,
+    _link,
+    _propose,
+    _reject,
+    _retire,
+    _supersede,
+)
 from researchgraph.profiles import Profile, version_tuple
 from researchgraph.queries import QueryView, evaluation_time
 from researchgraph.store.git import Git
@@ -370,6 +378,62 @@ class Project:
             now,
             commit,
             _reject,
+        )
+
+    def supersede(
+        self,
+        node,
+        title=None,
+        body=None,
+        fields=None,
+        inherit_edges=True,
+        instruction=None,
+        *,
+        actor,
+        role=None,
+        now,
+        commit=True,
+    ):
+        """Replace a node, retiring and optionally recreating transferable edges."""
+        return self._operation(
+            "supersede",
+            {
+                "node": node,
+                "title": title,
+                "body": body,
+                "fields": fields,
+                "inherit_edges": inherit_edges,
+                "instruction": instruction,
+            },
+            actor,
+            role,
+            now,
+            commit,
+            _supersede,
+        )
+
+    def instruct(self, node, text, *, actor, role=None, now, commit=True):
+        """Create an Instruction applying to a proposed or active node."""
+        return self._operation(
+            "instruct",
+            {"node": node, "text": text},
+            actor,
+            role,
+            now,
+            commit,
+            _instruct,
+        )
+
+    def retire(self, node, reason, *, actor, role=None, now, commit=True):
+        """Retire a non-running eligible node and all its live incident edges."""
+        return self._operation(
+            "retire",
+            {"node": node, "reason": reason},
+            actor,
+            role,
+            now,
+            commit,
+            _retire,
         )
 
     def _operation(self, op, args, actor, role, now, commit, builder):

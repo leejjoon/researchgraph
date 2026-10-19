@@ -241,3 +241,59 @@ def reject_command(ctx, node, reason, **local_options):
         local_options,
         lambda project, context: project.reject(node, reason, **context),
     )
+
+
+@main.command("supersede")
+@click.argument("node")
+@click.option("--title", default=None)
+@click.option("--body", default=None)
+@click.option("--fields", default=None)
+@click.option("--inherit-edges/--no-inherit-edges", default=True, show_default=True)
+@click.option("--instruction", default=None)
+@_common_options
+@click.pass_context
+def supersede_command(
+    ctx, node, title, body, fields, inherit_edges, instruction, **local_options
+):
+    """Replace NODE, transferring eligible edges unless --no-inherit-edges."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.supersede(
+            node,
+            title=title,
+            body=body,
+            fields=_json_argument(fields, "--fields"),
+            inherit_edges=inherit_edges,
+            instruction=instruction,
+            **context,
+        ),
+    )
+
+
+@main.command("instruct")
+@click.argument("node")
+@click.argument("text")
+@_common_options
+@click.pass_context
+def instruct_command(ctx, node, text, **local_options):
+    """Record TEXT as an Instruction applying to NODE."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.instruct(node, text, **context),
+    )
+
+
+@main.command("retire")
+@click.argument("node")
+@click.argument("reason")
+@_common_options
+@click.pass_context
+def retire_command(ctx, node, reason, **local_options):
+    """Retire NODE without replacement, recording REASON."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.retire(node, reason, **context),
+    )
