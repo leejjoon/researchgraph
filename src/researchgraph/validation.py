@@ -73,6 +73,12 @@ def validate_references(write, nodes):
         references.extend(
             write.args[key] for key in ("from", "to") if key in write.args
         )
+    if write.op == "propose" and isinstance(write.args.get("edges"), list):
+        # Only well-formed incident specifications name existing ids. Shape
+        # errors belong to the operation, after the shared preflight rules.
+        for spec in write.args["edges"]:
+            if isinstance(spec, dict) and ("from" in spec) != ("to" in spec):
+                references.append(spec["from"] if "from" in spec else spec["to"])
     for identifier in references:
         if not isinstance(identifier, str):
             _refuse("schema", "Node arguments must be identifiers")

@@ -12,6 +12,7 @@ import os
 import sqlite3
 from copy import deepcopy
 from datetime import UTC, datetime
+from stat import S_ISREG
 from time import perf_counter
 
 from researchgraph.model import Edge, Node, RuleViolation, format_timestamp
@@ -152,9 +153,14 @@ class Index:
         return digest.hexdigest()
 
     def _connect(self):
+        self.path = self.project._safe_path(".researchgraph/index.sqlite")
         identity = None
         if self.path.exists():
             stat = self.path.stat()
+            if not S_ISREG(stat.st_mode) or stat.st_nlink != 1:
+                raise RuleViolation(
+                    "schema", "Index cache must be a single-linked regular file"
+                )
             identity = (stat.st_dev, stat.st_ino)
         if (
             self.connection is not None
@@ -263,13 +269,26 @@ class Index:
                 self._loaded_hash, self._profile = content, profile
                 self._verified_cache_token = token
                 return False
-        except (sqlite3.Error, ValueError, TypeError, KeyError):
-            # Only the disposable database is discarded, never source/history.
-            if self.connection is not None:
-                self.connection.close()
-            self.connection = None
-            self.path.unlink(missing_ok=True)
-            self._connect()
+        except (sqlite3.Error, ValueError, TypeError, KeyError) as exc:
+            if isinstance(exc, sqlite3.Error):
+                code = getattr(exc, "sqlite_errorcode", None)
+                if code is None:
+                    raise
+                code &= 0xFF
+                if code not in (
+                    sqlite3.SQLITE_ERROR,
+                    sqlite3.SQLITE_SCHEMA,
+                    sqlite3.SQLITE_CORRUPT,
+                    sqlite3.SQLITE_NOTADB,
+                ):
+                    raise
+                if code in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB):
+                    # Missing/outdated tables are not corrupt database bytes.
+                    # Unlinking an empty cache races another reader's connection.
+                    self.connection.close()
+                    self.connection = None
+                    self.path.unlink(missing_ok=True)
+                    self._connect()
         nodes = [
             self.project._read(f"graph/nodes/{p.name}")
             for p in sorted((self.project.path / "graph/nodes").glob("*.yaml"))
@@ -282,6 +301,9 @@ class Index:
         self.last_history_seconds = self.history.last_walk_seconds
         # Schema is wholly owned by this cache. Recreate malformed/outdated schemas.
         with self.connection:
+            # DDL and rows publish together. Readers never see a dropped/partial
+            # schema, and concurrent rebuilders serialize through SQLite itself.
+            self.connection.execute("BEGIN IMMEDIATE")
             objects = self.connection.execute(
                 "SELECT type,name FROM sqlite_master WHERE type IN ('view','table') AND name NOT LIKE 'sqlite_%'"
             ).fetchall()
@@ -289,8 +311,14 @@ class Index:
                 self.connection.execute(
                     f'DROP {kind} "{name.replace(chr(34), chr(34) * 2)}"'
                 )
-        self.connection.executescript(SCHEMA)
-        with self.connection:
+            statement = ""
+            for line in SCHEMA.splitlines(keepends=True):
+                statement += line
+                if sqlite3.complete_statement(statement):
+                    self.connection.execute(statement)
+                    statement = ""
+            if statement.strip():
+                raise ValueError("Incomplete internal index schema")
             self.connection.executemany(
                 "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 [

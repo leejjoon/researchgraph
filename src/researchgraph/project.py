@@ -19,6 +19,7 @@ from researchgraph.model import (
     Write,
     format_timestamp,
 )
+from researchgraph.operations import _approve, _link, _propose, _reject
 from researchgraph.profiles import Profile, version_tuple
 from researchgraph.queries import QueryView, evaluation_time
 from researchgraph.store.git import Git
@@ -303,6 +304,78 @@ class Project:
         self._refresh()
         return self.index.get_edges()
 
+    def propose(
+        self,
+        type,
+        title,
+        body="",
+        fields=None,
+        edges=None,
+        *,
+        actor,
+        role=None,
+        now,
+        commit=True,
+    ):
+        """Create a gate-initialized node and its incident edges atomically."""
+        return self._operation(
+            "propose",
+            {
+                "type": type,
+                "title": title,
+                "body": body,
+                "fields": fields,
+                "edges": edges,
+            },
+            actor,
+            role,
+            now,
+            commit,
+            _propose,
+        )
+
+    def link(self, type, from_, to, fields=None, *, actor, role=None, now, commit=True):
+        """Create a non-reserved relation between two existing nodes."""
+        return self._operation(
+            "link",
+            {"type": type, "from": from_, "to": to, "fields": fields},
+            actor,
+            role,
+            now,
+            commit,
+            _link,
+        )
+
+    def approve(
+        self, node, what="activate", note=None, *, actor, role=None, now, commit=True
+    ):
+        """Append an approval and activate once all matching gates are met."""
+        return self._operation(
+            "approve",
+            {"node": node, "what": what, "note": note},
+            actor,
+            role,
+            now,
+            commit,
+            _approve,
+        )
+
+    def reject(self, node, reason, *, actor, role=None, now, commit=True):
+        """Reject a proposal and retire all its live incident relations."""
+        return self._operation(
+            "reject",
+            {"node": node, "reason": reason},
+            actor,
+            role,
+            now,
+            commit,
+            _reject,
+        )
+
+    def _operation(self, op, args, actor, role, now, commit, builder):
+        write = Write(op, actor, role, now, args, [], [])
+        return self._execute(write, commit, builder)[1]
+
     def _query_view(self, *, actor, now, role=None, as_of=None):
         self._refresh()
         self._actor(actor)
@@ -456,6 +529,21 @@ class Project:
             before_nodes, before_edges = self._before_state()
             validate_references(write, before_nodes)
             validate_permissions(self.profile, write, before_nodes)
+            if write.op == "propose":
+                for node in write.nodes:
+                    self.profile.node_type(node.type)
+            if write.op in {"propose", "link"}:
+                for edge in write.edges:
+                    if edge.id not in before_edges and edge.type in {
+                        "supersedes",
+                        "explains",
+                        "instructs",
+                    }:
+                        raise RuleViolation(
+                            "reserved_edge_type",
+                            "Relation is reserved for its operation",
+                            [edge.id],
+                        )
             nodes, edges = {}, set()
             for node in write.nodes:
                 self._identifier(node.id)
@@ -667,6 +755,10 @@ class Project:
                 ) from exc
 
     def apply(self, write: Write, commit=True) -> str | None:
+        """Validate and persist a low-level candidate in one writer transaction."""
+        return self._execute(write, commit)[0]
+
+    def _execute(self, write, commit, builder=None):
         if self.read_only:
             raise RuleViolation("read_only", "Project is read-only")
         self._git.check_clock(write.now)
@@ -676,36 +768,65 @@ class Project:
                 self._git.check_clock(write.now)
                 # Missing id arguments outrank a newly advanced profile pin.
                 if isinstance(write.args, dict):
-                    before_nodes, _ = self._before_state()
+                    before_nodes, before_edges = self._before_state()
                     validate_references(write, before_nodes)
                 self._refresh()
                 change = deepcopy(write)
+                result = None
+                if builder is not None:
+                    self._actor(change.actor)
+                    validate_permissions(self.profile, change, before_nodes)
+                    result = builder(self, change, before_nodes, before_edges)
                 self._validate(change)
-                files = {}
-                try:
-                    for node in change.nodes:
-                        files[f"graph/nodes/{node.id}.yaml"] = dump_node(
-                            node.to_dict()
-                        ).encode("utf-8")
-                    for edge in change.edges:
-                        files[f"graph/edges/{edge.id}.yaml"] = dump_edge(
-                            edge.to_dict()
-                        ).encode("utf-8")
-                except (TypeError, ValueError, yaml.YAMLError) as exc:
-                    raise RuleViolation(
-                        "schema", f"Cannot encode graph records: {exc}"
-                    ) from exc
-                artifacts = self._artifact_paths(change)
-                paths = [*files, *artifacts]
-                for relative in files:
-                    self._safe_path(relative).parent.mkdir(parents=True, exist_ok=True)
-                atomic_write(self.path, files)
-                self.index.refresh()
-                if not commit:
-                    return None
-                commit_id = self._commit(paths, change)
-                self.index.refresh()
-                self._events(change, commit_id)
-                return commit_id
+                files = self._encode(change)
+                paths = [*files, *self._artifact_paths(change)]
+                commit_id = self._apply_locked(change, files, paths, commit)
+                record = None
+                if result is not None:
+                    identifier, edge = result
+                    record = self._read(
+                        f"graph/{'edges' if edge else 'nodes'}/{identifier}.yaml",
+                        edge=edge,
+                    ).to_dict()
+                return commit_id, record
+        except (
+            TypeError,
+            ValueError,
+            AttributeError,
+            KeyError,
+            ValidationError,
+        ) as exc:
+            raise RuleViolation("schema", f"Invalid write: {exc}") from exc
         except (OSError, sqlite3.Error, subprocess.SubprocessError) as exc:
             raise RuleViolation("write_failed", f"Write failed: {exc}", paths) from exc
+
+    @staticmethod
+    def _encode(change):
+        files = {}
+        try:
+            for node in change.nodes:
+                files[f"graph/nodes/{node.id}.yaml"] = dump_node(node.to_dict()).encode(
+                    "utf-8"
+                )
+            for edge in change.edges:
+                files[f"graph/edges/{edge.id}.yaml"] = dump_edge(edge.to_dict()).encode(
+                    "utf-8"
+                )
+        except (TypeError, ValueError, yaml.YAMLError) as exc:
+            raise RuleViolation(
+                "schema", f"Cannot encode graph records: {exc}"
+            ) from exc
+        return files
+
+    def _apply_locked(self, change, files, paths, commit):
+        """Persist an already validated change; caller owns the single flock."""
+        for relative in files:
+            self._safe_path(relative).parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(self.path, files)
+        self.index.refresh()
+        if not commit:
+            return None
+        commit_id = self._commit(paths, change)
+        self.index.refresh()
+        self._events(change, commit_id)
+        return commit_id

@@ -25,10 +25,45 @@ from researchgraph.validation import (
     validate_changes,
     validate_graph,
     validate_permissions,
+    validate_references,
 )
 from tests.helpers import ALICE, NOW, git, node, refusal, repository, write
 
 BOT = Actor("agent", "worker", model="old")
+
+
+def test_propose_argument_references_precede_candidate_type_processing():
+    candidate = Write(
+        "propose",
+        ALICE,
+        None,
+        NOW,
+        {"type": "Widget", "edges": [{"type": "blocks", "to": "ta-zzzzzzzz"}]},
+        [],
+        [],
+    )
+    refusal("not_found", validate_references, candidate, {})
+
+
+@pytest.mark.parametrize("bad", [[], False, "", 0])
+def test_low_level_fields_do_not_become_empty(project, bad):
+    candidate = node()
+    candidate.fields = bad
+    refusal("schema", project.apply, write(candidate), commit=False)
+
+
+def test_approval_identity_ignores_metadata_but_event_preserves_metadata():
+    profile = Profile.load("research")
+    value = Node("hy-aaaaaaaa", "Hypothesis", "H", "", ALICE, NOW)
+    value.approvals = [Approval(ALICE, NOW, "approve")]
+    actor = Actor("human", "alice", "different@example.test")
+    refusal(
+        "already_approved",
+        validate_permissions,
+        profile,
+        Write("approve", actor, "owner", NOW, {"node": value.id}, [], []),
+        {value.id: value},
+    )
 
 
 def relation(kind, source, target, suffix="aaaaaaaa", **kwargs):

@@ -358,3 +358,87 @@ def test_semantic_cache_corruption_rebuilds_from_source(project, mode, corruptio
     finally:
         if reader is not project:
             reader.close()
+
+
+@pytest.mark.parametrize("missing", [True, False])
+def test_concurrent_missing_or_stale_cache_rebuild_is_atomic(
+    project, monkeypatch, missing
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from researchgraph.store.index import Index
+
+    project.apply(write(node()))
+    project.close()
+    if missing:
+        (project.path / ".researchgraph/index.sqlite").unlink()
+    else:
+        source = project.path / "graph/nodes/ta-aaaaaaaa.yaml"
+        source.write_bytes(source.read_bytes().replace(b"A task", b"B task"))
+    barrier, connected = Barrier(2), set()
+    original = Index._connect
+
+    def connect(index):
+        original(index)
+        if id(index) not in connected:
+            connected.add(id(index))
+            barrier.wait(timeout=10)
+
+    monkeypatch.setattr(Index, "_connect", connect)
+
+    def read():
+        with Project.open(project.path) as reader:
+            return reader.get_node("ta-aaaaaaaa").title
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(read), pool.submit(read)]
+        expected = "A task" if missing else "B task"
+        assert [future.result(timeout=20) for future in futures] == [expected, expected]
+
+
+@pytest.mark.parametrize("coded", [True, False])
+def test_cache_resource_errors_do_not_unlink_or_mask(project, monkeypatch, coded):
+    import sqlite3
+
+    project.apply(write(node()))
+    cache = project.path / ".researchgraph/index.sqlite"
+    before = cache.read_bytes()
+    error = sqlite3.OperationalError("database is locked")
+    if coded:
+        error.sqlite_errorcode = sqlite3.SQLITE_BUSY
+
+    def fail():
+        raise error
+
+    monkeypatch.setattr(project.index, "_connect", fail)
+    with pytest.raises(sqlite3.OperationalError) as caught:
+        project.get_nodes()
+    assert caught.value is error
+    assert cache.read_bytes() == before
+
+
+@pytest.mark.parametrize("alias", ["symlink", "hardlink"])
+def test_cache_alias_does_not_modify_unrelated_database(project, alias):
+    import sqlite3
+
+    project.close()
+    unrelated = project.path / "unrelated.sqlite"
+    with sqlite3.connect(unrelated) as database:
+        database.execute("CREATE TABLE sentinel(value TEXT)")
+        database.execute("INSERT INTO sentinel VALUES ('user work')")
+    before = unrelated.read_bytes()
+    cache = project.path / ".researchgraph/index.sqlite"
+    cache.unlink()
+    if alias == "symlink":
+        cache.symlink_to(unrelated)
+    else:
+        os.link(unrelated, cache)
+    with pytest.raises(RuleViolation) as refused:
+        Project.open(project.path)
+    assert refused.value.rule == "schema"
+    assert unrelated.read_bytes() == before
+    with sqlite3.connect(unrelated) as database:
+        assert (
+            database.execute("SELECT value FROM sentinel").fetchone()[0] == "user work"
+        )

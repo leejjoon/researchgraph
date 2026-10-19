@@ -37,6 +37,24 @@ def main(ctx, **options):
     ctx.obj = options
 
 
+def _options(ctx, local_options):
+    return {
+        key: local_options[key] if local_options[key] is not None else value
+        for key, value in ctx.obj.items()
+    }
+
+
+def _now(value):
+    try:
+        return (
+            parse_timestamp(value)
+            if value is not None
+            else datetime.now(UTC).replace(microsecond=0)
+        )
+    except (TypeError, ValueError) as exc:
+        raise RuleViolation("schema", f"Invalid --now: {exc}") from exc
+
+
 def _actor(path, agent):
     if agent is not None:
         parts = agent.split(":")
@@ -51,6 +69,72 @@ def _actor(path, agent):
     return Git(identity_path).human_actor()
 
 
+def _error(ctx, error):
+    click.echo(
+        json.dumps(
+            {"rule": error.rule, "message": error.message, "ids": error.ids},
+            ensure_ascii=False,
+        ),
+        err=True,
+    )
+    ctx.exit(3 if error.rule in ("project_not_found", "invalid_project") else 2)
+
+
+def _project_root(path):
+    if path is not None:
+        return path.expanduser().resolve()
+    current = Path.cwd()
+    for candidate in (current, *current.parents):
+        if (candidate / ".researchgraph/profile.yaml").is_file():
+            return candidate
+    raise RuleViolation("project_not_found", f"Project not found from: {current}")
+
+
+def _json_argument(value, option):
+    if value is None:
+        return None
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError) as exc:
+        raise RuleViolation("schema", f"Invalid {option} JSON: {exc}") from exc
+
+
+def _write_result(result, json_output):
+    if json_output:
+        click.echo(json.dumps(result, ensure_ascii=False))
+    elif "from" in result:
+        click.echo("ID\tTYPE\tFROM\tTO")
+        click.echo(
+            f"{result['id']}\t{result['type']}\t{result['from']}\t{result['to']}"
+        )
+    else:
+        click.echo("ID\tTYPE\tSTATUS\tTITLE")
+        click.echo(
+            f"{result['id']}\t{result['type']}\t{result['status']}\t{result['title']}"
+        )
+
+
+def _run_write(ctx, local_options, operation):
+    options = _options(ctx, local_options)
+    try:
+        if options["read_only"]:
+            raise RuleViolation("read_only", "Project is read-only")
+        root = _project_root(options["project"])
+        now = _now(options["now"])
+        with Project.open(root) as project:
+            project._git.check_clock(now)
+            context = {
+                "actor": _actor(root, options["as_agent"]),
+                "role": options["role"],
+                "now": now,
+                "commit": options["commit"] is not False,
+            }
+            result = operation(project, context)
+        _write_result(result, options["json_output"])
+    except RuleViolation as exc:
+        _error(ctx, exc)
+
+
 @main.command("init")
 @click.argument("path", required=False, type=click.Path(path_type=Path))
 @click.option("--profile", default="research", show_default=True)
@@ -58,21 +142,13 @@ def _actor(path, agent):
 @click.pass_context
 def init_command(ctx, path, profile, **local_options):
     """Initialise PATH (or --project) with a pinned profile."""
-    options = {
-        key: local_options[key] if local_options[key] is not None else value
-        for key, value in ctx.obj.items()
-    }
+    options = _options(ctx, local_options)
     root = (path or options["project"] or Path.cwd()).expanduser().resolve()
     try:
-        try:
-            now = (
-                parse_timestamp(options["now"])
-                if options["now"]
-                else datetime.now(UTC).replace(microsecond=0)
-            )
-        except (TypeError, ValueError) as exc:
-            raise RuleViolation("schema", f"Invalid --now: {exc}") from exc
-        actor = None if options["read_only"] else _actor(root, options["as_agent"])
+        if options["read_only"]:
+            raise RuleViolation("read_only", "Project is read-only")
+        now = _now(options["now"])
+        actor = _actor(root, options["as_agent"])
         with Project.init(
             root,
             profile=profile,
@@ -88,13 +164,80 @@ def init_command(ctx, path, profile, **local_options):
                 "version": project.profile_version,
             }
         click.echo(
-            json.dumps(result)
+            json.dumps(result, ensure_ascii=False)
             if options["json_output"]
             else f"Initialised {project.path} ({project.profile_name} {project.profile_version})"
         )
     except RuleViolation as exc:
-        click.echo(
-            json.dumps({"rule": exc.rule, "message": exc.message, "ids": exc.ids}),
-            err=True,
-        )
-        ctx.exit(3 if exc.rule in ("project_not_found", "invalid_project") else 2)
+        _error(ctx, exc)
+
+
+@main.command("propose")
+@click.argument("type")
+@click.argument("title")
+@click.option("--body", default="")
+@click.option("--fields", default=None)
+@click.option("--edge", "edges", multiple=True)
+@_common_options
+@click.pass_context
+def propose_command(ctx, type, title, body, fields, edges, **local_options):
+    """Propose TYPE TITLE, with optional incident --edge JSON objects."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.propose(
+            type,
+            title,
+            body=body,
+            fields=_json_argument(fields, "--fields"),
+            edges=[_json_argument(edge, "--edge") for edge in edges],
+            **context,
+        ),
+    )
+
+
+@main.command("link")
+@click.argument("type")
+@click.argument("from_")
+@click.argument("to")
+@click.option("--fields", default=None)
+@_common_options
+@click.pass_context
+def link_command(ctx, type, from_, to, fields, **local_options):
+    """Link TYPE FROM TO between existing nodes."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.link(
+            type, from_, to, fields=_json_argument(fields, "--fields"), **context
+        ),
+    )
+
+
+@main.command("approve")
+@click.argument("node")
+@click.option("--what", default="activate", show_default=True)
+@click.option("--note", default=None)
+@_common_options
+@click.pass_context
+def approve_command(ctx, node, what, note, **local_options):
+    """Approve NODE for activation."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.approve(node, what=what, note=note, **context),
+    )
+
+
+@main.command("reject")
+@click.argument("node")
+@click.argument("reason")
+@_common_options
+@click.pass_context
+def reject_command(ctx, node, reason, **local_options):
+    """Reject NODE with REASON, retiring its live incident edges."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.reject(node, reason, **context),
+    )
