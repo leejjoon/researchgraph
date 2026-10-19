@@ -56,6 +56,11 @@ SQLite at `.researchgraph/index.sqlite`, schema version in a `meta` table. Table
 ### `--as-of` (decision 008)
 `--as-of <time|commit>` evaluates against the index, never a checkout. A commit maps to its committer time. The boundary is inclusive: a record or interval whose time is ≤ the as-of time is in effect. `now` must not be earlier than `HEAD`'s committer time; a write with an earlier `now` raises `clock_skew`. Two commits with the same `now` are indistinguishable to `--as-of <time>`, so tests advance `--now` between writes. v0.1 reconstructs: node `status` from `status_intervals`; edge existence from `created` and `retired_at`; `approvals` records from `at`; `artifacts` records from `added_at`. `budget`, `usage`, `tags`, `priority` and `lease` are reported at their current values; this is a documented limitation. Under `--as-of`, `lease_expired` uses the as-of time as `now` and is false when the reported `lease` is null, so a historical `running` snapshot whose current lease is null is never `ready`.
 
+### Import clock (decision 012)
+Before creating destination files or a git repository, a valid archive is checked against the import call's `now`. The clock floor is the maximum of all restored node `created` and `updated` timestamps, approval `at`, artifact `added_at`, lease `acquired_at` and `expires_at`, edge `created` and `retired_at`, and history interval `from_time` and `to_time`. Ignore null values; an empty archive has no restored clock floor. If `now` is earlier than the floor, raise `clock_skew` and leave the destination absent or empty as it was. Equality is allowed. Invalid timestamp encodings are `bad_archive`, not `clock_skew`.
+
+Import preserves all restored timestamps. In particular, a future lease expiry contributes to the floor; choose an import `now` at or after it rather than rewriting the lease. The import commit is dated `now` as usual, so subsequent writes checked against HEAD cannot close an archived interval before its start.
+
 ## Viewer layout
 Viewer-only state (card positions, collapsed groups) lives in `.researchgraph/layout.json`, never on nodes. Projects may commit or ignore it.
 
@@ -64,3 +69,12 @@ A claim writes `lease` into the node file and commits. A lease whose `expires_at
 
 ## Artifacts
 `complete` records artifacts by path, sha256 and size; it does not move files. Paths must lie under `artifacts/<node id>/`. Projects may use DataLad, DVC or git LFS for large files; the core stores references and stages whatever the path resolves to in the working tree.
+
+## Export archives (decision 012)
+The tar stream uses POSIX PAX, not USTAR. Canonical emission is Python `tarfile.open` in uncompressed `w` mode with `format=tarfile.PAX_FORMAT`, `encoding="utf-8"`, `errors="strict"` and an empty global `pax_headers` mapping, followed by zstd level 3 compression. Construct member metadata explicitly rather than inheriting filesystem metadata:
+- Include each directory and file in sorted relative POSIX path order; directory names end in `/` and all paths are relative, with no leading `./`.
+- Set mtime, uid and gid to 0, uname and gname to empty strings, mode to 0644 for files and 0755 for directories. Directory size is 0; file size is its byte length. Do not copy access times, change times, filesystem permissions, ownership or extended attributes.
+- Begin each member with an empty `pax_headers` mapping. Use `tarfile.TarInfo.tobuf(format=tarfile.PAX_FORMAT, encoding="utf-8", errors="strict")` for canonical headers: only necessary automatic extensions are emitted, such as `path` for long or Unicode names and `size` for sizes beyond USTAR's limit. Do not add custom or global PAX records. The standard encoder's local extension-header naming, record ordering and byte-length encoding are part of the canonical form; fixtures must freeze these bytes for long paths, Unicode paths and a header-only large-size case.
+- Use the standard tarfile end markers and record padding. Fixed metadata and automatic headers must produce identical bytes for equal member paths and contents, independently of source filesystem metadata.
+
+PAX removes USTAR name and size restrictions; attachment paths are not shortened, renamed or truncated for export.

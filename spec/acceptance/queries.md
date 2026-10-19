@@ -13,3 +13,5 @@
 12. `where --type Task --status active --tag x --text "fit"` conjoins the filters; `where --author agent1` matches `author.name`; `where --field kind=expansion` matches `fields.kind`.
 13. `digest` after scenario fail 1 reports `failed_24h == 1`; with `--now` 25 hours later it reports 0.
 14. `show T1` for a running node with an expired lease reports `lease_expired: true` and `ready: true`.
+15. Given active Claim C1 citing independently superseded results R1 and S1 with replacement heads R2 and S2. When querying `stale`. Then C1 occurs once with `responsible` equal to the two head IDs in lexicographic order. With only R1 superseded it is `[R2]`, never a scalar.
+16. Given C1 cites R0 and R1, where R1 supersedes R0 and R2 supersedes R1, and a second evidence path also reaches R0. When querying `stale`. Then C1 occurs once with `responsible == [R2]`; repeated paths and intermediate replacements do not duplicate a head. This also holds after index deletion and under `--as-of` using the replacement edges present at that time.

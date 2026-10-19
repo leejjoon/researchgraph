@@ -54,7 +54,13 @@ A type requires approval iff some gate's `node_type` is its name or `"*"`; when 
 
 A project's `.researchgraph/profile.yaml` pins `name` and `version`. Versions are dotted integers compared as tuples (`1.10` > `1.9`). Opening a project whose pinned version is newer than the installed profile fails with `profile_too_new`; an older pinned version runs the migration chain in v0.3 and in v0.1 opens unchanged.
 
-All schemas are closed: the core sets `additionalProperties: false` on every node and edge schema, overriding any value the profile gave. Schema `default` values are materialised into `fields` at write time.
+All schemas are closed: the core sets `additionalProperties: false` on every node and edge schema, overriding any value the profile gave.
+
+### Defaults (decision 012)
+- Only a direct property schema at root `properties.<name>` may declare `default`. Defaults at the root itself, in nested property or array-item schemas, in definitions, or within composition/conditional subschemas are rejected when the profile is loaded with `RuleViolation(rule="unsupported_schema_default")`. This applies equally to registered profiles and entry points, and to node and edge schemas. Inspect schema locations, not arbitrary data: a key named `default` inside a literal default value is not a schema keyword.
+- Each supported default must be non-null and validate against its property schema; otherwise profile loading raises `RuleViolation(rule="invalid_schema_default")`. Null is not a stored fields value, so a null default is rejected rather than inserted and then removed. Check unsupported default locations before validating default values.
+- At write time, first drop explicit null entries in the supplied root `fields` mapping. For each absent direct property with a default, insert a deep copy of that value; never replace a supplied non-null value or mutate the profile schema. Then validate the complete mapping, including required properties and composition constraints; failure raises `schema` before any files are written.
+- Composition remains supported for validation; it does not select defaults or cause recursive materialisation. An object or array default is copied as a whole, without synthesising defaults for its children.
 
 ## `research` profile (ships with core)
 

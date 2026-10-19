@@ -14,7 +14,7 @@ A node is a YAML mapping with these keys, always written in this order. Keys mar
 | `body` | string | yes | Markdown. May be empty. |
 | `author` | Actor | yes | See *Actor* below. |
 | `created` | RFC 3339 timestamp | yes | UTC, whole seconds, `Z` suffix. |
-| `fields` | mapping | yes | Profile-defined extras; validated against the profile's JSON Schema for the type (closed: no undeclared keys). Schema defaults are materialised at write time. Optional keys with no value are omitted from the file and read as null; an explicit null in a `fields` argument is dropped before validation. Keys are stored in sorted order (`store-layout.md`). |
+| `fields` | mapping | yes | Profile-defined extras; validated against the profile's JSON Schema for the type (closed: no undeclared keys). Direct-property schema defaults are materialised before write validation according to `profiles.md`, Defaults; unsupported default locations are rejected at profile load. Optional keys with no value are omitted from the file and read as null; an explicit null in a `fields` argument is dropped before validation. Keys are stored in sorted order (`store-layout.md`). |
 | `status` | enum | no | `proposed | active | running | done | failed | retired` |
 | `updated` | RFC 3339 | no | Equals `created` until a mutable key changes. |
 | `approvals` | list | no | Append-only event log of `{actor, role, at, what, note}` (section 2.2). |
@@ -78,7 +78,7 @@ An edge is a YAML mapping `{id, type, from, to, author, created, fields, retired
 | `supports`, `contradicts` | Claim → Hypothesis | outgoing | direction of bearing, about the specific hypothesis evaluated. |
 | `discovered-from` | any → any | outgoing | source was found while working on target. |
 | `instructs` | Instruction → any | both | the instruction applies to the target. Created only by `instruct` and `supersede`. |
-| `explains` | Failure → any | outgoing | the failure explains why the target failed. Created only by `fail`. |
+| `explains` | Failure → any | outgoing | the failure explains why the target failed. Created by `fail` and may be inherited by `supersede`; direct creation by `propose` or `link` is forbidden. |
 | `cites` | Claim → Result or Reference | outgoing | evidence relation; `evidence`, `stale`, `weakest` follow these. Research profile fields: `{artifact?: path, locator?: str, sha256?: str}`. |
 | `answers` | Hypothesis → Question | both | membership of the question's exclusion group. |
 | `part-of` | any → any | both | containment; defines subtrees for budgets and progress. Question → Question expresses sub-questions. |
