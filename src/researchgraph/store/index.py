@@ -20,7 +20,7 @@ from researchgraph.store.hashing import HashScanner, hash_file
 from researchgraph.store.history import History, record_key
 
 PARALLEL_HASH_THRESHOLD = 5000
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE nodes (
@@ -362,7 +362,9 @@ class Index:
                             n.id,
                             i,
                             record_key(record.to_dict()),
-                            provenance.get((kind, n.id, record_key(record.to_dict()))),
+                            provenance.get(
+                                (kind, n.id, i, record_key(record.to_dict()))
+                            ),
                         )
                         for n in nodes
                         for i, record in enumerate(getattr(n, kind))

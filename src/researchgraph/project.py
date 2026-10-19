@@ -1,5 +1,6 @@
 """File-backed projects and the shared low-level write boundary."""
 
+import hashlib
 import re
 import sqlite3
 import subprocess
@@ -12,6 +13,7 @@ from jsonschema.validators import validator_for
 
 from researchgraph.model import (
     Actor,
+    Artifact,
     Edge,
     Node,
     RuleViolation,
@@ -21,10 +23,15 @@ from researchgraph.model import (
 )
 from researchgraph.operations import (
     _approve,
+    _claim,
+    _complete,
+    _fail,
     _instruct,
     _link,
     _propose,
     _reject,
+    _release,
+    _renew,
     _retire,
     _supersede,
 )
@@ -436,6 +443,101 @@ class Project:
             _retire,
         )
 
+    def claim(self, node, lease_seconds=7200, *, actor, role=None, now, commit=True):
+        """Claim a ready node, replacing an expired lease atomically."""
+        return self._operation(
+            "claim",
+            {"node": node, "lease_seconds": lease_seconds},
+            actor,
+            role,
+            now,
+            commit,
+            _claim,
+        )
+
+    def renew(self, node, lease_seconds=7200, *, actor, role=None, now, commit=True):
+        """Extend the holder's lease without shortening or changing its identity."""
+        return self._operation(
+            "renew",
+            {"node": node, "lease_seconds": lease_seconds},
+            actor,
+            role,
+            now,
+            commit,
+            _renew,
+        )
+
+    def release(
+        self, node, note=None, usage=None, *, actor, role=None, now, commit=True
+    ):
+        """Return a running node to active and add caller-reported usage."""
+        return self._operation(
+            "release",
+            {"node": node, "note": note, "usage": usage},
+            actor,
+            role,
+            now,
+            commit,
+            _release,
+        )
+
+    def complete(
+        self,
+        node,
+        summary,
+        artifacts=None,
+        usage=None,
+        *,
+        actor,
+        role=None,
+        now,
+        commit=True,
+    ):
+        """Complete a held node, recording named artifact bytes and additive usage."""
+        return self._operation(
+            "complete",
+            {"node": node, "summary": summary, "artifacts": artifacts, "usage": usage},
+            actor,
+            role,
+            now,
+            commit,
+            _complete,
+        )
+
+    def fail(
+        self,
+        node,
+        summary,
+        step=None,
+        check=None,
+        measured=None,
+        error=None,
+        usage=None,
+        *,
+        actor,
+        role=None,
+        now,
+        commit=True,
+    ):
+        """Fail a held node and create its profile-initialized Failure explanation."""
+        return self._operation(
+            "fail",
+            {
+                "node": node,
+                "summary": summary,
+                "step": step,
+                "check": check,
+                "measured": measured,
+                "error": error,
+                "usage": usage,
+            },
+            actor,
+            role,
+            now,
+            commit,
+            _fail,
+        )
+
     def _operation(self, op, args, actor, role, now, commit, builder):
         write = Write(op, actor, role, now, args, [], [])
         return self._execute(write, commit, builder)[1]
@@ -767,8 +869,44 @@ class Project:
             raise RuleViolation("artifact_path", exc.message, [relative]) from exc
         return path
 
+    def _checked_artifact_paths(self, paths, node_id=None):
+        """Validate the whole path batch before testing any file's existence."""
+        if paths is None:
+            paths = []
+        if not isinstance(paths, list):
+            raise RuleViolation("schema", "Artifacts must be a list of paths")
+        checked = [
+            (relative, self._artifact_path(relative, node_id)) for relative in paths
+        ]
+        for relative, path in checked:
+            if not path.is_file():
+                raise RuleViolation(
+                    "artifact_missing", f"Artifact not found: {relative}", [relative]
+                )
+        return checked
+
+    def _artifact_records(self, paths, node_id, actor, now):
+        """Collect complete/attach records without writing or staging files.
+
+        Paths are relative strings belonging to node_id. Every path is checked
+        before any missing-file error; every file exists before hashing starts.
+        Duplicate paths produce duplicate append-only records. Hash and size
+        describe the entire stream, using bounded memory.
+        """
+        records = []
+        for relative, path in self._checked_artifact_paths(paths, node_id):
+            digest, size = hashlib.sha256(), 0
+            with path.open("rb") as stream:
+                while chunk := stream.read(1024 * 1024):
+                    digest.update(chunk)
+                    size += len(chunk)
+            records.append(Artifact(relative, digest.hexdigest(), size, now, actor))
+        return records
+
     def _artifact_paths(self, write):
-        paths = write.args.get("artifacts", [])
+        paths = write.args.get("artifacts")
+        if paths is None:
+            paths = []
         if not isinstance(paths, list):
             raise RuleViolation("schema", "Artifacts must be a list of paths")
         paths = list(paths)
@@ -782,11 +920,7 @@ class Project:
                 else []
             )
             paths.extend(artifact.path for artifact in node.artifacts[len(old) :])
-        for relative in paths:
-            if not self._artifact_path(relative).is_file():
-                raise RuleViolation(
-                    "artifact_missing", f"Artifact not found: {relative}", [relative]
-                )
+        self._checked_artifact_paths(paths)
         return list(dict.fromkeys(paths))
 
     def _commit(self, paths, write):

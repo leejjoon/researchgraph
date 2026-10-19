@@ -289,3 +289,50 @@ def test_edge_introduction_provenance_survives_retirement(tmp_path, directory):
                     ).fetchone()[0]
                     == introduced
                 )
+
+
+@pytest.mark.parametrize("kind", ["approval", "artifact"])
+def test_identical_record_occurrences_keep_distinct_introduction_commits(project, kind):
+    value = node()
+    project.apply(write(value))
+    if kind == "approval":
+        value.status = Status.RUNNING
+        value.lease = Lease(ALICE, NOW, NOW + timedelta(seconds=7200))
+        value.approvals.append(Approval(ALICE, NOW, "claim"))
+        project.apply(write(value, op="claim", args={"node": value.id}))
+    else:
+        payload = project.path / f"artifacts/{value.id}/out.bin"
+        payload.parent.mkdir(parents=True)
+        payload.write_bytes(b"record")
+    at = NOW + timedelta(seconds=1)
+    commits = []
+    for committed in (True, True, False):
+        value.updated = at
+        if kind == "approval":
+            value.lease.expires_at = at + timedelta(seconds=7200)
+            value.approvals.append(Approval(ALICE, at, "renew"))
+            change = write(value, op="renew", now=at, args={"node": value.id})
+        else:
+            relative = str(payload.relative_to(project.path))
+            value.artifacts.append(
+                Artifact(relative, sha256(b"record").hexdigest(), 6, at, ALICE)
+            )
+            change = write(
+                value,
+                op="attach",
+                now=at,
+                args={"node": value.id, "artifacts": [relative]},
+            )
+        commits.append(project.apply(change, commit=committed))
+    assert commits[0] != commits[1] and commits[2] is None
+    for remove_cache in (False, True):
+        if remove_cache:
+            (project.path / ".researchgraph/index.sqlite").unlink()
+        events = project.history(value.id, actor=ALICE, now=at)
+        actual = [
+            event["commit"]
+            for event in events
+            if event["kind"] == kind
+            and (kind == "artifact" or event["what"] == "renew")
+        ]
+        assert actual == commits

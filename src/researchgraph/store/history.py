@@ -155,9 +155,10 @@ class History:
                     ("approvals", node.approvals),
                     ("artifacts", node.artifacts),
                 ):
-                    for record in records:
+                    for ordinal, record in enumerate(records):
                         provenance.setdefault(
-                            (kind, node.id, record_key(record.to_dict())), commit
+                            (kind, node.id, ordinal, record_key(record.to_dict())),
+                            commit,
                         )
         self.transitions, self.provenance, self.latest = transitions, provenance, latest
         self.edge_commits = edge_commits

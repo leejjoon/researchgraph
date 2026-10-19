@@ -389,3 +389,287 @@ def test_revision_cli_agent_hypothesis_supersession_refused(root):
         "agent_cannot_supersede_type",
     )
     assert snapshot(root) == before
+
+
+def test_execution_cli_claim_renew_complete_artifact(root):
+    from hashlib import sha256
+
+    never = root / "must-not-run"
+    task = succeeds(
+        invoke(
+            root,
+            "propose",
+            "Task",
+            "T",
+            "--fields",
+            json.dumps({"command": f"touch {never}"}),
+        )
+    )
+    claimed = succeeds(
+        invoke(
+            root, "claim", task["id"], "--lease-seconds", "3600", agent="worker:old:v1"
+        )
+    )
+    assert claimed["status"] == "running"
+    assert claimed["lease"]["actor"]["version"] == "v1"
+    renewed = succeeds(
+        invoke(
+            root,
+            "renew",
+            task["id"],
+            "--lease-seconds",
+            "30",
+            agent="worker:new:v2",
+            now=NOW + timedelta(seconds=1),
+        )
+    )
+    assert renewed["lease"] == claimed["lease"]
+    assert renewed["approvals"][-1]["actor"]["version"] == "v2"
+    path = root / "artifacts" / task["id"] / "연구-\noutput.bin"
+    path.parent.mkdir(parents=True)
+    payload = b"a" * 9000 + b"late bytes"
+    path.write_bytes(payload)
+    relative = path.relative_to(root).as_posix()
+    done = succeeds(
+        invoke(
+            root,
+            "complete",
+            task["id"],
+            "finished",
+            "--artifact",
+            relative,
+            "--usage",
+            '{"tokens":1200,"compute_seconds":5}',
+            agent="worker:new:v3",
+            now=NOW + timedelta(seconds=2),
+        )
+    )
+    assert done["status"] == "done" and done["lease"] is None
+    assert done["usage"] == {"tokens": 1200, "compute_seconds": 5}
+    assert done["artifacts"][0]["sha256"] == sha256(payload).hexdigest()
+    assert done["artifacts"][0]["bytes"] == len(payload)
+    assert done["approvals"][-1]["note"] == "finished"
+    committed = git(root, "show", "--format=", "--name-only", "-z", "HEAD").split("\0")
+    assert relative in committed
+    assert not never.exists()
+
+
+def test_execution_cli_expiry_reclaim_and_old_holder_rights(root):
+    task = succeeds(invoke(root, "propose", "Task", "T"))
+    succeeds(invoke(root, "claim", task["id"], "--lease-seconds", "1", agent="old"))
+    refused(invoke(root, "claim", task["id"], agent="new"), "lease_held")
+    now = NOW + timedelta(seconds=1)
+    claimed = succeeds(invoke(root, "claim", task["id"], agent="new", now=now))
+    assert claimed["lease"]["actor"]["name"] == "new"
+    refused(invoke(root, "renew", task["id"], agent="old", now=now), "not_lease_holder")
+    refused(
+        invoke(root, "complete", task["id"], "done", agent="old", now=now),
+        "not_lease_holder",
+    )
+    refused(
+        invoke(root, "release", task["id"], agent="old", now=now), "not_lease_holder"
+    )
+    assert (
+        succeeds(invoke(root, "complete", task["id"], "done", agent="new", now=now))[
+            "status"
+        ]
+        == "done"
+    )
+
+
+def test_execution_cli_release_adds_usage_and_human_overrides(root):
+    task = succeeds(invoke(root, "propose", "Task", "T"))
+    succeeds(invoke(root, "claim", task["id"], agent="worker"))
+    first = succeeds(
+        invoke(
+            root,
+            "release",
+            task["id"],
+            "--note",
+            "partial",
+            "--usage",
+            '{"tokens":100}',
+            agent="worker",
+        )
+    )
+    assert first["status"] == "active" and first["lease"] is None
+    succeeds(invoke(root, "claim", task["id"], agent="worker"))
+    second = succeeds(
+        invoke(
+            root, "release", task["id"], "--usage", '{"tokens":50,"compute_seconds":2}'
+        )
+    )
+    assert second["usage"] == {"tokens": 150, "compute_seconds": 2}
+
+
+def test_execution_cli_failure_node_and_actual_revision(root):
+    task = succeeds(invoke(root, "propose", "Task", "T"))
+    blocked = succeeds(invoke(root, "propose", "Task", "downstream"))
+    succeeds(invoke(root, "link", "blocks", task["id"], blocked["id"]))
+    succeeds(invoke(root, "claim", task["id"], agent="worker"))
+    failed = succeeds(
+        invoke(
+            root,
+            "fail",
+            task["id"],
+            "unexpected outcome",
+            "--step",
+            "compute",
+            "--check",
+            "threshold",
+            "--measured",
+            "0",
+            "--error",
+            "detail",
+            "--usage",
+            '{"tokens":5}',
+            agent="worker",
+            now=NOW + timedelta(seconds=1),
+        )
+    )
+    assert failed["id"] == task["id"] and failed["status"] == "failed"
+    assert failed["lease"] is None and failed["usage"] == {"tokens": 5}
+    with Project.open(root) as project:
+        edge = next(e for e in project.get_edges() if e.type == "explains")
+        failure = project.get_node(edge.from_)
+        assert failure.body == "unexpected outcome"
+        assert failure.fields == {
+            "step": "compute",
+            "check": "threshold",
+            "measured": "0",
+            "error": "detail",
+        }
+        assert project.ready(actor=ALICE, now=NOW + timedelta(seconds=1))["items"] == []
+    replacement = succeeds(
+        invoke(
+            root,
+            "supersede",
+            task["id"],
+            "--instruction",
+            "retry",
+            agent="worker",
+            now=NOW + timedelta(seconds=2),
+        )
+    )
+    with Project.open(root) as project:
+        assert (
+            project.ready(actor=ALICE, now=NOW + timedelta(seconds=2))["items"][0]["id"]
+            == replacement["id"]
+        )
+
+
+def test_execution_cli_artifact_error_precedence_and_atomicity(root):
+    task = succeeds(invoke(root, "propose", "Task", "T"))
+    succeeds(invoke(root, "claim", task["id"], agent="worker"))
+    before = snapshot(root)
+    missing = f"artifacts/{task['id']}/missing"
+    refused(
+        invoke(
+            root,
+            "complete",
+            task["id"],
+            "done",
+            "--artifact",
+            missing,
+            "--artifact",
+            "../escape",
+            agent="worker",
+        ),
+        "artifact_path",
+    )
+    refused(
+        invoke(
+            root,
+            "complete",
+            task["id"],
+            "done",
+            "--artifact",
+            missing,
+            "--usage",
+            '{"tokens":-1}',
+            agent="worker",
+        ),
+        "artifact_missing",
+    )
+    refused(
+        invoke(
+            root,
+            "complete",
+            task["id"],
+            "done",
+            "--artifact",
+            "artifacts/ta-bbbbbbbb/x",
+            agent="worker",
+        ),
+        "artifact_path",
+    )
+    refused(
+        invoke(
+            root,
+            "complete",
+            task["id"],
+            "done",
+            "--usage",
+            '{"tokens":-1}',
+            agent="worker",
+        ),
+        "negative",
+    )
+    assert snapshot(root) == before
+
+
+@pytest.mark.parametrize(
+    "operation,tail",
+    [
+        ("claim", ("--lease-seconds", "0")),
+        ("renew", ("--lease-seconds", "0")),
+        ("release", ("--usage", '{"tokens":-1}')),
+    ],
+)
+def test_execution_cli_state_errors_precede_bad_usage(root, operation, tail):
+    task = succeeds(invoke(root, "propose", "Task", "T"))
+    before = snapshot(root)
+    refused(
+        invoke(root, operation, task["id"], *tail, agent="worker"),
+        "negative" if operation == "claim" else "not_running",
+    )
+    assert snapshot(root) == before
+
+
+def test_execution_cli_pending_state_replaces_intermediate_intervals(root):
+    task = succeeds(invoke(root, "propose", "Task", "T"))
+    head = git(root, "rev-parse", "HEAD")
+    succeeds(invoke(root, "claim", task["id"], "--no-commit", agent="worker"))
+    succeeds(
+        invoke(
+            root,
+            "renew",
+            task["id"],
+            "--no-commit",
+            agent="worker",
+            now=NOW + timedelta(seconds=1),
+        )
+    )
+    succeeds(
+        invoke(
+            root,
+            "complete",
+            task["id"],
+            "done",
+            "--no-commit",
+            agent="worker",
+            now=NOW + timedelta(seconds=2),
+        )
+    )
+    assert git(root, "rev-parse", "HEAD") == head
+    with Project.open(root) as project:
+        events = project.history(
+            task["id"], actor=ALICE, now=NOW + timedelta(seconds=2)
+        )
+        assert [e["status"] for e in events if e["kind"] == "interval"] == [
+            "active",
+            "done",
+        ]
+        assert all(e["commit"] is None for e in events if e["kind"] == "approval")
+        (root / ".researchgraph/index.sqlite").unlink()
+        assert project.get_node(task["id"]).status == "done"

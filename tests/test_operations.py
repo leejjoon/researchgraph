@@ -537,7 +537,20 @@ def test_all_lifecycle_no_commit_callbacks_and_visibility(tmp_path):
 
 @pytest.mark.parametrize(
     "operation",
-    ["propose", "link", "approve", "reject", "supersede", "instruct", "retire"],
+    [
+        "propose",
+        "link",
+        "approve",
+        "reject",
+        "supersede",
+        "instruct",
+        "retire",
+        "claim",
+        "renew",
+        "release",
+        "complete",
+        "fail",
+    ],
 )
 def test_shared_error_precedence(project, operation):
     missing = "ta-zzzzzzzz"
@@ -549,6 +562,11 @@ def test_shared_error_precedence(project, operation):
         "supersede": (missing,),
         "instruct": (missing, "text"),
         "retire": (missing, "reason"),
+        "claim": (missing,),
+        "renew": (missing,),
+        "release": (missing,),
+        "complete": (missing, "done"),
+        "fail": (missing, "bad"),
     }[operation]
     kwargs = (
         {"edges": [{"type": "blocks", "to": missing}]} if operation == "propose" else {}

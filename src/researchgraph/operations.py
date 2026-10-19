@@ -1,13 +1,15 @@
-"""Candidate construction for proposal and revision lifecycle operations.
+"""Candidate construction for proposal, revision and execution operations.
 
 Builders run only inside Project's writer lock, after shared preflight. They
 modify private candidates, never caller objects or the file-authoritative state.
 """
 
 from copy import deepcopy
+from datetime import timedelta
 
 from researchgraph import model
-from researchgraph.model import Approval, Edge, Node, RuleViolation, Status
+from researchgraph.model import Approval, Edge, Lease, Node, RuleViolation, Status
+from researchgraph.queries import View
 from researchgraph.validation import gates_satisfied
 
 _RESERVED = frozenset({"supersedes", "explains", "instructs"})
@@ -249,4 +251,102 @@ def _retire(project, write, nodes, edges):
         for edge in edges.values()
         if not edge.retired and node.id in (edge.from_, edge.to)
     ]
+    return node.id, False
+
+
+def _execution_node(write, nodes, status, note=None):
+    node = deepcopy(nodes[write.args["node"]])
+    node.status = status
+    node.updated = write.now
+    node.approvals.append(Approval(write.actor, write.now, write.op, write.role, note))
+    write.nodes = [node]
+    return node
+
+
+def _lease_expiry(write):
+    seconds = write.args["lease_seconds"]
+    if type(seconds) is not int or seconds < 1:
+        raise RuleViolation("negative", "Lease duration must be a positive integer")
+    try:
+        return write.now + timedelta(seconds=seconds)
+    except OverflowError as exc:
+        raise RuleViolation("schema", "Lease duration exceeds timestamp range") from exc
+
+
+def _add_usage(node, usage):
+    if usage is None:
+        return
+    if not isinstance(usage, dict) or any(
+        key not in {"tokens", "compute_seconds"} or type(value) is not int
+        for key, value in usage.items()
+    ):
+        raise RuleViolation(
+            "schema", "Usage must contain integer accounting dimensions"
+        )
+    if any(value < 0 for value in usage.values()):
+        raise RuleViolation("negative", "Usage must be non-negative")
+    totals = dict(node.usage or {})
+    for key, value in usage.items():
+        totals[key] = totals.get(key, 0) + value
+    node.usage = totals or None
+
+
+def _claim(project, write, nodes, edges):
+    old = nodes[write.args["node"]]
+    if not View(project.profile, nodes, edges, write.now).ready(old):
+        raise RuleViolation("not_ready", "Node is not ready", [old.id])
+    expires = _lease_expiry(write)
+    node = _execution_node(write, nodes, Status.RUNNING)
+    node.lease = Lease(write.actor, write.now, expires)
+    return node.id, False
+
+
+def _renew(project, write, nodes, edges):
+    expires = _lease_expiry(write)
+    node = _execution_node(write, nodes, Status.RUNNING)
+    node.lease.expires_at = max(node.lease.expires_at, expires)
+    return node.id, False
+
+
+def _release(project, write, nodes, edges):
+    node = _execution_node(write, nodes, Status.ACTIVE, write.args["note"])
+    _add_usage(node, write.args["usage"])
+    node.lease = None
+    return node.id, False
+
+
+def _complete(project, write, nodes, edges):
+    node = _execution_node(write, nodes, Status.DONE, write.args["summary"])
+    node.artifacts.extend(
+        project._artifact_records(
+            write.args["artifacts"], node.id, write.actor, write.now
+        )
+    )
+    _add_usage(node, write.args["usage"])
+    node.lease = None
+    return node.id, False
+
+
+def _fail(project, write, nodes, edges):
+    node = _execution_node(write, nodes, Status.FAILED, write.args["summary"])
+    _add_usage(node, write.args["usage"])
+    node.lease = None
+    pending = set()
+    failure = _node(
+        project,
+        write,
+        pending,
+        "Failure",
+        ("Failure: " + node.title)[:200],
+        write.args["summary"],
+        {
+            key: write.args[key]
+            for key in ("step", "check", "measured", "error")
+            if write.args[key] is not None
+        },
+    )
+    write.nodes.append(failure)
+    write.edges.append(
+        _edge(project, write, pending, "explains", failure.id, node.id, {})
+    )
     return node.id, False

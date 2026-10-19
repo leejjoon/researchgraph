@@ -48,14 +48,19 @@ def source(project):
 
 
 def restore(project, type_, status, *, edges=(), **metadata):
-    """Restore T11 givens through the validated low-level import boundary."""
+    """Run claimable execution givens publicly; restore later metadata/legacy states."""
     definition = project.profile.node_type(type_)
     from researchgraph.model import new_id
 
     identifier = new_id(
         definition.prefix, lambda id: (project.path / f"graph/nodes/{id}.yaml").exists()
     )
-    if status == Status.RUNNING:
+    operational = definition.claimable and status in {
+        Status.RUNNING,
+        Status.DONE,
+        Status.FAILED,
+    }
+    if status == Status.RUNNING and not operational:
         metadata["lease"] = Lease(BOT, NOW, NOW + timedelta(hours=1))
     node = Node(
         identifier,
@@ -64,10 +69,19 @@ def restore(project, type_, status, *, edges=(), **metadata):
         "original body",
         ALICE,
         NOW,
-        status=status,
+        status=Status.ACTIVE if operational else status,
         **metadata,
     )
     project.apply(Write("import", ALICE, None, NOW, {}, [node], list(edges)))
+    if operational:
+        value = project.claim(identifier, lease_seconds=3600, actor=BOT, now=NOW)
+        if status == Status.DONE:
+            return project.complete(
+                identifier, "restored completion", actor=BOT, now=NOW
+            )
+        if status == Status.FAILED:
+            return project.fail(identifier, "restored failure", actor=BOT, now=NOW)
+        return value
     return node.to_dict()
 
 

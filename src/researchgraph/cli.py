@@ -297,3 +297,104 @@ def retire_command(ctx, node, reason, **local_options):
         local_options,
         lambda project, context: project.retire(node, reason, **context),
     )
+
+
+@main.command("claim")
+@click.argument("node")
+@click.option("--lease-seconds", type=int, default=7200, show_default=True)
+@_common_options
+@click.pass_context
+def claim_command(ctx, node, lease_seconds, **local_options):
+    """Claim ready NODE for a bounded lease."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.claim(
+            node, lease_seconds=lease_seconds, **context
+        ),
+    )
+
+
+@main.command("renew")
+@click.argument("node")
+@click.option("--lease-seconds", type=int, default=7200, show_default=True)
+@_common_options
+@click.pass_context
+def renew_command(ctx, node, lease_seconds, **local_options):
+    """Extend NODE's lease without shortening its remaining duration."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.renew(
+            node, lease_seconds=lease_seconds, **context
+        ),
+    )
+
+
+@main.command("release")
+@click.argument("node")
+@click.option("--note", default=None)
+@click.option("--usage", default=None)
+@_common_options
+@click.pass_context
+def release_command(ctx, node, note, usage, **local_options):
+    """Return running NODE to active, adding any metered usage."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.release(
+            node, note=note, usage=_json_argument(usage, "--usage"), **context
+        ),
+    )
+
+
+@main.command("complete")
+@click.argument("node")
+@click.argument("summary")
+@click.option("--artifact", "artifacts", multiple=True)
+@click.option("--usage", default=None)
+@_common_options
+@click.pass_context
+def complete_command(ctx, node, summary, artifacts, usage, **local_options):
+    """Complete running NODE, recording SUMMARY and optional artifact files."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.complete(
+            node,
+            summary,
+            artifacts=list(artifacts),
+            usage=_json_argument(usage, "--usage"),
+            **context,
+        ),
+    )
+
+
+@main.command("fail")
+@click.argument("node")
+@click.argument("summary")
+@click.option("--step", default=None)
+@click.option("--check", default=None)
+@click.option("--measured", default=None)
+@click.option("--error", default=None)
+@click.option("--usage", default=None)
+@_common_options
+@click.pass_context
+def fail_command(
+    ctx, node, summary, step, check, measured, error, usage, **local_options
+):
+    """Fail running NODE and create a Failure explaining SUMMARY."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.fail(
+            node,
+            summary,
+            step=step,
+            check=check,
+            measured=measured,
+            error=error,
+            usage=_json_argument(usage, "--usage"),
+            **context,
+        ),
+    )
