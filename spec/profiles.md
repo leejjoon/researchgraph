@@ -1,6 +1,6 @@
 # Profiles (normative)
 
-A profile is a Python package exposing an entry point in group `researchgraph.profiles` whose value is a `Profile` object. `Profile.register(profile)` adds one at runtime for the current process (used by tests for ad-hoc profiles); `Profile.load(name)` resolves registered profiles before entry points.
+A profile is a Python package exposing an entry point in group `researchgraph.profiles` whose value is a `Profile` object. `Profile.register(profile)` adds one at runtime for the current process (used by API tests for ad-hoc profiles); `Profile.load(name)` resolves registered profiles before entry points. The test suite also ships an installable `researchgraph-testprofiles` package exposing the ad-hoc profiles through entry points, so the CLI (subprocess) half of the suite can load them.
 
 ```python
 @dataclass

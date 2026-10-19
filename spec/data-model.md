@@ -10,7 +10,7 @@ A node is a YAML mapping with these keys, always written in this order. Keys mar
 | --- | --- | --- | --- |
 | `id` | string | yes | `<prefix>-<8 chars>` matching `^[a-z]{2,4}-[a-z2-7]{8}$`; prefix is the profile's code for the type (e.g. `hy`, `ta`, `cl`); the 8 chars are random from the lowercase RFC 4648 base32 alphabet `a-z2-7`. Never content-derived. On collision with an existing file, regenerate. |
 | `type` | string | yes | One of the profile's node types. |
-| `title` | string | yes | ≤ 200 chars, single line. |
+| `title` | string | yes | ≤ 200 chars, single line; violations raise `schema`. |
 | `body` | string | yes | Markdown. May be empty. |
 | `author` | Actor | yes | See *Actor* below. |
 | `created` | RFC 3339 timestamp | yes | UTC, whole seconds, `Z` suffix. |

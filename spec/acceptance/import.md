@@ -3,4 +3,4 @@
 2. When alice imports into a non-empty directory. Then RuleViolation `not_empty`.
 3. When the archive is not a researchgraph export. Then RuleViolation `bad_archive`.
 4. When the archive pins a profile version newer than installed. Then RuleViolation `profile_too_new`.
-5. Given an imported project whose archive recorded T1 `active` with an open interval. When agent1 claims T1. Then `status_intervals` has exactly one open interval for T1 (`running`), the archived `active` interval is closed at the claim commit, `--as-of <before the claim>` reports `active`, and the rows are identical after `rm index.sqlite`.
+5. Given an imported project whose archive recorded T1 `active` with an open interval. When agent1 claims T1 (once with `--commit`, once with `--no-commit`). Then in both cases `status_intervals` has exactly one open interval for T1 (`running`), the archived `active` interval is closed at the claim commit, `--as-of <before the claim>` reports `active`, and the rows are identical after `rm index.sqlite`.

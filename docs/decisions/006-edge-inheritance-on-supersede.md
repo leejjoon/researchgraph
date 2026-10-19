@@ -20,3 +20,4 @@ Retiring the old `supersedes` edge on repeated supersession broke `history` and 
 - Edge table in `data-model.md` gains an `inherit` column; `EdgeType` gains the attribute.
 - After a hypothesis is superseded, its replacement shows no supporting claims until someone re-asserts them with `link` (decision 007). That is the intended behaviour: evidence is re-linked explicitly. The old claims still point at the retired hypothesis, so `stale` and `evidence` keep working.
 - A three-generation supersession scenario is added to the acceptance suite.
+- Rejecting or retiring a proposed replacement X′ retires `supersedes X′ → X` like any other edge, so claims citing X stop being stale while X stays retired with no live replacement. This is intended: the supersession was withdrawn. `history` still follows the retired edge.
