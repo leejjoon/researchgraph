@@ -32,10 +32,16 @@ class Git:
             self.run("init")
 
     def head(self) -> str | None:
-        result = self.run("rev-parse", "--verify", "HEAD", check=False)
-        if result.returncode:
-            return None
-        return result.stdout.strip()
+        """Resolve HEAD and validate worktree membership in one git invocation."""
+        result = self.run(
+            "rev-parse", "--is-inside-work-tree", "--verify", "HEAD", check=False
+        )
+        lines = result.stdout.splitlines()
+        if not lines or lines[0] != "true":
+            raise RuleViolation("invalid_project", "Project is not in a git worktree")
+        # An unborn branch is still a valid worktree; rev-parse prints its
+        # membership before reporting that HEAD is not yet a revision.
+        return lines[1] if result.returncode == 0 else None
 
     def check_clock(self, now: datetime) -> None:
         # Validate precision/zone even for an unborn branch.

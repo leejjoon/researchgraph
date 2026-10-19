@@ -201,3 +201,20 @@ def test_load_rejects_non_mapping_documents(text, tmp_path):
         load_node(path)
     with pytest.raises(TypeError, match="must be a mapping"):
         load_edge(path)
+
+
+@pytest.mark.parametrize(
+    "loader", [yaml.SafeLoader] + ([yaml.CSafeLoader] if yaml.__with_libyaml__ else [])
+)
+def test_safe_reader_backend_parity(loader, monkeypatch):
+    from researchgraph.store import io
+
+    monkeypatch.setattr(io, "_SAFE_LOADER", loader)
+    for name in ("node.yaml", "scalars.yaml", "edge.yaml"):
+        path = FIXTURES / name
+        load, dump = (
+            (load_edge, dump_edge) if name == "edge.yaml" else (load_node, dump_node)
+        )
+        assert dump(load(path)).encode() == path.read_bytes()
+    with pytest.raises(yaml.YAMLError):
+        io._load_mapping('!!python/object/apply:os.system ["false"]')

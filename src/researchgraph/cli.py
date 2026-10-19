@@ -73,7 +73,7 @@ def init_command(ctx, path, profile, **local_options):
         except (TypeError, ValueError) as exc:
             raise RuleViolation("schema", f"Invalid --now: {exc}") from exc
         actor = None if options["read_only"] else _actor(root, options["as_agent"])
-        project = Project.init(
+        with Project.init(
             root,
             profile=profile,
             actor=actor,
@@ -81,12 +81,12 @@ def init_command(ctx, path, profile, **local_options):
             now=now,
             commit=options["commit"] is not False,
             read_only=bool(options["read_only"]),
-        )
-        result = {
-            "path": str(project.path),
-            "profile": project.profile_name,
-            "version": project.profile_version,
-        }
+        ) as project:
+            result = {
+                "path": str(project.path),
+                "profile": project.profile_name,
+                "version": project.profile_version,
+            }
         click.echo(
             json.dumps(result)
             if options["json_output"]

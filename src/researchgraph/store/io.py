@@ -147,12 +147,21 @@ def _dump(mapping, keys):
     )
 
 
-def _load(path):
-    with Path(path).open("r", encoding="utf-8") as stream:
-        result = yaml.safe_load(stream)
+# PyYAML exposes the same safe YAML 1.1 constructors in its optional native
+# parser. Keep identical semantics when installed without the native extension.
+_SAFE_LOADER = yaml.CSafeLoader if yaml.__with_libyaml__ else yaml.SafeLoader
+
+
+def _load_mapping(source):
+    result = yaml.load(source, Loader=_SAFE_LOADER)
     if not isinstance(result, dict):
         raise TypeError("A graph YAML document must be a mapping")
     return result
+
+
+def _load(path):
+    with Path(path).open("r", encoding="utf-8") as stream:
+        return _load_mapping(stream)
 
 
 def load_node(path: str | PathLike[str]) -> dict:

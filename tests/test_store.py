@@ -3,7 +3,6 @@
 import hashlib
 import json
 import multiprocessing
-import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,51 +19,11 @@ from researchgraph.model import (
     Edge,
     Node,
     RuleViolation,
-    Status,
-    Write,
 )
 from researchgraph.profiles import Profile
 from researchgraph.project import Project
 from researchgraph.store import transaction
-
-NOW = datetime(2026, 10, 20, tzinfo=UTC)
-ALICE = Actor("human", "alice", "alice@example.test")
-
-
-def git(path, *args):
-    return subprocess.run(
-        ["git", "-C", str(path), *args], check=True, capture_output=True, text=True
-    ).stdout.strip()
-
-
-def repository(path):
-    path.mkdir(parents=True, exist_ok=True)
-    git(path, "init")
-    git(path, "config", "user.name", "Alice Git")
-    git(path, "config", "user.email", "alice@git.test")
-    git(path, "config", "commit.gpgsign", "false")
-    return path
-
-
-@pytest.fixture
-def project(tmp_path):
-    repository(tmp_path)
-    return Project.init(tmp_path, actor=ALICE, now=NOW)
-
-
-def node(id="ta-aaaaaaaa", **kwargs):
-    return Node(id, "Task", "A task", "", ALICE, NOW, status=Status.ACTIVE, **kwargs)
-
-
-def write(*nodes, edges=(), now=NOW, op="propose", args=None):
-    return Write(op, ALICE, None, now, args or {}, list(nodes), list(edges))
-
-
-def refusal(rule, fn, *args, **kwargs):
-    with pytest.raises(RuleViolation) as error:
-        fn(*args, **kwargs)
-    assert error.value.rule == rule
-    return error.value
+from tests.helpers import ALICE, NOW, git, node, refusal, repository, write
 
 
 @given(
@@ -90,7 +49,8 @@ def test_init_layout_pin_and_commit(project):
     ).read_bytes() == b'name: research\nversion: "1.0"\n'
     for name in ("graph/nodes", "graph/edges", "artifacts"):
         assert (path / name).is_dir()
-    assert not (path / ".researchgraph/index.sqlite").exists()
+    assert (path / ".researchgraph/index.sqlite").exists()
+    assert Project.open(path).get_nodes() == []
     assert (
         path / ".gitignore"
     ).read_bytes() == b".researchgraph/index.sqlite\n.researchgraph/lock\n"
@@ -573,3 +533,22 @@ def test_root_public_project_and_actor_contracts():
     assert researchgraph.Project is Project
     assert researchgraph.Actor is Actor
     assert researchgraph.RuleViolation is RuleViolation
+
+
+def test_read_rejects_removed_git_metadata_even_with_warm_index(project):
+    project.get_nodes()
+    (project.path / ".git").rename(project.path / ".git-removed")
+    refusal("invalid_project", project.get_nodes)
+
+
+def test_project_context_releases_index_and_is_terminal(project):
+    import sqlite3
+
+    with Project.open(project.path) as opened:
+        connection = opened.index.connection
+        assert opened.get_nodes() == []
+    opened.close()
+    with pytest.raises(sqlite3.ProgrammingError):
+        connection.execute("select 1")
+    with pytest.raises(ValueError, match="closed"):
+        opened.get_nodes()

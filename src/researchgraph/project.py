@@ -1,6 +1,7 @@
 """File-backed projects and the shared low-level write boundary."""
 
 import re
+import sqlite3
 import subprocess
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
@@ -20,6 +21,7 @@ from researchgraph.model import (
 )
 from researchgraph.profiles import Profile, version_tuple
 from researchgraph.store.git import Git
+from researchgraph.store.index import Index
 from researchgraph.store.io import dump_edge, dump_node, load_edge, load_node
 from researchgraph.store.transaction import atomic_write, write_lock
 
@@ -33,7 +35,10 @@ class Project:
         self.profile_name = profile.name
         self.profile_version = version
         self.read_only = read_only
+        self._closed = False
         self._git = Git(path)
+        self._pin_bytes = None
+        self.index = Index(self)
 
     @classmethod
     def open(cls, path, read_only=False) -> "Project":
@@ -42,8 +47,29 @@ class Project:
             raise RuleViolation("project_not_found", f"Project not found: {root}")
         profile, version = cls._load_profile(root)
         project = cls(root, profile, version, read_only)
-        project._refresh()
+        project._pin_bytes = (root / ".researchgraph/profile.yaml").read_bytes()
+        try:
+            project._refresh()
+        except BaseException:
+            project.close()
+            raise
         return project
+
+    def close(self):
+        """Release the disposable index and its private file-hashing helpers."""
+        if not self._closed:
+            try:
+                self.index.close()
+            finally:
+                self._closed = True
+
+    def __enter__(self):
+        if self._closed:
+            raise ValueError("Project is closed")
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
 
     @staticmethod
     def _load_profile(root):
@@ -75,13 +101,11 @@ class Project:
             ) from exc
 
     def _refresh(self):
-        """Public-entry refresh boundary; T06 can extend it with index refresh.
-
-        Currently reads only source layout/pin, never creates a cache or lock.
-        Rechecking the pin also catches a long-lived project's profile changing.
-        """
-        if not self._git.exists():
-            raise RuleViolation("invalid_project", "Project is not in a git repository")
+        """Refresh profile bytes and the disposable index without a writer lock."""
+        if self._closed:
+            raise ValueError("Project is closed")
+        # The mandatory index content scan validates worktree membership while
+        # reading HEAD, avoiding a second git subprocess for every read.
         for relative in (".researchgraph", "graph", "graph/nodes", "graph/edges"):
             path = self._safe_path(relative)
             # Git does not preserve empty graph directories. Missing graph
@@ -90,10 +114,19 @@ class Project:
                 raise RuleViolation(
                     "invalid_project", f"Invalid project directory: {relative}"
                 )
-        profile, version = self._load_profile(self.path)
-        if (profile.name, version) != (self.profile_name, self.profile_version):
+        pin = self._safe_path(".researchgraph/profile.yaml")
+        try:
+            pin_bytes = pin.read_bytes()
+        except OSError as exc:
+            raise RuleViolation(
+                "invalid_project", f"Invalid profile pin: {exc}"
+            ) from exc
+        if pin_bytes != self._pin_bytes:
+            profile, version = self._load_profile(self.path)
             self.profile = profile
             self.profile_name, self.profile_version = profile.name, version
+            self._pin_bytes = pin_bytes
+        self.index.refresh()
 
     @classmethod
     def init(
@@ -199,6 +232,7 @@ class Project:
             raise RuleViolation(
                 "write_failed", f"Initialisation failed: {exc}", paths
             ) from exc
+        project._refresh()
         return project
 
     @staticmethod
@@ -252,21 +286,15 @@ class Project:
     def get_node(self, id: str) -> Node:
         self._refresh()
         self._identifier(id)
-        return self._read(f"graph/nodes/{id}.yaml")
+        return self.index.get_node(id)
 
     def get_nodes(self) -> list[Node]:
         self._refresh()
-        return [
-            self._read(f"graph/nodes/{path.name}")
-            for path in sorted((self.path / "graph/nodes").glob("*.yaml"))
-        ]
+        return self.index.get_nodes()
 
     def get_edges(self) -> list[Edge]:
         self._refresh()
-        return [
-            self._read(f"graph/edges/{path.name}", edge=True)
-            for path in sorted((self.path / "graph/edges").glob("*.yaml"))
-        ]
+        return self.index.get_edges()
 
     @staticmethod
     def _actor(actor):
@@ -501,9 +529,9 @@ class Project:
         if self.read_only:
             raise RuleViolation("read_only", "Project is read-only")
         self._git.check_clock(write.now)
-        self._refresh()
         paths = []
         try:
+            self._refresh()
             with write_lock(self.path):
                 self._git.check_clock(write.now)
                 self._refresh()
@@ -528,10 +556,12 @@ class Project:
                 for relative in files:
                     self._safe_path(relative).parent.mkdir(parents=True, exist_ok=True)
                 atomic_write(self.path, files)
+                self.index.refresh()
                 if not commit:
                     return None
                 commit_id = self._commit(paths, change)
+                self.index.refresh()
                 self._events(change, commit_id)
                 return commit_id
-        except (OSError, subprocess.SubprocessError) as exc:
+        except (OSError, sqlite3.Error, subprocess.SubprocessError) as exc:
             raise RuleViolation("write_failed", f"Write failed: {exc}", paths) from exc
