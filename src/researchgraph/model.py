@@ -11,6 +11,8 @@ from typing import Any
 
 
 class Status(StrEnum):
+    """Stored node lifecycle values, not derived readiness or blocking states."""
+
     PROPOSED = "proposed"
     ACTIVE = "active"
     RUNNING = "running"
@@ -20,6 +22,8 @@ class Status(StrEnum):
 
 
 class Inheritance(StrEnum):
+    """Edge inheritance modes on supersede: both directions, outgoing, or none."""
+
     BOTH = "both"
     OUTGOING = "outgoing"
     NONE = "none"
@@ -38,7 +42,10 @@ _BASE32 = "abcdefghijklmnopqrstuvwxyz234567"
 
 
 class RuleViolation(Exception):
-    """A refusal with a stable rule name and the affected graph identifiers."""
+    """A refusal carrying a stable rule, message, and copied affected-id list.
+
+    ``ids=None`` creates an empty list; ``message`` is also the exception text.
+    """
 
     def __init__(self, rule: str, message: str, ids: list[str] | None = None):
         super().__init__(message)
@@ -57,7 +64,11 @@ def _utc(value: datetime) -> datetime:
 
 
 def parse_timestamp(value: str) -> datetime:
-    """Parse whole-second RFC 3339 with an explicit offset, normalising to UTC."""
+    """Return an aware UTC datetime from whole-second RFC 3339 text.
+
+    Require a ``Z`` or numeric offset; reject fractions, invalid dates, and
+    invalid offsets with ValueError. No graph timestamp policy is checked.
+    """
     if not _TIMESTAMP.fullmatch(value):
         raise ValueError("Timestamp must be whole-second RFC 3339 with an offset")
     # datetime accepts offsets >= 24 hours only by raising ValueError, but also
@@ -68,12 +79,21 @@ def parse_timestamp(value: str) -> datetime:
 
 
 def format_timestamp(value: datetime) -> str:
-    """Format an aware, whole-second datetime as canonical UTC with a Z suffix."""
+    """Return canonical UTC RFC 3339 text ending in ``Z``.
+
+    Convert an aware datetime's offset to UTC; raise ValueError for naive
+    datetimes or nonzero microseconds rather than rounding them.
+    """
     return _utc(value).isoformat().replace("+00:00", "Z")
 
 
 def new_id(prefix: str, exists_callback: Callable[[str], bool]) -> str:
-    """Generate a random base32 identifier, retrying existing identifiers."""
+    """Return ``prefix-`` plus eight random lowercase base32 characters.
+
+    Require two to four lowercase ASCII prefix letters or raise ValueError.
+    Retry while ``exists_callback(candidate)`` is truthy; this does not reserve
+    the identifier, and callback errors propagate.
+    """
     if re.fullmatch(r"[a-z]{2,4}", prefix) is None:
         raise ValueError("Identifier prefix must be 2–4 lowercase letters")
     while True:
@@ -84,6 +104,14 @@ def new_id(prefix: str, exists_callback: Callable[[str], bool]) -> str:
 
 @dataclass(frozen=True)
 class Actor:
+    """Frozen declared identity with required ``kind`` and ``name`` strings.
+
+    Optional email, model, and version default to None and do not participate
+    in equality or hashing: identity is the kind/name pair. Construction does
+    not validate kind values or authenticate the actor; roles live on writes
+    and approvals, not on this record.
+    """
+
     kind: str
     name: str
     email: str | None = field(default=None, compare=False)
@@ -91,6 +119,7 @@ class Actor:
     version: str | None = field(default=None, compare=False)
 
     def to_dict(self) -> dict:
+        """Return kind/name and optional email/model/version, omitting None values."""
         return {
             key: value
             for key, value in (
@@ -105,6 +134,11 @@ class Actor:
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "Actor":
+        """Read required kind/name and optional identity metadata without validation.
+
+        Missing optional keys become None; unknown keys are ignored. Values
+        are passed through, not copied, and missing required keys raise KeyError.
+        """
         return cls(
             value["kind"],
             value["name"],
@@ -116,6 +150,12 @@ class Actor:
 
 @dataclass
 class Approval:
+    """Event record containing actor, timestamp ``at``, and operation ``what``.
+
+    The per-call declared role and explanatory note both default to None.
+    Construction does not enforce approval permissions or event vocabulary.
+    """
+
     actor: Actor
     at: datetime
     what: str
@@ -123,6 +163,11 @@ class Approval:
     note: str | None = None
 
     def to_dict(self) -> dict:
+        """Return actor/at/what with UTC time and omit None role and note values.
+
+        Actor serialization creates a mapping; timestamp formatting can raise
+        ValueError for a naive or subsecond ``at``.
+        """
         result = {"actor": self.actor.to_dict()}
         if self.role is not None:
             result["role"] = self.role
@@ -134,6 +179,11 @@ class Approval:
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "Approval":
+        """Read actor/at/what, parsing UTC time, with optional role and note.
+
+        Ignore extra keys; missing required keys raise KeyError and malformed
+        timestamps raise ValueError. No permission or operation check is made.
+        """
         return cls(
             actor=Actor.from_dict(value["actor"]),
             at=parse_timestamp(value["at"]),
@@ -145,6 +195,12 @@ class Approval:
 
 @dataclass
 class Artifact:
+    """Artifact metadata: path, sha256, byte count, added_at, and added_by.
+
+    Every field is required. This record neither reads the artifact nor checks
+    its path, digest, size, or attribution; write validators enforce policy.
+    """
+
     path: str
     sha256: str
     bytes: int
@@ -152,6 +208,11 @@ class Artifact:
     added_by: Actor
 
     def to_dict(self) -> dict:
+        """Return all five metadata keys with UTC added_at and an actor mapping.
+
+        Timestamp formatting raises ValueError for naive or subsecond times;
+        no artifact bytes are read or hashed.
+        """
         return {
             "path": self.path,
             "sha256": self.sha256,
@@ -162,6 +223,11 @@ class Artifact:
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "Artifact":
+        """Read required metadata keys, parsing added_at and rebuilding added_by.
+
+        Extra keys are ignored; missing keys raise KeyError and invalid time
+        text raises ValueError. Path, digest, and byte count pass through.
+        """
         return cls(
             path=value["path"],
             sha256=value["sha256"],
@@ -173,11 +239,20 @@ class Artifact:
 
 @dataclass
 class Lease:
+    """Required holder actor, acquired_at, and expires_at for a work lease.
+
+    Construction does not check timestamp ordering, duration, or node status.
+    """
+
     actor: Actor
     acquired_at: datetime
     expires_at: datetime
 
     def to_dict(self) -> dict:
+        """Return actor, acquired_at, and expires_at with canonical UTC times.
+
+        Naive or subsecond timestamps raise ValueError during formatting.
+        """
         return {
             "actor": self.actor.to_dict(),
             "acquired_at": format_timestamp(self.acquired_at),
@@ -186,6 +261,11 @@ class Lease:
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "Lease":
+        """Rebuild the required actor and parse both required lease timestamps.
+
+        Ignore extra keys; missing keys raise KeyError and invalid timestamps
+        raise ValueError. Expiry ordering is not validated here.
+        """
         return cls(
             actor=Actor.from_dict(value["actor"]),
             acquired_at=parse_timestamp(value["acquired_at"]),
@@ -205,6 +285,15 @@ def _dimensions(value: Mapping | None) -> dict | None:
 
 @dataclass(slots=True, weakref_slot=True)
 class Node:
+    """Graph node record; policy validation is separate from construction.
+
+    Required fields are id, type, title, body, author, and created. Fields is a
+    fresh mapping; status defaults to PROPOSED, and updated defaults to created
+    when None. Approvals, artifacts, and tags are fresh lists. Budget and usage
+    are optional token/compute_seconds mappings; priority and lease also default
+    to None. Graph immutability and lifecycle rules are not enforced here.
+    """
+
     id: str
     type: str
     title: str
@@ -227,6 +316,13 @@ class Node:
             self.updated = self.created
 
     def to_dict(self) -> dict:
+        """Return every node key, including None-valued optional fields.
+
+        Deep-copy fields, copy tags, serialize nested records and UTC times,
+        and stringify status. Budget/usage retain only non-None tokens and
+        compute_seconds, becoming None if empty; their values are not deep-copied.
+        Invalid naive or subsecond timestamps raise ValueError.
+        """
         return {
             "id": self.id,
             "type": self.type,
@@ -248,6 +344,16 @@ class Node:
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "Node":
+        """Rebuild a node from required identity/content/author/created keys.
+
+        Parse timestamps and Status, deep-copy fields, rebuild nested records,
+        and copy tags. Missing status becomes PROPOSED; absent or null updated
+        becomes created. Missing fields/lists use empty containers; absent
+        budget, usage, priority, or lease becomes None. Budget/usage keep only
+        non-null tokens/compute_seconds values without deep-copying them.
+        Extra keys are ignored. Missing required keys raise KeyError; invalid
+        timestamps or status values raise ValueError. No graph policy is checked.
+        """
         created = parse_timestamp(value["created"])
         return cls(
             id=value["id"],
@@ -275,6 +381,13 @@ class Node:
 
 @dataclass
 class Edge:
+    """Directed graph edge with required id, type, from_, to, author, and created.
+
+    Fields defaults to a fresh mapping; retired defaults to False and retired_at
+    to None. ``from_`` maps to the stored ``from`` key. Construction does not
+    check endpoints, inheritance, retirement consistency, or graph invariants.
+    """
+
     id: str
     type: str
     from_: str
@@ -286,6 +399,11 @@ class Edge:
     retired_at: datetime | None = None
 
     def to_dict(self) -> dict:
+        """Return all edge keys, using ``from`` for from_ and copying fields deeply.
+
+        Serialize author and UTC times; retain retired_at=None. Naive or
+        subsecond timestamps raise ValueError during formatting.
+        """
         return {
             "id": self.id,
             "type": self.type,
@@ -302,6 +420,13 @@ class Edge:
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "Edge":
+        """Rebuild required edge identity/endpoints/author/created from a mapping.
+
+        Deep-copy fields (empty when absent); default retired to False and
+        absent or null retired_at to None. Ignore extra keys. Missing required
+        keys raise KeyError and malformed timestamps raise ValueError; endpoint
+        and retirement policy is not validated.
+        """
         return cls(
             id=value["id"],
             type=value["type"],
@@ -319,6 +444,13 @@ class Edge:
 
 @dataclass
 class Write:
+    """Validator-facing write proposal with operation, actor, role, time, and args.
+
+    All constructor arguments are required; role may be None. Nodes and edges
+    contain new or changed records as they will be after the write, not the
+    complete graph. Construction does not execute or validate the proposal.
+    """
+
     op: str
     actor: Actor
     role: str | None
@@ -328,6 +460,11 @@ class Write:
     edges: list[Edge]
 
     def to_dict(self) -> dict:
+        """Return op/actor/role/now/args/nodes/edges, retaining a None role.
+
+        Deep-copy args, serialize each graph record, and format now in UTC.
+        Invalid naive or subsecond record timestamps raise ValueError.
+        """
         return {
             "op": self.op,
             "actor": self.actor.to_dict(),
@@ -340,6 +477,13 @@ class Write:
 
     @classmethod
     def from_dict(cls, value: Mapping) -> "Write":
+        """Rebuild a write from required op/actor/now/args/nodes/edges keys.
+
+        Missing role becomes None; args is deep-copied and nested records are
+        rebuilt by their conversion helpers. Ignore extra keys. Missing required
+        keys raise KeyError; invalid timestamps or node statuses raise ValueError.
+        No operation is executed and no write policy is checked.
+        """
         return cls(
             op=value["op"],
             actor=Actor.from_dict(value["actor"]),

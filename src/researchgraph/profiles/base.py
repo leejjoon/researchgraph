@@ -15,6 +15,13 @@ from researchgraph.model import RuleViolation, Write
 
 @dataclass
 class NodeType:
+    """Declare a node name, id prefix, fields schema, and claimability.
+
+    Claimable defaults to False. Registration/loading checks unique names and
+    two-to-four-letter lowercase prefixes, closes the schema, and validates
+    supported defaults; constructing this declaration alone does not validate it.
+    """
+
     name: str
     prefix: str
     schema: dict
@@ -23,6 +30,14 @@ class NodeType:
 
 @dataclass
 class EdgeType:
+    """Declare edge name, allowed (source type, target type) pairs, and schema.
+
+    Endpoint names may be ``*`` wildcards. Schema defaults to a fresh empty
+    mapping (no fields after loading closes it); inherit defaults to outgoing
+    and may be both, outgoing, or none. Loading preserves core endpoint pairs
+    while allowing a replacement schema or inheritance policy.
+    """
+
     name: str
     allowed: list[tuple[str, str]]
     schema: dict = field(default_factory=dict)
@@ -31,6 +46,15 @@ class EdgeType:
 
 @dataclass
 class Gate:
+    """Declare an activation approval requirement for a node type or ``*``.
+
+    Defaults are transition=activate, node_type=*, roles=[human] (a fresh list),
+    and agents_allowed=False. Loading rejects other transitions. Every matching
+    gate must be satisfied: human/agent role markers match actor kinds, while
+    other roles match the per-call declared role; agents additionally require
+    agents_allowed. Roles are declarations, not authenticated permissions.
+    """
+
     transition: str = "activate"
     node_type: str = "*"
     roles: list[str] = field(default_factory=lambda: ["human"])
@@ -70,7 +94,12 @@ CORE_EDGE_TYPES = (
 
 
 def version_tuple(version: str) -> tuple[int, ...]:
-    """Parse the dotted integer ordering used for pinned profile versions."""
+    """Return integer components for ordinary tuple comparison of versions.
+
+    Accept one or more ASCII integer components separated by dots, including
+    leading zeroes. Raise RuleViolation(rule="schema") for any other input.
+    No padding is added: ``1`` and ``1.0`` produce tuples of different lengths.
+    """
     if (
         not isinstance(version, str)
         or re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", version) is None
@@ -158,6 +187,23 @@ def _prepare_schema(schema):
 
 @dataclass
 class Profile:
+    """Declarative types, gates, roles, and callbacks for a project profile.
+
+    Name, dotted-integer version, node_types, edge_types, gates, roles, and
+    validators are required. Validators receive (project, Write) and refuse by
+    raising RuleViolation. Roles are self-declared labels; this loader checks
+    nonempty strings, not gate-role membership in this list.
+
+    Expansion_hook defaults to None and is not called by core. Renderers and
+    migrations (from-version to callable) default to fresh mappings; event_hooks
+    defaults to a fresh list of (project, Write, commit-id) callbacks run after
+    committed writes. Agent_guidance defaults to an empty string. Renderers and
+    migrations are reserved consumer/future integration data (see spec/profiles.md).
+
+    Construction merely stores declarations. Register/load isolate them by deep
+    copy, add core edge types, validate declarations, and normalize field schemas.
+    """
+
     name: str
     version: str
     node_types: list[NodeType]
@@ -177,13 +223,32 @@ class Profile:
 
     @classmethod
     def register(cls, profile: "Profile") -> None:
-        """Validate and snapshot a runtime profile; registration wins over metadata."""
+        """Validate a deep copy and register it by name for this process; return None.
+
+        Replace any prior registration of that name and take precedence over
+        installed entry points. The supplied object is not modified. Apply the
+        same core-edge, closed-schema, and default checks as load; validation
+        failures raise RuleViolation without replacing the registered value.
+        """
         validated = cls._validated_copy(profile)
         cls._registry[validated.name] = validated
 
     @classmethod
     def load(cls, name: str) -> "Profile":
-        """Resolve a registered or installed profile, returning an isolated copy."""
+        """Return a validated deep copy from the registry or an installed entry point.
+
+        Registered names win; otherwise use the first matching entry in the
+        ``researchgraph.profiles`` metadata group, whose value must be a Profile.
+        Raise unknown_profile when no name matches; entry-point import errors
+        propagate. Invalid declarations raise RuleViolation (usually schema).
+
+        Include all core edges, preserving their endpoints. Close root fields
+        schemas with additionalProperties=False and default their type to object.
+        Reject schema defaults outside direct root properties with
+        unsupported_schema_default before checking values; null or invalid
+        supported defaults raise invalid_schema_default. Unsupported gate
+        transitions raise unsupported_gate_transition. See spec/profiles.md.
+        """
         if name in cls._registry:
             return cls._validated_copy(cls._registry[name])
         for entry in metadata.entry_points(group="researchgraph.profiles"):
@@ -285,12 +350,21 @@ class Profile:
         return result
 
     def node_type(self, name: str) -> NodeType:
+        """Return the first matching node declaration, not a copy.
+
+        Raise RuleViolation(rule="unknown_type") when name is not declared.
+        """
         for node in self.node_types:
             if node.name == name:
                 return node
         raise RuleViolation("unknown_type", f"Unknown node type: {name}")
 
     def edge_type(self, name: str) -> EdgeType:
+        """Return the first matching edge declaration, not a copy.
+
+        Loaded profiles include core edges. Raise RuleViolation(rule="unknown_type")
+        when name is not declared.
+        """
         for edge in self.edge_types:
             if edge.name == name:
                 return edge
@@ -299,7 +373,18 @@ class Profile:
     def normalize_fields(
         self, type_name: str, fields: Mapping, *, edge: bool = False
     ) -> dict:
-        """Drop root nulls, copy absent root defaults, validate the whole mapping."""
+        """Return normalized fields for a node type, or an edge when edge=True.
+
+        Require a Mapping, discard root entries whose value is None, deep-copy
+        the remaining values, and insert deep-copied direct-property defaults
+        only for absent keys. Do not recursively materialize nested defaults or
+        replace supplied non-null values. Validate the entire resulting mapping
+        against the selected schema without mutating inputs or schema.
+
+        Unknown types raise unknown_type; non-mappings and JSON Schema validation
+        failures raise RuleViolation(rule="schema"). Registration/loading must
+        have prepared the schema and checked default locations and values.
+        """
         schema = (
             self.edge_type(type_name) if edge else self.node_type(type_name)
         ).schema
@@ -320,5 +405,11 @@ class Profile:
         return result
 
     def gates_for(self, type_name: str) -> list[Gate]:
+        """Return matching wildcard and type-specific gates in declaration order.
+
+        The list is new but contains the original Gate objects, not copies.
+        Check the node type first and raise unknown_type if undeclared. This
+        selects requirements only; it does not evaluate approval satisfaction.
+        """
         self.node_type(type_name)
         return [gate for gate in self.gates if gate.node_type in ("*", type_name)]

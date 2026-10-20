@@ -9,10 +9,24 @@ from researchgraph.model import Actor, RuleViolation, format_timestamp
 
 
 class Git:
+    """Run local Git commands at a caller-owned project directory.
+
+    Commands use literal pathspecs, capture text output, and do not change the
+    Python process's working directory. Construction does not create a repo.
+    """
+
     def __init__(self, path: Path):
+        """Retain the project path without resolving or validating it."""
         self.path = path
 
     def run(self, *arguments: str, env=None, check=True):
+        """Return a captured text CompletedProcess for the supplied Git arguments.
+
+        ``env`` overlays the process environment when supplied. By default a
+        nonzero exit raises CalledProcessError carrying stdout and stderr;
+        ``check=False`` leaves exit-status handling to the caller. Process
+        startup errors propagate unchanged.
+        """
         return subprocess.run(
             ["git", "--literal-pathspecs", "-C", str(self.path), *arguments],
             capture_output=True,
@@ -22,17 +36,32 @@ class Git:
         )
 
     def exists(self) -> bool:
+        """Return whether the path is a directory inside a Git worktree.
+
+        A failed Git probe returns False; process startup errors still propagate.
+        """
         if not self.path.is_dir():
             return False
         result = self.run("rev-parse", "--is-inside-work-tree", check=False)
         return result.returncode == 0 and result.stdout.strip() == "true"
 
     def init(self) -> None:
+        """Run git init at the path only when no worktree is detected.
+
+        The directory must already be usable by Git; command failures propagate.
+        """
         if not self.exists():
             self.run("init")
 
     def head(self, *, before_wait=None) -> str | None:
-        """Resolve HEAD, confirming absence rather than hiding Git failures."""
+        """Return the resolved HEAD identifier, or None for a confirmed unborn ref.
+
+        Call ``before_wait`` without arguments after starting the HEAD probe and
+        before collecting its output. A non-worktree raises invalid_project;
+        other resolution failures raise OSError chained from CalledProcessError
+        with the probe's stdout and stderr. A failed resolution alone is never
+        treated as an unborn branch. Startup and callback errors propagate.
+        """
         with subprocess.Popen(
             [
                 "git",
@@ -79,6 +108,13 @@ class Git:
         ) from failure
 
     def check_clock(self, now: datetime) -> None:
+        """Validate write-time precision and zone, then compare with HEAD's clock.
+
+        Invalid timestamps raise a schema RuleViolation, even without commits.
+        A time earlier than HEAD's committer time raises clock_skew. Missing
+        worktrees and confirmed unborn branches have no HEAD clock to compare;
+        Git resolution and command errors otherwise propagate.
+        """
         # Validate precision/zone even for an unborn branch.
         try:
             format_timestamp(now)
@@ -90,6 +126,11 @@ class Git:
                 raise RuleViolation("clock_skew", "Write time is earlier than HEAD")
 
     def human_actor(self) -> Actor:
+        """Build a human Actor from Git's effective user.name and user.email.
+
+        Both stripped configuration values are required; missing or empty values
+        raise a schema RuleViolation. Process startup errors propagate.
+        """
         name = self.run("config", "user.name", check=False).stdout.strip()
         email = self.run("config", "user.email", check=False).stdout.strip()
         if not name or not email:
@@ -99,6 +140,14 @@ class Git:
     def commit(
         self, paths: list[str], message: str, actor: Actor, now: datetime
     ) -> str:
+        """Stage and commit the literal paths, returning the new HEAD identifier.
+
+        Commit working-tree versions of only these paths, retaining unrelated
+        staged changes. Human identity comes from Git config; other actors use
+        their name and a generated agents.researchgraph email. Both author and
+        committer use that identity and ``now``. Timestamp, identity, and Git
+        errors propagate; staging can already have occurred when commit fails.
+        """
         identity = (
             self.human_actor()
             if actor.kind == "human"

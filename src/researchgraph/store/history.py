@@ -62,11 +62,21 @@ def _merge_intervals(intervals, native, pending=()):
 
 
 def record_key(record):
+    """Return a compact, sorted-key JSON string for a serializable record.
+
+    Unicode is retained rather than ASCII-escaped. Serialization errors
+    propagate; this key identifies approval and artifact content in provenance.
+    """
     return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def intervals_as_dicts(connection):
-    """Return export-shaped rows with canonical times and ordered keys."""
+    """Read stored intervals as six-key dictionaries ordered by node, time, status.
+
+    Values, including canonical timestamp strings, are taken from the database
+    unchanged. Close the query cursor but leave the caller's connection open;
+    database errors propagate.
+    """
     with closing(connection.cursor()) as cursor:
         cursor.execute(
             "SELECT node_id,status,from_commit,from_time,to_commit,to_time "
@@ -76,7 +86,15 @@ def intervals_as_dicts(connection):
 
 
 class History:
+    """Project status intervals and first-seen record provenance from local Git.
+
+    Cache the native walk by HEAD, not mutable metadata or the current archive.
+    Archive commit identifiers remain opaque provenance and need not resolve in
+    this repository. The caller supplies the Git wrapper and current nodes.
+    """
+
     def __init__(self, git):
+        """Retain the Git wrapper and initialize an empty, not-yet-walked cache."""
         self.git = git
         self.head = object()
         self.transitions = []
@@ -195,7 +213,25 @@ class History:
         self.last_walk_seconds = perf_counter() - started
 
     def project(self, nodes, head):
-        """Recompute archive union and pending projection; cache only the HEAD walk."""
+        """Return merged six-field interval tuples and cached record provenance.
+
+        Tuple fields are node_id, status, from_commit, from_time, to_commit,
+        to_time; an open interval has no ending commit or time.
+        ``nodes`` supplies current node statuses and updated times; ``head`` is
+        the native commit to walk, or None for no committed history. Reread the
+        archive on every call, normalize its timestamps, and union its intervals
+        with native transitions. When an archive exists, omit native import
+        transitions. Current statuses differing from the committed or archived
+        baseline add pending intervals with no commit and the node's updated
+        time, closing preceding open intervals at that boundary.
+
+        Provenance maps (kind, node ID, zero-based ordinal, record JSON key) to
+        the first walked native commit containing each approval or artifact;
+        the returned mapping is the cache itself, not a copy. Mutable metadata
+        is not reconstructed.
+        Invalid archive data, graph blobs, or Git reads raise invalid_project
+        RuleViolation chained from the underlying error.
+        """
         try:
             self._walk(head)
             archive = self.git.path / ".researchgraph/history.jsonl"

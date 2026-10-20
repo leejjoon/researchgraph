@@ -72,6 +72,15 @@ ORDER BY n.priority IS NULL,n.priority DESC,n.created,n.id;
 
 
 class Index:
+    """Own a project's disposable SQLite projection and private model epoch.
+
+    The supplied project provides paths, profile, record reads and Git access.
+    Construction does not connect or load records; refresh performs a complete
+    source-byte and HEAD scan before validating or rebuilding the cache. Public
+    record getters return detached copies, not the private epoch's containers.
+    Explicit close releases owned resources without clearing retained snapshots.
+    """
+
     def __init__(self, project):
         self.project = project
         self.path = project.path / ".researchgraph/index.sqlite"
@@ -131,7 +140,13 @@ class Index:
                 edge.fields = self._empty_fields
 
     def close(self):
-        """Release connection, helpers and owned epochs, even while referenced."""
+        """Close SQLite and the scan helper, then replace owned model state.
+
+        Cleanup replaces rather than clears epoch containers, so retained query
+        sources and previously returned records are not mutated. Helper cleanup
+        and state replacement are attempted even if closing SQLite fails; errors
+        propagate. A later refresh may open resources again.
+        """
         try:
             if self.connection is not None:
                 self.connection.close()
@@ -156,7 +171,15 @@ class Index:
                 self.history = History(self.project._git)
 
     def content_hash(self, *, before_wait=None):
-        """Real content scan, including all files under graph, history and HEAD."""
+        """Return a fresh hex fingerprint of discovered source bytes and HEAD.
+
+        Every call discovers current graph/history sources and hashes their full
+        contents, then includes the current Git HEAD. The previous file count
+        selects only serial versus isolated scanning, never source freshness.
+        Optional before_wait is forwarded only to the isolated scanner to run
+        parent work before waiting. Failures propagate without an in-call retry
+        or serial fallback; success updates last_scan_seconds and scanned HEAD.
+        """
         started = perf_counter()
         # Last count selects only an execution strategy, never source freshness.
         # Warm large scans walk exclusively in the isolated supervisor.
@@ -259,7 +282,16 @@ class Index:
         return digest.hexdigest()
 
     def refresh(self, *, before_wait=None):
-        """Scan authoritative content; return whether the cache was rebuilt."""
+        """Refresh private models from authoritative sources; report a rebuild.
+
+        Always scan full source content and HEAD first, forwarding optional
+        before_wait to content_hash. Return False for a valid cache, loading its
+        models if needed, or True after rebuilding SQLite rows and provenance.
+        Profile changes and invalid cache metadata/projections force a rebuild.
+        Recognized SQLite schema/corruption errors trigger cache reconstruction;
+        other database, source-read and validation failures propagate. Rebuilds
+        replace the owned model epoch and update scan/history/rebuild timings.
+        """
         started = perf_counter()
         content = self.content_hash(before_wait=before_wait)
         profile = (
@@ -438,6 +470,11 @@ class Index:
         return True
 
     def get_node(self, id):
+        """Return a deep copy of the loaded node identified by id.
+
+        Does not refresh sources. Missing ids raise RuleViolation with rule
+        not_found; modifying the returned record cannot change the cached node.
+        """
         try:
             return deepcopy(self._nodes[id])
         except KeyError as exc:
@@ -446,15 +483,31 @@ class Index:
             ) from exc
 
     def get_nodes(self):
+        """Return an eager list of independently copied loaded nodes.
+
+        Does not refresh or sort. Each record is deep-copied separately so even
+        shared private empty containers become independent public containers.
+        """
         # A list-wide memo would preserve private empty-container aliases
         # between otherwise independent public records.
         return [deepcopy(node) for node in self._nodes.values()]
 
     def get_edges(self):
+        """Return an eager list of independently deep-copied loaded edges.
+
+        Does not refresh or sort; returned records and their mutable containers
+        are detached from the cache and from other returned records.
+        """
         return [deepcopy(edge) for edge in self._edges.values()]
 
     def ready(self, now):
-        """Refresh and evaluate the ready SQL view using this connection's clock."""
+        """Return detached ready nodes after refreshing the owning project.
+
+        The explicit datetime now sets the SQL clock for lease expiry. The eager
+        result follows the view's priority, creation and id ordering, including
+        its blocker and budget filters. Refresh, timestamp and SQL errors
+        propagate; the connection retains this clock for subsequent SQL use.
+        """
         self.project._refresh()
         self._clock = format_timestamp(now)
         with closing(self.connection.cursor()) as cursor:

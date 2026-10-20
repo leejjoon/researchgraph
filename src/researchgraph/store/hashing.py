@@ -20,7 +20,12 @@ ERROR_LIMIT = 4096
 
 
 def hash_file(path):
-    """Hash all content with the same no-follow, bounded-read codec everywhere."""
+    """Return raw SHA-256 bytes after reading path completely in 8192-byte chunks.
+
+    Open read-only without following a final symlink and always close the owned
+    descriptor. Empty files use the empty-content digest; open/read errors
+    propagate. No metadata or content-hash cache substitutes for reading bytes.
+    """
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         digest = hashlib.sha256()
@@ -93,6 +98,8 @@ class HashScanner:
 
     A protocol/process/file error closes the entire scanner and raises OSError;
     it is never retried or hidden by a serial scan. A closed scanner is terminal.
+    Helpers start lazily, capped at eight and the detected CPU count. They are
+    isolated Python content-hash workers, not graph task execution resources.
     """
 
     def __init__(self):
@@ -104,6 +111,13 @@ class HashScanner:
         self._finalizer = weakref.finalize(self, _shutdown, self._processes)
 
     def close(self):
+        """Terminally close helpers and discard cached request encodings.
+
+        Serialize with scans, close helper input, wait, then terminate or kill
+        helpers that do not exit promptly and close their output pipes. The
+        finalizer runs at most once; shutdown failures propagate. Previously
+        returned bytes and retained result lists are not cleared or modified.
+        """
         with self._lock:
             self._closed = True
             self._request_paths = None
@@ -111,7 +125,13 @@ class HashScanner:
             self._finalizer()
 
     def hash_files(self, paths):
-        """Return fresh hashes in input order; cache only path request encodings."""
+        """Return concatenated raw SHA-256 digests in the supplied paths' order.
+
+        Consume paths into a tuple and read every file's full current bytes via
+        bounded helpers. Empty input returns empty bytes on an open scanner.
+        Only request encodings are reused; source freshness is never cached.
+        A closed scanner or file/process/protocol failure raises OSError.
+        """
         current = tuple(paths)
         with self.stream(_whole_paths=current) as stream:
             if current:
@@ -139,7 +159,15 @@ class HashScanner:
 
     @contextmanager
     def stream(self, *, _whole_paths=None):
-        """Locked current-scan file batches; at most one request per helper."""
+        """Yield a locked private batch stream for one complete hashing scan.
+
+        The optional internal _whole_paths token defaults to None and controls
+        request-encoding reuse only. At most one request is pending per helper;
+        normal exit collects all replies. File/protocol failures become OSError
+        and terminally close this owner; other exceptions also close it and are
+        re-raised. Exit deactivates the stream and replaces its batch list rather
+        than clearing a retained finished list. This is an internal scan API.
+        """
         with self._lock:
             if self._closed:
                 raise OSError("Hash scanner is closed")

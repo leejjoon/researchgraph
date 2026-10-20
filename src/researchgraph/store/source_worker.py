@@ -35,6 +35,18 @@ def _reply(destination, status, payload):
 
 
 def main():
+    """Serve the private current-byte scan protocol for the root in argv[1].
+
+    Read only fixed SCAN lines from binary stdin, using a bounded request read;
+    this is not a generic command executor. Hash discovered live files before
+    resolving HEAD, then reply on binary stdout with a length-prefixed status
+    frame containing the file count, optional HEAD, and combined digest.
+
+    Encode scan RuleViolations as bounded rule-error frames and handled I/O,
+    value, type, or subprocess failures as bounded I/O-error frames, then stop.
+    EOF ends the request loop. Close the owned scanner on loop exit; setup and
+    reply-write failures can propagate rather than producing a further frame.
+    """
     source, destination = sys.stdin.buffer, sys.stdout.buffer
     files = SourceFiles(sys.argv[1])
     git = Git(files.root)

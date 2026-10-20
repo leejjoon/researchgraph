@@ -23,15 +23,23 @@ EVIDENCE = frozenset({"cites", "derived-from"})
 
 
 def created_order(record):
+    """Return the ascending (created timestamp, identifier) key for a record."""
     return record.created, record.id
 
 
 def ready_order(node):
+    """Sort explicit priorities first, highest first, then creation time and ID.
+
+    A missing priority sorts after every explicit priority, including zero.
+    """
     return node.priority is None, -(node.priority or 0), node.created, node.id
 
 
 def closure(start, links):
-    """Set closure including start, safe even for cyclic non-DAG relations."""
+    """Return IDs reachable from start through an adjacency mapping, including start.
+
+    Missing adjacency entries are leaves; repeated visits and cycles terminate.
+    """
     seen, pending = set(), [start]
     while pending:
         current = pending.pop()
@@ -42,7 +50,12 @@ def closure(start, links):
 
 
 class View:
-    """Reusable graph predicates over typed node/edge maps at an evaluation time."""
+    """Evaluate graph predicates over supplied typed maps at the supplied now.
+
+    Active edges drive traversal except usage accounting, which retains retired
+    containment edges. Maps may describe candidate writes rather than disk state;
+    this class neither refreshes sources nor reconstructs historical records.
+    """
 
     def __init__(self, profile, nodes, edges, now):
         self.profile, self.nodes, self.edges, self.now = profile, nodes, edges, now
@@ -67,6 +80,7 @@ class View:
                 self.replacements[edge.to].append(edge.from_)
 
     def lease_expired(self, node):
+        """Return whether a running node's non-null lease expires at or before now."""
         return (
             node.status == Status.RUNNING
             and node.lease is not None
@@ -74,6 +88,10 @@ class View:
         )
 
     def blocking(self, node):
+        """Return sorted unique non-done blocker IDs for an active or running node.
+
+        Other statuses return an empty list; only non-retired blocks edges count.
+        """
         if node.status not in (Status.ACTIVE, Status.RUNNING):
             return []
         return sorted(
@@ -85,6 +103,11 @@ class View:
         )
 
     def usage(self, identifier):
+        """Sum tokens and compute_seconds over the containment accounting closure.
+
+        Return both keys, defaulting absent usage to zero. Include the root and
+        retired containment links; shared descendants and cycles count only once.
+        """
         descendants = closure(identifier, self.accounting)
         return {
             key: sum((self.nodes[d].usage or {}).get(key, 0) for d in descendants)
@@ -92,12 +115,21 @@ class View:
         }
 
     def over_budget(self, node):
+        """Return whether aggregate usage meets any configured node budget limit.
+
+        Equality exhausts a limit; a missing or empty budget returns False.
+        """
         if not node.budget:
             return False
         usage = self.usage(node.id)
         return any(usage[key] >= limit for key, limit in node.budget.items())
 
     def ready(self, node):
+        """Test claimability, active or expired-running status, blocks, and budgets.
+
+        The node and every active containment ancestor must be under budget;
+        usage totals themselves include retired containment links.
+        """
         return (
             node.type in self.claimable
             and (node.status == Status.ACTIVE or self.lease_expired(node))
@@ -113,6 +145,11 @@ class View:
         )
 
     def responsible(self, identifier):
+        """Return sorted replacement-head IDs for transitively superseded inputs.
+
+        Traverse active cites/derived-from inputs excluding the root, then active
+        supersedes links toward terminal replacements; return IDs, not records.
+        """
         heads = set()
         for source in closure(identifier, self.inputs) - {identifier}:
             if self.replacements[source]:
@@ -124,9 +161,11 @@ class View:
         return sorted(heads)
 
     def superseded_input(self, identifier):
+        """Test whether the root or any transitive evidence input has a replacement."""
         return any(self.replacements[i] for i in closure(identifier, self.inputs))
 
     def stale(self, node):
+        """Return whether a non-retired Claim has responsible replacement heads."""
         return (
             node.type == "Claim"
             and node.status != Status.RETIRED
@@ -134,6 +173,10 @@ class View:
         )
 
     def non_discriminating(self, identifier):
+        """Test whether at least two outgoing tests have canonically equal expected.
+
+        Missing expected values compare as None; only active edges participate.
+        """
         tests = [e for e in self.outgoing[identifier] if e.type == "tests"]
         return len(tests) >= 2 and all(
             _canonical_equal(e.fields.get("expected"), tests[0].fields.get("expected"))
@@ -141,6 +184,7 @@ class View:
         )
 
     def group(self, identifier):
+        """Return the set of Hypothesis IDs actively answering the given node ID."""
         return {
             e.from_
             for e in self.incoming[identifier]
@@ -149,7 +193,14 @@ class View:
 
 
 def evaluation_time(project, now, as_of):
-    """Validate read clocks without applying the write-only HEAD clock floor."""
+    """Resolve a read clock without applying the write-only HEAD clock floor.
+
+    Validate now even when as_of is supplied. None selects now; a datetime or
+    timestamp selects that instant; a Git revision selects its commit time.
+    HEAD uses the scanned head, and unresolved revisions go through Git. Invalid
+    clocks or revisions raise RuleViolation with code schema. This does not
+    refresh source bytes or HEAD; the Project read boundary must do so first.
+    """
     try:
         format_timestamp(now)
         if as_of is None:
@@ -175,7 +226,10 @@ def evaluation_time(project, now, as_of):
 
 
 def copy_json(value):
-    """Detach a JSON projection without copying immutable scalar leaves."""
+    """Recursively copy JSON dictionaries and lists, sharing immutable scalar leaves.
+
+    Inputs must already be JSON-compatible; other object types pass through.
+    """
     if isinstance(value, dict):
         return {key: copy_json(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -204,7 +258,10 @@ class QuerySource:
     """Read-only, source-epoch-derived timelines and reusable typed overlays.
 
     Owned by Index and discarded whenever its authoritative models are reloaded.
-    No return value exposes these models or the serialized projection templates.
+    Typed overlays are internal and may share models; serialized outputs detach
+    mutable containers eagerly. Epoch reuse and the native static envelope are
+    private computation, never substitutes for the Project boundary's mandatory
+    fresh source-byte and HEAD scan.
     """
 
     def __init__(self, index):
@@ -359,6 +416,11 @@ class QuerySource:
         return template
 
     def in_static_envelope(self, now):
+        """Test the common half-open visibility range of all static node intervals.
+
+        This private-computation optimization says nothing about source freshness
+        and does not validate current bytes or HEAD.
+        """
         return (self.static_start is None or self.static_start <= now) and (
             self.static_end is None or now < self.static_end
         )
@@ -373,6 +435,14 @@ class QuerySource:
         return _native_clone.clone_rows(self._ready_columns)
 
     def at(self, now):
+        """Return internal (node-map, edge-map) overlays visible at inclusive now.
+
+        Select half-open status intervals, omit future nodes/edges, filter approval
+        and artifact events, and undo edge retirements later than now. Other node
+        values, including budget, usage, tags, priority and lease, remain current:
+        this is not a historical checkout. Models may be shared and must not be
+        mutated; these maps are not detached public JSON results.
+        """
         nodes = (
             self.static_map.copy()
             if self.in_static_envelope(now)
@@ -439,6 +509,11 @@ class QuerySource:
         return nodes, edges
 
     def serialize(self, node):
+        """Return a fully materialized node dictionary with fresh mutable containers.
+
+        Reuse only private templates keyed by model identity; nested fields,
+        event payloads, actors, tags, budgets, usage and leases are detached.
+        """
         key = node.id
         cached = self.serialized.get(key)
         if cached is None or cached[2] is not node:
@@ -475,6 +550,11 @@ class QuerySource:
 
 
 def query_source(project):
+    """Return the index-owned source, rebuilding when absent or profile identity changes.
+
+    The index invalidates this private derived state when reloading its models.
+    Calling this factory alone does not scan authoritative source bytes or HEAD.
+    """
     index = project.index
     if (
         index._query_source is None
@@ -485,7 +565,15 @@ def query_source(project):
 
 
 class QueryView(View):
-    """One refreshed query snapshot, optionally reconstructed at an inclusive time."""
+    """Project read projections over an already-refreshed source epoch.
+
+    A non-None as_of selects reconstruction at now: node/edge visibility, status,
+    approval/artifact events and edge retirement reflect that boundary. Budget,
+    usage, tags, priority, lease and other node fields remain current, not a Git
+    checkout. With as_of None, current models are evaluated at now. Construction
+    itself does not refresh bytes or HEAD; Project must do that before each read.
+    Public projections are eager dictionaries/lists, not lazy cache views.
+    """
 
     def __init__(self, project, now, as_of):
         self.index = project.index
@@ -498,6 +586,11 @@ class QueryView(View):
         super().__init__(project.profile, nodes, edges, now)
 
     def require(self, identifier):
+        """Return the internal visible node or raise schema/not_found RuleViolation.
+
+        Non-string identifiers are schema errors; absent IDs are not_found errors.
+        The returned typed model is shared internal state, not a public DTO.
+        """
         if not isinstance(identifier, str):
             raise RuleViolation("schema", "Node arguments must be identifiers")
         if identifier not in self.nodes:
@@ -505,12 +598,24 @@ class QueryView(View):
         return self.nodes[identifier]
 
     def ordered(self, identifiers):
+        """Return internal nodes for IDs ordered by creation time then identifier.
+
+        All IDs must exist in this view; a missing ID raises KeyError.
+        """
         return sorted((self.nodes[i] for i in identifiers), key=created_order)
 
     def vocabulary(self, *names):
+        """Return whether every requested node-type name exists in the profile."""
         return set(names) <= {n.name for n in self.profile.node_types}
 
     def ready_items(self, prepared=None):
+        """Return eager ready-node dictionaries in priority/creation/ID order.
+
+        Readiness uses this view's status and time but current budget, usage,
+        priority and lease values. Optional prepared is an internal (source, rows)
+        pair: matching source identity permits inserting remaining rows into that
+        caller-owned batch. Otherwise clone a fresh batch; no lazy rows escape.
+        """
         if not self.as_of or self.source.in_static_envelope(self.now):
             rows = (
                 prepared[1]
@@ -538,6 +643,10 @@ class QueryView(View):
         ]
 
     def blocked_items(self):
+        """Return blocked node dictionaries in ready order, each with blocking IDs.
+
+        The blocking array is sorted and unique; only active/running nodes qualify.
+        """
         return [
             dict(n.to_dict(), blocking=self.blocking(n))
             for n in sorted(self.nodes.values(), key=ready_order)
@@ -545,6 +654,11 @@ class QueryView(View):
         ]
 
     def queue_items(self):
+        """Return proposed nodes with activation gates, ordered by creation then ID.
+
+        Each node gains gate={roles: sorted unique roles, agents_allowed: bool};
+        agents_allowed is true only when every applicable gate permits agents.
+        """
         result = []
         for node in sorted(self.nodes.values(), key=created_order):
             gates = self.profile.gates_for(node.type)
@@ -565,6 +679,11 @@ class QueryView(View):
         return result
 
     def evidence(self, identifier):
+        """Return {items: node dictionaries} for a Claim's transitive evidence inputs.
+
+        Exclude the Claim and sort by creation/ID. A non-Claim or missing Claim
+        vocabulary yields empty items; invalid or absent IDs raise via require.
+        """
         node = self.require(identifier)
         if not self.vocabulary("Claim") or node.type != "Claim":
             return {"items": []}
@@ -576,6 +695,10 @@ class QueryView(View):
         }
 
     def stale_items(self):
+        """Return stale Claim dictionaries in creation/ID order with responsible arrays.
+
+        Each responsible array contains sorted terminal replacement IDs, not nodes.
+        """
         return [
             dict(n.to_dict(), responsible=self.responsible(n.id))
             for n in sorted(self.nodes.values(), key=created_order)
@@ -583,6 +706,12 @@ class QueryView(View):
         ]
 
     def weakest(self, identifier):
+        """Return directly cited node dictionaries ranked weakest first for a Claim.
+
+        Superseded-input nodes lead, then lower runs (missing means zero), false
+        held_out, and ID. Return [] for non-Claims or missing Claim/Result/Reference
+        vocabulary; invalid or absent identifiers raise via require.
+        """
         node = self.require(identifier)
         if not self.vocabulary("Claim", "Result", "Reference") or node.type != "Claim":
             return []
@@ -601,6 +730,13 @@ class QueryView(View):
         ]
 
     def predictions(self, identifier):
+        """Return incoming tests-edge dictionaries for a Hypothesis in creation order.
+
+        Each gains source (node dictionary), expected (None if absent),
+        discriminating (True if absent), and the source status string. Return []
+        for wrong type or missing Hypothesis/Question/Prediction vocabulary;
+        invalid or absent identifiers raise via require.
+        """
         node = self.require(identifier)
         if (
             not self.vocabulary("Hypothesis", "Question", "Prediction")
@@ -620,6 +756,14 @@ class QueryView(View):
         ]
 
     def matrix(self, identifier):
+        """Return {rows, columns} comparing tests of a Question's answering hypotheses.
+
+        Columns are hypothesis dictionaries; rows contain source dictionaries,
+        cells mapping every column ID to its sole test's expected value (otherwise
+        None), and non_discriminating booleans. Both axes use creation/ID order.
+        Wrong type or missing Hypothesis/Question/Prediction vocabulary returns
+        empty axes; invalid or absent identifiers raise via require.
+        """
         node = self.require(identifier)
         if (
             not self.vocabulary("Hypothesis", "Question", "Prediction")
@@ -655,6 +799,13 @@ class QueryView(View):
         return {"rows": rows, "columns": [n.to_dict() for n in columns]}
 
     def alternatives(self, identifier):
+        """Return other hypotheses answering any question answered by this hypothesis.
+
+        Creation/ID-ordered node dictionaries gain supports and contradicts arrays
+        of source-node dictionaries, also creation/ID ordered. Wrong type or missing
+        Hypothesis/Question/Prediction vocabulary returns []; invalid or absent
+        identifiers raise via require.
+        """
         node = self.require(identifier)
         if (
             not self.vocabulary("Hypothesis", "Question", "Prediction")
@@ -680,6 +831,10 @@ class QueryView(View):
         ]
 
     def notes(self, identifier):
+        """Return Note dictionaries linked about the node, newest first with ID ties.
+
+        Missing Note vocabulary yields []; invalid or absent IDs raise via require.
+        """
         self.require(identifier)
         if not self.vocabulary("Note"):
             return []
@@ -698,6 +853,13 @@ class QueryView(View):
         ]
 
     def subtree(self, identifier):
+        """Return nodes, status_counts and usage for a containment subtree.
+
+        Nodes include the root and active-link descendants in creation/ID order;
+        status_counts maps sorted status strings to counts. Usage instead includes
+        retired containment links and always has tokens and compute_seconds keys.
+        Invalid or absent identifiers raise via require.
+        """
         self.require(identifier)
         nodes = self.ordered(closure(identifier, self.children))
         return {
@@ -709,6 +871,13 @@ class QueryView(View):
         }
 
     def since(self, time):
+        """Return node/edge dictionaries with recorded change times strictly after time.
+
+        Accept a timestamp string or datetime; invalid clocks raise schema
+        RuleViolation. Consider node creation/update/events and edge creation/
+        retirement, bounded inclusively by now only in as-of views. Sort results
+        by creation/ID, not change time; this is not a diff of historical fields.
+        """
         try:
             time = parse_timestamp(time) if isinstance(time, str) else time
             format_timestamp(time)
@@ -747,6 +916,15 @@ class QueryView(View):
         text=None,
         over_budget=False,
     ):
+        """Return creation/ID-ordered node dictionaries matching all supplied filters.
+
+        None disables type, status, author-name, tag and text filters. Text is a
+        case-insensitive title/body substring. Field accepts a mapping, one k=v
+        string, or iterable of k=v strings; values compare as strings and malformed
+        entries raise schema RuleViolation. over_budget=False adds no constraint;
+        True requires exhausted current budget/usage. Tags and other non-status
+        fields remain current even in an as-of view.
+        """
         if field is None:
             fields = {}
         elif isinstance(field, dict):
@@ -775,6 +953,13 @@ class QueryView(View):
         ]
 
     def show(self, identifier):
+        """Return an edge dictionary or an enriched node dictionary for a visible ID.
+
+        Nodes gain active incident edges, instructing nodes, outgoing pins, flags
+        (blocked, ready, stale, lease_expired, over_budget), and warnings containing
+        non_discriminating when applicable. Arrays use creation/ID order. Non-string
+        IDs raise schema and absent IDs raise not_found RuleViolation.
+        """
         if not isinstance(identifier, str):
             raise RuleViolation("schema", "Graph arguments must be identifiers")
         if identifier in self.edges:
@@ -808,6 +993,17 @@ class QueryView(View):
         )
 
     def history(self, identifier):
+        """Return provenance events across the node's undirected supersession chain.
+
+        Interval entries retain interval fields plus kind, node, commit and at;
+        approval/artifact entries retain payloads plus original ordinal and those
+        event keys. Supersedes entries retain edge fields plus kind, node (source),
+        commit and at. Include retired supersedes edges visible in this view.
+        Sort by at, node, kind, ordinal (default -1), then ID (default empty).
+        As-of views omit later events and truncate later interval ends to null;
+        this does not recover historical budget, usage, tags, priority or lease.
+        Invalid or absent identifiers raise via require.
+        """
         self.require(identifier)
         links = defaultdict(list)
         for edge in self.edges.values():
@@ -886,6 +1082,15 @@ class QueryView(View):
         )
 
     def digest(self):
+        """Return {items: [{kind, count, nodes}, ...]} for six summary groups.
+
+        Groups are running, ready, blocked, awaiting, failed_24h and claims, in that
+        order. Failed includes visible nodes entering failed during the inclusive
+        last 24 hours, even if no longer failed; claims excludes retired Claims.
+        Ready/blocked use ready order and awaiting uses queue gate enrichment;
+        other groups use creation/ID order. As-of status/events are reconstructed
+        while readiness still uses current budget, usage, priority and lease.
+        """
         cutoff = self.now - timedelta(hours=24)
         failed = {
             i["node_id"]

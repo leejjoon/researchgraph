@@ -65,7 +65,41 @@ def _check_empty_import_destination(path):
 
 
 class Project:
+    """Own a file-backed graph, disposable index, and bounded hashing helpers.
+
+    Prefer ``open``, ``init`` or ``import_`` to direct construction with the
+    internal ``path, profile, version, read_only`` arguments. Use a context
+    manager or call ``close`` to release connections and child processes.
+
+    Operation/query methods require an ``Actor`` and an explicit aware datetime
+    ``now``. Optional ``role=None`` declares a profile role; identities and roles
+    are claims, not authentication. Writes default to ``commit=True``: the
+    checkout writer lock covers validation, file changes, scoped Git commit and
+    event hooks. ``commit=False`` still changes files and query results, but not
+    HEAD, and calls no event hook. Writes return ordinary serialized node/edge
+    mappings unless their method documents another result. ``apply`` returns a
+    commit ID instead. Commits require Git user.name/user.email configuration.
+    Validation raises ``RuleViolation`` without changing
+    source. Inspect files and HEAD after ``write_failed``, especially if a
+    post-commit hook failed; a durable commit may already exist.
+
+    Reads freshly inspect source paths/content and HEAD before using the index;
+    deleting index.sqlite changes no graph meaning. Query ``as_of=None`` means
+    current state; a timestamp or commit selects historical visibility/status
+    and event cutoffs without checkout. Commits resolve to committer time and
+    equal-clock commits share a cutoff. Budget, usage, tags, priority and lease
+    deliberately remain current. Returned query containers are eager ordinary
+    mappings/lists. See spec/operations.md for frozen result shapes and ordered
+    shared permission/error rules. Resource methods and get_node/get_nodes/
+    get_edges do not require an operation actor or clock.
+    """
+
     def __init__(self, path: Path, profile: Profile, version: str, read_only: bool):
+        """Initialize an owner from resolved path/profile/pin and read-only state.
+
+        This is the internal constructor; open/init/import_ perform factory
+        validation and return the owned resource intended for normal callers.
+        """
         self.path = path
         self.profile = profile
         self.profile_name = profile.name
@@ -79,6 +113,15 @@ class Project:
 
     @classmethod
     def open(cls, path, read_only=False) -> "Project":
+        """Open and refresh the project at ``path``; return an owned Project.
+
+        ``read_only=False`` permits later graph writes; True refuses them while
+        still allowing queries and archive export. No graph/Git checkout is
+        performed. Missing directories raise ``project_not_found``; malformed
+        layout/pins, unavailable profiles or too-new pins raise their domain
+        errors. The returned owner must be closed, including after use in a
+        long-lived consumer.
+        """
         root = Path(path).expanduser().resolve()
         if not root.is_dir():
             raise RuleViolation("project_not_found", f"Project not found: {root}")
@@ -93,7 +136,11 @@ class Project:
         return project
 
     def close(self):
-        """Release the disposable index and its private file-hashing helpers."""
+        """Idempotently release this owner's index and file-hashing helpers.
+
+        Return None; no source files or Git history change. Already-returned
+        values remain usable, but further operations on this owner are invalid.
+        """
         if not self._closed:
             try:
                 self.index.close()
@@ -101,11 +148,13 @@ class Project:
                 self._closed = True
 
     def __enter__(self):
+        """Return this open owner; entering an already-closed owner raises ValueError."""
         if self._closed:
             raise ValueError("Project is closed")
         return self
 
     def __exit__(self, exc_type, exc, traceback):
+        """Close on context exit without suppressing the body's exception."""
         self.close()
 
     @staticmethod
@@ -193,6 +242,16 @@ class Project:
         commit=True,
         read_only=False,
     ) -> "Project":
+        """Create a project at ``path`` with installed ``profile='research'``.
+
+        The required human ``actor`` and ``now`` author the initial ``rg: init``
+        commit; role defaults to None. Return an open Project with the installed
+        profile/version pinned. Existing unrelated files/history are preserved.
+        ``commit=False`` creates real working-tree files without a commit or
+        event; ``read_only=True`` refuses before creation. Unknown profiles,
+        already-initialized paths, clock skew and invalid layout/permissions
+        raise their ``RuleViolation`` rules. Close the returned owner.
+        """
         if read_only:
             raise RuleViolation("read_only", "Project is read-only")
         root = Path(path).expanduser().resolve()
@@ -299,7 +358,21 @@ class Project:
         now,
         as_of=None,
     ):
-        """Write a deterministic archive without changing project source files."""
+        """Write canonical PAX/zstd bytes to ``out`` and return its resolved path.
+
+        Return ``{'path': str}``; include_artifacts defaults to False. With
+        ``since`` select changed members plus endpoint/evidence closure. Optional
+        ``as_of`` limits membership only: selected graph/artifact files retain
+        current working-tree bytes and selected nodes' complete histories,
+        including later events/intervals. It is not historical redaction.
+        Query the restored project with as_of to obtain a historical view.
+
+        Actor/role/now follow the class query contract. Export is allowed on a
+        read-only owner and never rewrites source history or creates a commit;
+        only the external destination is written. Managed source/cache/artifact
+        and Git-metadata destinations are rejected with ``schema``. Invalid
+        selectors, missing artifact bytes and I/O failures remain visible.
+        """
         from researchgraph.store.archive import encode, encode_history
         from researchgraph.validation import validate_graph
 
@@ -413,7 +486,22 @@ class Project:
         commit=True,
         read_only=False,
     ) -> "Project":
-        """Validate completely before creating the destination or its own git repo."""
+        """Restore ``archive`` into empty/nonexistent ``path``; return its owner.
+
+        Human actor and now are required; role=None, commit=True and
+        read_only=False are defaults. Validate encoding, profile, graph and all
+        restored timestamps before the core creates destination files or its
+        independent Git repository, even inside another checkout. Now must be
+        at least the import clock floor, including lease expiry and complete
+        history; equality is allowed. Earlier times raise ``clock_skew``.
+
+        Preserve graph bytes, timestamps and interval provenance. A committed
+        restore makes exactly one ``rg: import`` commit, not a separate init;
+        approval/artifact/supersedes introduction commits become that commit.
+        ``commit=False`` leaves a real pending restore without events. Nonempty
+        destinations, malformed archives, unavailable/newer profiles and
+        permission failures raise their domain rules. Close the returned owner.
+        """
         from researchgraph.store.archive import read
         from researchgraph.store.index import SCHEMA
 
@@ -553,15 +641,33 @@ class Project:
             ) from exc
 
     def get_node(self, id: str) -> Node:
+        """Return the current Node model for canonical ``id`` after freshness checks.
+
+        This low-level getter has no actor/clock/as_of arguments. Invalid IDs
+        raise ``schema`` and absent nodes raise ``not_found``. Source is not
+        changed, although the disposable index may be rebuilt.
+        """
         self._refresh()
         self._identifier(id)
         return self.index.get_node(id)
 
     def get_nodes(self) -> list[Node]:
+        """Return current Node models of every type/status, including retired ones.
+
+        There are no filters or context arguments; use where/show for public
+        contextual queries. Source stays unchanged; refreshing may rebuild the
+        disposable index and source/layout errors propagate.
+        """
         self._refresh()
         return self.index.get_nodes()
 
     def get_edges(self) -> list[Edge]:
+        """Return all current Edge models, including retired stored relations.
+
+        No actor/clock or filter is accepted. Fresh source checks may rebuild
+        the disposable index, but do not change graph files or Git history;
+        source/layout errors remain visible to the caller.
+        """
         self._refresh()
         return self.index.get_edges()
 
@@ -578,7 +684,16 @@ class Project:
         now,
         commit=True,
     ):
-        """Create a gate-initialized node and its incident edges atomically."""
+        """Create ``type``/``title`` and return the new serialized node.
+
+        Body defaults to empty text; fields=None and edges=None mean empty
+        inputs. Root-property defaults are copied into fields before complete
+        profile validation. Each incident edge names type and one existing
+        from/to endpoint, with optional fields. Gates determine initial status.
+        Unknown types, reserved edges, missing/invalid endpoints, duplicate
+        relations, cycles and invalid fields raise their domain rules before
+        source changes. Shared actor/role/now/commit behavior is on Project.
+        """
         return self._operation(
             "propose",
             {
@@ -596,7 +711,14 @@ class Project:
         )
 
     def link(self, type, from_, to, fields=None, *, actor, role=None, now, commit=True):
-        """Create a non-reserved relation between two existing nodes."""
+        """Create ``type`` from node ``from_`` to ``to``; return its edge mapping.
+
+        Fields default to an empty mapping and receive profile defaults. Both
+        endpoints must exist (retired nodes are permitted). Reserved types,
+        invalid endpoint pairs/fields, duplicate live relations and constrained
+        cycles raise their specific domain rules. The shared write contract
+        controls permission, timestamps, scoped commit and event effects.
+        """
         return self._operation(
             "link",
             {"type": type, "from": from_, "to": to, "fields": fields},
@@ -610,7 +732,14 @@ class Project:
     def approve(
         self, node, what="activate", note=None, *, actor, role=None, now, commit=True
     ):
-        """Append an approval and activate once all matching gates are met."""
+        """Approve proposed ``node`` and return its revised serialized record.
+
+        What defaults to 'activate', the only supported value; note=None adds
+        no note text. Record the approval and activate once every matching gate
+        is satisfied. Gates determine whether the actor/declared role may
+        approve; not_proposed, human_only_approval, wrong_role, already_approved
+        or unknown_what are explicit failures. Shared write effects apply.
+        """
         return self._operation(
             "approve",
             {"node": node, "what": what, "note": note},
@@ -622,7 +751,12 @@ class Project:
         )
 
     def reject(self, node, reason, *, actor, role=None, now, commit=True):
-        """Reject a proposal and retire all its live incident relations."""
+        """Human-reject proposed ``node`` with ``reason``; return the retired node.
+
+        Record rejection and retire all live incident edges in the same write.
+        An existing non-proposal raises not_proposed; shared missing-ID,
+        permission and transactional write rules apply.
+        """
         return self._operation(
             "reject",
             {"node": node, "reason": reason},
@@ -647,7 +781,19 @@ class Project:
         now,
         commit=True,
     ):
-        """Replace a node, retiring and optionally recreating transferable edges."""
+        """Supersede ``node`` and return its new same-type replacement mapping.
+
+        None title/body/fields preserve the old values; supplied fields replace
+        the complete mapping and receive creation defaults. Retire the old node
+        and transferable edges; inherit_edges=True recreates those edges using
+        their per-type inheritance policy, including inherited explains.
+        Nontransferable edges stay untouched. Optional instruction creates an
+        Instruction for the replacement. Its gates reset initial approval.
+
+        Humans may replace any type; agents only Task/Result. Running or already
+        retired targets, invalid fields and cycles raise their domain rules.
+        Shared actor/role/now/commit behavior applies to the whole write.
+        """
         return self._operation(
             "supersede",
             {
@@ -666,7 +812,12 @@ class Project:
         )
 
     def instruct(self, node, text, *, actor, role=None, now, commit=True):
-        """Create an Instruction applying to a proposed or active node."""
+        """Create an Instruction containing ``text`` for ``node``; return it.
+
+        The human-only write adds an instructs edge to a proposed/active target.
+        Other target states raise already_ran; missing IDs, profile support and
+        shared permissions/commit behavior follow the Project write contract.
+        """
         return self._operation(
             "instruct",
             {"node": node, "text": text},
@@ -678,7 +829,13 @@ class Project:
         )
 
     def retire(self, node, reason, *, actor, role=None, now, commit=True):
-        """Retire a non-running eligible node and all its live incident edges."""
+        """Human-retire ``node`` with ``reason`` and return its revised mapping.
+
+        Proposed, active and failed nodes are eligible; retire their live
+        incident edges too. Running targets raise running, while done/retired
+        targets raise terminal_status. No replacement is created. Shared
+        validation, scoped commit and event behavior applies.
+        """
         return self._operation(
             "retire",
             {"node": node, "reason": reason},
@@ -690,7 +847,15 @@ class Project:
         )
 
     def claim(self, node, lease_seconds=7200, *, actor, role=None, now, commit=True):
-        """Claim a ready node, replacing an expired lease atomically."""
+        """Claim ready ``node`` for this actor; return its running node mapping.
+
+        Lease_seconds defaults to 7200 and must be a positive integer. An
+        expired running lease may be replaced; record claim with acquired_at
+        now and expires_at now+lease_seconds. An unexpired lease raises
+        lease_held before not_ready; blocked/status/budget exclusions raise
+        not_ready and invalid duration raises negative/schema. Shared write
+        rules apply; this acquires a lease, not an authenticated identity.
+        """
         return self._operation(
             "claim",
             {"node": node, "lease_seconds": lease_seconds},
@@ -702,7 +867,14 @@ class Project:
         )
 
     def renew(self, node, lease_seconds=7200, *, actor, role=None, now, commit=True):
-        """Extend the holder's lease without shortening or changing its identity."""
+        """Renew held ``node`` for lease_seconds=7200; return the running record.
+
+        Set expiry to max(current expiry, now+duration), never shortening it or
+        changing the holder. Renewal is allowed after expiry by that holder.
+        Non-running nodes, another actor and nonpositive/invalid durations raise
+        not_running, not_lease_holder or negative/schema. Record renewal using
+        the shared transactional write and commit policy.
+        """
         return self._operation(
             "renew",
             {"node": node, "lease_seconds": lease_seconds},
@@ -716,7 +888,14 @@ class Project:
     def release(
         self, node, note=None, usage=None, *, actor, role=None, now, commit=True
     ):
-        """Return a running node to active and add caller-reported usage."""
+        """Release running ``node`` to active and return its revised mapping.
+
+        The holder or any human may release it, clearing the lease. Optional
+        note defaults to None; optional usage adds nonnegative integer tokens/
+        compute_seconds, never replaces prior totals. Non-running or disallowed
+        holders and invalid usage raise their domain rules. Shared scoped
+        commit/event behavior applies; the core does not meter work itself.
+        """
         return self._operation(
             "release",
             {"node": node, "note": note, "usage": usage},
@@ -739,7 +918,16 @@ class Project:
         now,
         commit=True,
     ):
-        """Complete a held node, recording named artifact bytes and additive usage."""
+        """Complete held ``node`` with ``summary``; return its done node mapping.
+
+        Clear the lease and append completion. Artifacts=None names no files;
+        each supplied path must already be a regular, nonsymlink owned file
+        under artifacts/<node>/ relative to the root. Append its actual SHA-256,
+        byte count and actor/time record; stage only these named artifacts with
+        the graph write. Usage=None adds nothing; supplied counters are additive.
+        Wrong status/holder, unsafe or missing paths and invalid counters raise
+        their domain rules before publication. Shared commit behavior applies.
+        """
         return self._operation(
             "complete",
             {"node": node, "summary": summary, "artifacts": artifacts, "usage": usage},
@@ -765,7 +953,15 @@ class Project:
         now,
         commit=True,
     ):
-        """Fail a held node and create its profile-initialized Failure explanation."""
+        """Fail held ``node`` with ``summary``; return its failed node mapping.
+
+        Clear the lease, append fail and create a profile-initialized Failure
+        plus explains edge. Optional step/check/measured/error populate Failure
+        fields when supplied; usage=None adds nothing, otherwise counters add
+        to stored totals. The operation does not execute or retry anything.
+        Non-running/wrong-holder and invalid usage/fields raise their domain
+        rules. Shared actor/role/now/commit behavior covers the whole write.
+        """
         return self._operation(
             "fail",
             {
@@ -785,7 +981,14 @@ class Project:
         )
 
     def expand(self, nodes, hint=None, *, actor, role=None, now, commit=True):
-        """Create one expansion Task without executing the profile's hook."""
+        """Human-create one expansion Task for ``nodes`` and return its mapping.
+
+        Preserve the nonempty target-ID order; hint=None supplies no expansion
+        description. The profile must support the reserved expansion fields.
+        Empty targets raise no_targets; missing targets/profile support raise
+        their shared rules. This only records a Task: expansion_hook is never
+        called. Gates and the shared write/commit contract still apply.
+        """
         return self._operation(
             "expand",
             {"nodes": nodes, "hint": hint},
@@ -807,7 +1010,14 @@ class Project:
         now,
         commit=True,
     ):
-        """Replace the subtree budget with exactly the supplied dimensions."""
+        """Human-replace ``node``'s budget and return the revised node mapping.
+
+        Tokens and compute_seconds default to None: omitted dimensions are
+        removed, and both None clear the budget. Nonnegative integer zero is
+        inclusive (stops readiness); negatives/invalid scalars raise negative/
+        schema. Record the change. Subtree/ancestor accounting is enforced by
+        ready queries, not metering or a write-execution scheduler.
+        """
         return self._operation(
             "budget",
             {"node": node, "tokens": tokens, "compute_seconds": compute_seconds},
@@ -830,14 +1040,29 @@ class Project:
         now,
         commit=True,
     ):
-        """Edit sorted labels and optionally set or clear priority, without an event."""
+        """Edit ``node``'s sorted unique tags/priority; return the revised mapping.
+
+        Add/remove default to None (no label edits). Omitted priority preserves
+        it, explicit None clears it, and an integer sets it. Invalid labels or
+        priority raise schema. No approval/history event record is appended;
+        the normal event hook still runs after a committed write, never for
+        commit=False. Shared permission and scoped file/commit rules apply.
+        """
         args = {"node": node, "add": add, "remove": remove}
         if priority is not _OMITTED:
             args["priority"] = priority
         return self._operation("tag", args, actor, role, now, commit, _tag)
 
     def attach(self, node, artifacts, *, actor, role=None, now, commit=True):
-        """Append artifact records and stage the named files without moving them."""
+        """Attach existing ``artifacts`` to ``node``; return the revised mapping.
+
+        For each owned relative regular nonsymlink path, append actual SHA-256,
+        byte count and actor/time. Repeated paths retain repeated records.
+        Commit stages only named files; their bytes are not moved or rewritten.
+        Every status except retired is permitted; retired, unsafe and missing
+        paths raise terminal_status, artifact_path or artifact_missing. Shared
+        transactional write and event behavior applies to the entire batch.
+        """
         return self._operation(
             "attach",
             {"node": node, "artifacts": artifacts},
@@ -859,7 +1084,13 @@ class Project:
         return QueryView(self, clock, as_of)
 
     def ready(self, *, actor, now, role=None, as_of=None):
-        """Return claimable, unblocked nodes in priority order."""
+        """Return ``{'items': [...]}`` of ready nodes, highest priority first.
+
+        Require a claimable type, eligible status/expired lease, no live blocker
+        and no inclusive self/ancestor budget exclusion. Ties use creation time
+        then ID; null priority sorts last. Actor/now/role/as_of use the class
+        query contract; no claim, scheduling or source write occurs.
+        """
         source = self.index._query_source
         prepared = None
 
@@ -877,68 +1108,134 @@ class Project:
         return {"items": view.ready_items(prepared)}
 
     def blocked(self, *, actor, now, role=None, as_of=None):
-        """Return blocked active/running nodes and their blocker IDs."""
+        """Return blocked active/running nodes as an items envelope.
+
+        Each node adds blocking IDs; ordering matches ready priority order.
+        Blockers and statuses honor as_of under the partial historical contract
+        on Project. This is a read with no lease or graph mutation.
+        """
         view = self._query_view(actor=actor, now=now, role=role, as_of=as_of)
         return {"items": view.blocked_items()}
 
     def queue(self, *, actor, now, role=None, as_of=None):
-        """Return proposed gated nodes, oldest first."""
+        """Return proposed gated nodes in an items envelope, oldest first.
+
+        Rows include gate/role metadata and approvals so far. Only types with a
+        matching activate gate enter the queue. Actor/now/role/as_of and source
+        freshness follow the shared read contract; no approval is performed.
+        """
         view = self._query_view(actor=actor, now=now, role=role, as_of=as_of)
         return {"items": view.queue_items()}
 
     def history(self, id, *, actor, now, role=None, as_of=None):
-        """Return events and introduction commits across a supersession family."""
+        """Return ``id``'s supersession-family history as an oldest-first list.
+
+        Include supersedes edges (retired too), approvals, artifacts and status
+        intervals with kind/node/commit/at metadata. Missing nodes raise
+        not_found; as_of applies the shared temporal cutoff. Imported approval,
+        artifact and supersedes introductions report the import commit;
+        archived interval commit IDs retain their recorded provenance.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).history(
             id
         )
 
     def evidence(self, claim, *, actor, now, role=None, as_of=None):
-        """Return a Claim's transitive evidence, excluding the Claim itself."""
+        """Return ``claim``'s evidence as ``{'items': [...]}``, excluding itself.
+
+        Traverse live cites/derived-from closure and include evidence artifacts.
+        Missing target IDs raise not_found. Actor/now/role/as_of use the common
+        read contract, including historical visibility/event filtering and
+        current mutable metadata. No graph or artifact bytes are changed.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).evidence(
             claim
         )
 
     def stale(self, *, actor, now, role=None, as_of=None):
-        """Return stale Claims with sorted distinct replacement-head IDs."""
+        """Return stale Claims in an items envelope, ordered by creation/ID.
+
+        Every row's responsible value is a sorted distinct array of all
+        replacement-head IDs, not a scalar or one path's answer. Resolve heads
+        and evidence paths using edges effective at as_of. Shared query context
+        and partial mutable-field history rules apply; no replacements occur.
+        """
         view = self._query_view(actor=actor, now=now, role=role, as_of=as_of)
         return {"items": view.stale_items()}
 
     def weakest(self, claim, *, actor, now, role=None, as_of=None):
-        """Rank cited evidence by supersession, run count and held-out flag."""
+        """Return ``claim``'s cites targets as a weakest-first evidence list.
+
+        Sort superseded-input evidence first, then runs (missing=0), held_out
+        (missing=False) and ID. Missing target IDs raise not_found. This query
+        ranks records only; actor/now/role/as_of and freshness follow Project.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).weakest(
             claim
         )
 
     def alternatives(self, hypothesis, *, actor, now, role=None, as_of=None):
-        """Return other members of all answered-question groups."""
+        """Return other hypotheses from every question answered by ``hypothesis``.
+
+        Deduplicate the union in creation order and include status plus live
+        supporting/contradicting Claims. Missing IDs raise not_found; apply the
+        shared actor/clock/as_of contract without changing exclusion groups.
+        """
         return self._query_view(
             actor=actor, now=now, role=role, as_of=as_of
         ).alternatives(hypothesis)
 
     def predictions(self, hypothesis, *, actor, now, role=None, as_of=None):
-        """Return incoming tests with full sources and expected outcomes."""
+        """Return live incoming tests for ``hypothesis`` as oldest-first rows.
+
+        Rows carry the full source record, expected outcome and discriminating
+        information, including source status. Missing IDs raise not_found.
+        Shared context/as_of selects effective nodes/edges; no test is executed.
+        """
         return self._query_view(
             actor=actor, now=now, role=role, as_of=as_of
         ).predictions(hypothesis)
 
     def matrix(self, question, *, actor, now, role=None, as_of=None):
-        """Return the question's prediction matrix and discrimination warnings."""
+        """Return ``question``'s ``{'rows': [...], 'columns': [...]}`` matrix.
+
+        Sources and exclusion-group hypotheses use creation order. Cells map
+        hypothesis IDs to expected outcomes/empty cells; each row includes its
+        global non_discriminating warning. Missing IDs raise not_found. Apply
+        the shared temporal read contract without running predictions.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).matrix(
             question
         )
 
     def notes(self, id, *, actor, now, role=None, as_of=None):
-        """Return Notes about a node, newest first."""
+        """Return Notes with a live about edge to ``id``, newest first.
+
+        Missing target nodes raise not_found. Actor/now/role/as_of use the class
+        read contract; only visibility is selected, and no Note is created.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).notes(id)
 
     def subtree(self, id, *, actor, now, role=None, as_of=None):
-        """Return live descendants, progress counts and all-edge usage totals."""
+        """Return ``id``'s nodes/status_counts/usage subtree mapping.
+
+        Progress uses live containment descendants; usage accounting includes
+        retired work through stored part-of relations and deduplicates diamonds.
+        Missing IDs raise not_found. Shared historical context applies, while
+        usage remains deliberately current; no budget or status is modified.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).subtree(
             id
         )
 
     def since(self, time, *, actor, now, role=None, as_of=None):
-        """Return nodes/edges with timestamps strictly later than time."""
+        """Return node/edge mappings changed strictly after RFC3339 ``time``.
+
+        Consider creation/update, approvals, artifact additions and edge
+        retirement timestamps, not just node.updated. An as_of cutoff limits
+        the changed set to that view; invalid times/selectors raise their domain
+        rules. Actor/now/role follow the shared read contract; source is unchanged.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).since(
             time
         )
@@ -958,7 +1255,15 @@ class Project:
         text=None,
         over_budget=False,
     ):
-        """Return nodes matching all supplied filters, in creation order."""
+        """Return a creation-ordered node list matching every supplied filter.
+
+        None type/status/author/field/tag/text means no corresponding filter;
+        field maps names to string comparisons, author matches actor name and
+        text searches title/body case-insensitively. Over_budget=False adds no
+        budget filter; True uses inclusive current subtree accounting. Filters
+        conjoin. Actor/now/role/as_of use the class read contract, including
+        current tags/budgets/usage rather than invented historical values.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).where(
             type=type,
             status=status,
@@ -970,11 +1275,23 @@ class Project:
         )
 
     def digest(self, *, actor, now, role=None, as_of=None):
-        """Return counted operational groups evaluated at the read clock."""
+        """Return an items envelope of counted operational node groups.
+
+        Include running, ready, blocked, awaiting, failed_24h and non-retired
+        Claims, with their lists/counts. The supplied now/as_of read context
+        determines predicates and the failure window; mutable metadata remains
+        current under Project's temporal contract. Nothing is scheduled.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).digest()
 
     def show(self, id, *, actor, now, role=None, as_of=None):
-        """Return an edge or a node with live relations, flags and warnings."""
+        """Return ``id``'s edge mapping or enriched node mapping.
+
+        Nodes add live incident edges, instructions, pins, derived flags and
+        profile warnings. Missing IDs raise not_found. Apply actor/now/role/
+        as_of through the common partial historical view; this does not check
+        out files, execute instructions or alter the node.
+        """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).show(id)
 
     @staticmethod
@@ -1279,7 +1596,15 @@ class Project:
                 ) from exc
 
     def apply(self, write: Write, commit=True) -> str | None:
-        """Validate and persist a low-level candidate in one writer transaction."""
+        """Validate/persist candidate ``Write``; return commit ID or None.
+
+        Prefer named operations for normal use. This low-level boundary copies
+        and validates the supplied nodes/edges against freshly read state under
+        the checkout writer lock, then serializes the candidate. Commit=True
+        stages only its changed/named files and emits post-commit hooks;
+        commit=False still writes files/index-visible state without a commit.
+        Shared permission, schema, invariant and write_failed rules apply.
+        """
         return self._execute(write, commit)[0]
 
     def _execute(self, write, commit, builder=None):

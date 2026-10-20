@@ -28,9 +28,11 @@ class MappedFiles:
     """Bounded live read-only mappings, never cached content or digests.
 
     Each lookup stats the path and hashes every mapped byte anew. The mapping
-    keeps its inode alive, so a matching path identity cannot refer to a reused
-    inode. Python 3.11's mmap owns the sole retained FD for each entry.
-    Private limit overrides only reduce the production resource bounds.
+    owns its mapped file resource until eviction or close. Default capacity is
+    1024 entries, further limited by the soft FD limit minus a reserve of 32;
+    the default byte budget is 16 MiB, charged in whole pages. Private _capacity
+    and _byte_budget overrides only reduce those bounds, down to zero. Explicit
+    close releases mappings; already returned digest bytes remain independent.
     """
 
     def __init__(self, *, _capacity=1024, _byte_budget=16 * 1024 * 1024):
@@ -55,6 +57,13 @@ class MappedFiles:
             entry.close()
 
     def close(self):
+        """Mark this mapping owner closed and release every retained mapping.
+
+        Attempt all entries even when one close raises OSError, then raise the
+        last such error. Repeated calls have no entries left to release. Digests
+        already returned are bytes and remain unchanged; future digest calls
+        raise ValueError.
+        """
         self._closed = True
         failure = None
         while self._entries:
@@ -73,6 +82,15 @@ class MappedFiles:
         return info.st_dev, info.st_ino, info.st_size
 
     def digest(self, path):
+        """Return raw SHA-256 bytes for the complete current file at path.
+
+        Stat without following symlinks and reject nonregular files. Reuse only
+        a matching live read-only mapping, hashing all its bytes on every call;
+        no digest is cached. Empty files, over-budget files and disabled mapping
+        capacity use hash_file instead. New mappings evict oldest entries within
+        the FD/count and page-rounded byte bounds. Closed owners raise ValueError;
+        stat, open, mapping and detected identity-change errors propagate.
+        """
         if self._closed:
             raise ValueError("Mapped hash resources are closed")
         try:
@@ -121,6 +139,15 @@ class MappedFiles:
 
 
 def main():
+    """Serve private newline-JSON path requests on binary stdin/stdout.
+
+    Each request is an array of path strings; success frames contain a zero
+    status byte followed by full-file SHA-256 digests in request order. Repeated
+    requests reuse only parsed paths and bounded mappings, never prior digests.
+    OSError, ValueError and TypeError produce a bounded UTF-8 error frame with
+    status one, then terminate the loop. EOF closes mappings; pipe-write and
+    other uncaught errors propagate. This is not a graph execution API.
+    """
     source, destination = sys.stdin.buffer, sys.stdout.buffer
     previous_line, previous_paths = None, None
     with MappedFiles() as files:

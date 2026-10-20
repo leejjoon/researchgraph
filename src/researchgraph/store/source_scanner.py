@@ -50,7 +50,14 @@ def _shutdown(process):
 
 
 class SourceScanner:
-    """One terminal protocol owner; errors never retry or fall back to serial IO."""
+    """Own one isolated fresh-discovery/hash supervisor rooted at root.
+
+    Construction starts a new process session with private pipes; scan requests
+    are serialized by a lock. The supervisor owns its bounded hashing helpers,
+    not graph task runners. Protocol/scan errors terminally close this owner and
+    never retry or fall back to serial IO. Explicit close or finalization shuts
+    down this session without targeting the caller's process group.
+    """
 
     def __init__(self, root):
         self._lock = threading.Lock()
@@ -78,6 +85,13 @@ class SourceScanner:
         self.close()
 
     def close(self):
+        """Terminally close this supervisor session under the scan lock.
+
+        Close input and wait, escalating to session-group termination and kill
+        when needed, then close output. The finalizer runs at most once and
+        shutdown errors propagate. Previously returned fingerprint tuples are
+        unchanged; subsequent scan calls raise OSError.
+        """
         with self._lock:
             self._closed = True
             self._finalizer()
@@ -117,7 +131,16 @@ class SourceScanner:
             raise OSError("Invalid source supervisor status")
 
     def scan(self, *, before_wait=None):
-        """Overlap independent parent work with the complete fresh fingerprint."""
+        """Return a fresh (hex fingerprint, HEAD-or-None) tuple for this root.
+
+        Request fresh discovery and full-byte hashing, including fresh HEAD.
+        Optional before_wait defaults to None; when supplied, call it after
+        sending the request and before reading the reply to overlap parent work.
+        Success updates file_count. Closed/process/protocol/IO failures raise
+        OSError; structured schema refusals raise RuleViolation. Any exception,
+        including callback failures, terminally closes the owner without retry
+        or serial fallback, preserving the original exception during cleanup.
+        """
         with self._lock:
             if self._closed:
                 raise OSError("Source scanner is closed")
