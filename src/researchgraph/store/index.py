@@ -8,16 +8,18 @@ last_history_seconds; callers should also time the entire public Project call.
 
 import hashlib
 import json
-import os
 import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from datetime import UTC, datetime
 from stat import S_ISREG
 from time import perf_counter
 
 from researchgraph.model import Edge, Node, RuleViolation, format_timestamp
-from researchgraph.store.hashing import HashScanner, hash_file
+from researchgraph.queries import QuerySource
 from researchgraph.store.history import History, record_key
+from researchgraph.store.source_scan import SourceFiles
+from researchgraph.store.source_scanner import SourceScanner
 
 PARALLEL_HASH_THRESHOLD = 5000
 SCHEMA_VERSION = "3"
@@ -79,15 +81,57 @@ class Index:
         self._verified_cache_token = None
         self._profile = None
         self._hash_scanner = None
+        self._source_files = SourceFiles(project.path)
+        self._last_file_count = None
         self._nodes, self._edges = {}, {}
+        self._query_source = None
         self._clock = format_timestamp(datetime.now(UTC).replace(microsecond=0))
         self.history = History(project._git)
         self.last_scan_seconds = self.last_rebuild_seconds = (
             self.last_history_seconds
         ) = 0.0
 
+    def _compact_models(self):
+        """Share only empty field containers and full-value frozen actors.
+
+        Authoritative private models are read-only until the next epoch reload.
+        Keep lists separate by field: a single-record deepcopy must still detach
+        tags, approvals and artifacts from one another. Never pool event models
+        or nonempty containers. The actor lookup dies here; its values live only
+        as long as this epoch's models do.
+        """
+        self._empty_fields = {}
+        self._empty_approvals, self._empty_artifacts, self._empty_tags = [], [], []
+        actors = {}
+
+        def actor(value):
+            # Actor equality deliberately ignores metadata, so it is not a key.
+            key = value.kind, value.name, value.email, value.model, value.version
+            return actors.setdefault(key, value)
+
+        for node in self._nodes.values():
+            node.author = actor(node.author)
+            if not node.fields:
+                node.fields = self._empty_fields
+            if not node.approvals:
+                node.approvals = self._empty_approvals
+            if not node.artifacts:
+                node.artifacts = self._empty_artifacts
+            if not node.tags:
+                node.tags = self._empty_tags
+            if node.lease is not None:
+                node.lease.actor = actor(node.lease.actor)
+            for approval in node.approvals:
+                approval.actor = actor(approval.actor)
+            for artifact in node.artifacts:
+                artifact.added_by = actor(artifact.added_by)
+        for edge in self._edges.values():
+            edge.author = actor(edge.author)
+            if not edge.fields:
+                edge.fields = self._empty_fields
+
     def close(self):
-        """Release the disposable SQLite connection and any isolated scan helpers."""
+        """Release connection, helpers and owned epochs, even while referenced."""
         try:
             if self.connection is not None:
                 self.connection.close()
@@ -95,62 +139,54 @@ class Index:
                 self._identity = None
                 self._loaded_hash = None
         finally:
-            if self._hash_scanner is not None:
-                scanner, self._hash_scanner = self._hash_scanner, None
-                scanner.close()
+            try:
+                if self._hash_scanner is not None:
+                    scanner, self._hash_scanner = self._hash_scanner, None
+                    scanner.close()
+            finally:
+                # Replace, never clear: a caller may retain an older read-only
+                # source. Closing its owner must not mutate that snapshot.
+                self._query_source = None
+                self._nodes, self._edges = {}, {}
+                self._loaded_hash = self._verified_cache_token = self._profile = None
+                self._source_files = SourceFiles(self.project.path)
+                self._last_file_count = None
+                self._empty_fields = None
+                self._empty_approvals = self._empty_artifacts = self._empty_tags = None
+                self.history = History(self.project._git)
 
-    def content_hash(self):
+    def content_hash(self, *, before_wait=None):
         """Real content scan, including all files under graph, history and HEAD."""
         started = perf_counter()
-        digest = hashlib.sha256()
-        graph = self.project.path / "graph"
-        files = []
-        pending = [(str(graph), "graph")] if graph.exists() else []
-        while pending:
-            directory, relative = pending.pop()
-            with os.scandir(directory) as entries:
-                for entry in entries:
-                    name = relative + "/" + entry.name
-                    if entry.is_symlink():
-                        raise RuleViolation(
-                            "schema", f"Symlink graph/history path: {name}"
-                        )
-                    if entry.is_dir(follow_symlinks=False):
-                        pending.append((entry.path, name))
-                    elif entry.is_file(follow_symlinks=False):
-                        files.append((name, entry.path))
-        archive = self.project.path / ".researchgraph/history.jsonl"
-        if archive.is_symlink():
-            raise RuleViolation(
-                "schema", "Symlink graph/history path: .researchgraph/history.jsonl"
-            )
-        if archive.is_file():
-            files.append((".researchgraph/history.jsonl", str(archive)))
-        files.sort()
-        if len(files) >= PARALLEL_HASH_THRESHOLD:
-            if self._hash_scanner is None:
-                self._hash_scanner = HashScanner()
+        # Last count selects only an execution strategy, never source freshness.
+        # Warm large scans walk exclusively in the isolated supervisor.
+        parallel = (
+            self._last_file_count is not None
+            and self._last_file_count >= PARALLEL_HASH_THRESHOLD
+        )
+        if not parallel:
+            self._last_file_count = self._source_files.discover()
+            parallel = self._last_file_count >= PARALLEL_HASH_THRESHOLD
+        if parallel:
             try:
-                hashes = self._hash_scanner.hash_files([path for _, path in files])
+                if self._hash_scanner is None:
+                    self._hash_scanner = SourceScanner(self.project.path)
+                content, self._scanned_head = self._hash_scanner.scan(
+                    before_wait=before_wait
+                )
+                self._last_file_count = self._hash_scanner.file_count
             except BaseException:
-                # Report this operation's failure. A later explicit operation
-                # gets a fresh helper owner, never a hidden retry or fallback.
+                # The failed owner is terminal. Only a later explicit call may
+                # construct another; this operation never retries or falls back.
                 self._hash_scanner = None
                 raise
-            file_hashes = (
-                hashes[offset : offset + 32] for offset in range(0, len(hashes), 32)
-            )
         else:
-            file_hashes = (hash_file(path) for _, path in files)
-        for (relative, _), file_hash in zip(files, file_hashes):
-            name = relative.encode("utf-8")
-            digest.update(len(name).to_bytes(8, "big"))
-            digest.update(name)
-            digest.update(file_hash)
-        self._scanned_head = self.project._git.head()
-        digest.update(b"HEAD\0" + (self._scanned_head or "").encode())
+            digest = self._source_files.digest()
+            self._scanned_head = self.project._git.head()
+            digest.update(b"HEAD\0" + (self._scanned_head or "").encode())
+            content = digest.hexdigest()
         self.last_scan_seconds = perf_counter() - started
-        return digest.hexdigest()
+        return content
 
     def _connect(self):
         self.path = self.project._safe_path(".researchgraph/index.sqlite")
@@ -167,11 +203,9 @@ class Index:
             and identity == self._identity
             and identity is not None
         ):
-            try:
-                self.connection.execute("SELECT 1")
-                return
-            except sqlite3.Error:
-                pass
+            with closing(self.connection.cursor()) as cursor:
+                cursor.execute("SELECT 1")
+            return
         if self.connection is not None:
             self.connection.close()
         self.connection = sqlite3.connect(self.path)
@@ -185,10 +219,13 @@ class Index:
         # data_version observes external commits; total_changes and schema_version
         # also observe changes through our own connection. Neither replaces the
         # mandatory full source-content scan at the beginning of refresh().
+        with closing(self.connection.cursor()) as cursor:
+            data_version = cursor.execute("PRAGMA data_version").fetchone()[0]
+            schema_version = cursor.execute("PRAGMA schema_version").fetchone()[0]
         return (
-            self.connection.execute("PRAGMA data_version").fetchone()[0],
+            data_version,
             self.connection.total_changes,
-            self.connection.execute("PRAGMA schema_version").fetchone()[0],
+            schema_version,
         )
 
     def _projection_hash(self):
@@ -214,16 +251,17 @@ class Index:
         )
         for name, query in queries:
             digest.update(name.encode("ascii") + b"\0")
-            for row in self.connection.execute(query):
-                encoded = record_key(row).encode("utf-8")
-                digest.update(len(encoded).to_bytes(8, "big"))
-                digest.update(encoded)
+            with closing(self.connection.cursor()) as cursor:
+                for row in cursor.execute(query):
+                    encoded = record_key(row).encode("utf-8")
+                    digest.update(len(encoded).to_bytes(8, "big"))
+                    digest.update(encoded)
         return digest.hexdigest()
 
-    def refresh(self):
+    def refresh(self, *, before_wait=None):
         """Scan authoritative content; return whether the cache was rebuilt."""
         started = perf_counter()
-        content = self.content_hash()
+        content = self.content_hash(before_wait=before_wait)
         profile = (
             self.project.profile_name,
             self.project.profile_version,
@@ -237,7 +275,8 @@ class Index:
         )
         try:
             self._connect()
-            metadata = dict(self.connection.execute("SELECT key,value FROM meta"))
+            with closing(self.connection.cursor()) as cursor:
+                metadata = dict(cursor.execute("SELECT key,value FROM meta"))
             valid = (
                 metadata.get("schema_version") == SCHEMA_VERSION
                 and metadata.get("content_hash") == content
@@ -256,18 +295,25 @@ class Index:
                     "status_intervals",
                     "ready",
                 ):
-                    self.connection.execute(f"SELECT * FROM {table} LIMIT 0")
+                    with closing(self.connection.cursor()) as cursor:
+                        cursor.execute(f"SELECT * FROM {table} LIMIT 0")
                 if self._loaded_hash != content or self._profile != profile:
-                    self._nodes = {
-                        r[0]: Node.from_dict(json.loads(r[1]))
-                        for r in self.connection.execute("SELECT id,payload FROM nodes")
-                    }
-                    self._edges = {
-                        r[0]: Edge.from_dict(json.loads(r[1]))
-                        for r in self.connection.execute("SELECT id,payload FROM edges")
-                    }
+                    self._query_source = None
+                    with closing(self.connection.cursor()) as cursor:
+                        self._nodes = {
+                            r[0]: Node.from_dict(json.loads(r[1]))
+                            for r in cursor.execute("SELECT id,payload FROM nodes")
+                        }
+                    with closing(self.connection.cursor()) as cursor:
+                        self._edges = {
+                            r[0]: Edge.from_dict(json.loads(r[1]))
+                            for r in cursor.execute("SELECT id,payload FROM edges")
+                        }
+                    self._compact_models()
                 self._loaded_hash, self._profile = content, profile
                 self._verified_cache_token = token
+                if self._query_source is None:
+                    self._query_source = QuerySource(self)
                 return False
         except (sqlite3.Error, ValueError, TypeError, KeyError) as exc:
             if isinstance(exc, sqlite3.Error):
@@ -300,26 +346,24 @@ class Index:
         intervals, provenance = self.history.project(nodes, self._scanned_head)
         self.last_history_seconds = self.history.last_walk_seconds
         # Schema is wholly owned by this cache. Recreate malformed/outdated schemas.
-        with self.connection:
+        with self.connection, closing(self.connection.cursor()) as cursor:
             # DDL and rows publish together. Readers never see a dropped/partial
             # schema, and concurrent rebuilders serialize through SQLite itself.
-            self.connection.execute("BEGIN IMMEDIATE")
-            objects = self.connection.execute(
+            cursor.execute("BEGIN IMMEDIATE")
+            objects = cursor.execute(
                 "SELECT type,name FROM sqlite_master WHERE type IN ('view','table') AND name NOT LIKE 'sqlite_%'"
             ).fetchall()
             for kind, name in sorted(objects, key=lambda item: item[0] != "view"):
-                self.connection.execute(
-                    f'DROP {kind} "{name.replace(chr(34), chr(34) * 2)}"'
-                )
+                cursor.execute(f'DROP {kind} "{name.replace(chr(34), chr(34) * 2)}"')
             statement = ""
             for line in SCHEMA.splitlines(keepends=True):
                 statement += line
                 if sqlite3.complete_statement(statement):
-                    self.connection.execute(statement)
+                    cursor.execute(statement)
                     statement = ""
             if statement.strip():
                 raise ValueError("Incomplete internal index schema")
-            self.connection.executemany(
+            cursor.executemany(
                 "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 [
                     (
@@ -339,7 +383,7 @@ class Index:
                     for n in nodes
                 ],
             )
-            self.connection.executemany(
+            cursor.executemany(
                 "INSERT INTO edges VALUES (?,?,?,?,?,?,?)",
                 [
                     (
@@ -355,7 +399,7 @@ class Index:
                 ],
             )
             for kind in ("approvals", "artifacts"):
-                self.connection.executemany(
+                cursor.executemany(
                     f"INSERT INTO {kind} VALUES (?,?,?,?)",
                     [
                         (
@@ -370,10 +414,10 @@ class Index:
                         for i, record in enumerate(getattr(n, kind))
                     ],
                 )
-            self.connection.executemany(
+            cursor.executemany(
                 "INSERT INTO status_intervals VALUES (?,?,?,?,?,?)", intervals
             )
-            self.connection.executemany(
+            cursor.executemany(
                 "INSERT INTO meta VALUES (?,?)",
                 [
                     ("schema_version", SCHEMA_VERSION),
@@ -381,13 +425,15 @@ class Index:
                     ("profile", json.dumps(profile)),
                 ],
             )
-            self.connection.execute(
+            cursor.execute(
                 "INSERT INTO meta VALUES ('projection_hash',?)",
                 (self._projection_hash(),),
             )
         self._verified_cache_token = self._cache_token()
         self._nodes, self._edges = {n.id: n for n in nodes}, {e.id: e for e in edges}
+        self._compact_models()
         self._loaded_hash, self._profile = content, profile
+        self._query_source = QuerySource(self)
         self.last_rebuild_seconds = perf_counter() - started - self.last_history_seconds
         return True
 
@@ -400,16 +446,18 @@ class Index:
             ) from exc
 
     def get_nodes(self):
-        return deepcopy(list(self._nodes.values()))
+        # A list-wide memo would preserve private empty-container aliases
+        # between otherwise independent public records.
+        return [deepcopy(node) for node in self._nodes.values()]
 
     def get_edges(self):
-        return deepcopy(list(self._edges.values()))
+        return [deepcopy(edge) for edge in self._edges.values()]
 
     def ready(self, now):
         """Refresh and evaluate the ready SQL view using this connection's clock."""
         self.project._refresh()
         self._clock = format_timestamp(now)
-        return [
-            self.get_node(row[0])
-            for row in self.connection.execute("SELECT id FROM ready")
-        ]
+        with closing(self.connection.cursor()) as cursor:
+            return [
+                self.get_node(row[0]) for row in cursor.execute("SELECT id FROM ready")
+            ]

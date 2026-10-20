@@ -203,7 +203,7 @@ def _dimensions(value: Mapping | None) -> dict | None:
     } or None
 
 
-@dataclass
+@dataclass(slots=True, weakref_slot=True)
 class Node:
     id: str
     type: str

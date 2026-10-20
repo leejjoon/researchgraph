@@ -1,11 +1,13 @@
 """File-backed projects and the shared low-level write boundary."""
 
 import hashlib
+import json
 import re
 import sqlite3
 import subprocess
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
+from stat import S_ISDIR, S_ISLNK
 
 import yaml
 from jsonschema import ValidationError
@@ -123,17 +125,28 @@ class Project:
                 "invalid_project", f"Invalid profile pin: {exc}"
             ) from exc
 
-    def _refresh(self):
+    def _refresh(self, *, before_wait=None):
         """Refresh profile bytes and the disposable index without a writer lock."""
         if self._closed:
             raise ValueError("Project is closed")
         # The mandatory index content scan validates worktree membership while
         # reading HEAD, avoiding a second git subprocess for every read.
         for relative in (".researchgraph", "graph", "graph/nodes", "graph/edges"):
-            path = self._safe_path(relative)
-            # Git does not preserve empty graph directories. Missing graph
-            # directories describe an empty collection, not an invalid clone.
-            if (relative == ".researchgraph" or path.exists()) and not path.is_dir():
+            # These are fixed internal paths, not caller input. Check each
+            # component freshly once; the pin's _safe_path below still checks
+            # resolved root ancestry and containment on every operation.
+            try:
+                mode = (self.path / relative).lstat().st_mode
+            except FileNotFoundError:
+                # Git does not preserve empty graph directories.
+                if relative != ".researchgraph":
+                    continue
+                raise RuleViolation(
+                    "invalid_project", f"Invalid project directory: {relative}"
+                ) from None
+            if S_ISLNK(mode):
+                raise RuleViolation("schema", f"Symlink project path: {relative}")
+            if not S_ISDIR(mode):
                 raise RuleViolation(
                     "invalid_project", f"Invalid project directory: {relative}"
                 )
@@ -149,7 +162,7 @@ class Project:
             self.profile = profile
             self.profile_name, self.profile_version = profile.name, version
             self._pin_bytes = pin_bytes
-        self.index.refresh()
+        self.index.refresh(before_wait=before_wait)
 
     @classmethod
     def init(
@@ -542,16 +555,29 @@ class Project:
         write = Write(op, actor, role, now, args, [], [])
         return self._execute(write, commit, builder)[1]
 
-    def _query_view(self, *, actor, now, role=None, as_of=None):
-        self._refresh()
+    def _query_view(self, *, actor, now, role=None, as_of=None, before_wait=None):
+        self._refresh(before_wait=before_wait)
         self._actor(actor)
         clock = evaluation_time(self, now, as_of)
         return QueryView(self, clock, as_of)
 
     def ready(self, *, actor, now, role=None, as_of=None):
         """Return claimable, unblocked nodes in priority order."""
-        view = self._query_view(actor=actor, now=now, role=role, as_of=as_of)
-        return {"items": view.ready_items()}
+        source = self.index._query_source
+        prepared = None
+
+        def prepare():
+            nonlocal prepared
+            prepared = source, source.clone_ready_batch()
+
+        view = self._query_view(
+            actor=actor,
+            now=now,
+            role=role,
+            as_of=as_of,
+            before_wait=prepare if source is not None and source.ready_ranks else None,
+        )
+        return {"items": view.ready_items(prepared)}
 
     def blocked(self, *, actor, now, role=None, as_of=None):
         """Return blocked active/running nodes and their blocker IDs."""
@@ -846,6 +872,8 @@ class Project:
             if not isinstance(record.fields, dict):
                 raise RuleViolation("schema", "Fields must be a mapping", [record.id])
             validator_for(definition.schema)(definition.schema).validate(record.fields)
+        # Cache/CLI serialization cannot reject data after source files change.
+        json.dumps(record.fields)
 
     def _artifact_path(self, relative, node_id=None):
         try:

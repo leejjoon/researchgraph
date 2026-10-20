@@ -2,6 +2,8 @@
 
 import hashlib
 import os
+import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
@@ -15,6 +17,270 @@ from researchgraph.model import Approval, Edge, Lease, RuleViolation, Status
 from researchgraph.project import Project
 from researchgraph.store.io import dump_edge, dump_node
 from tests.helpers import ALICE, NOW, node, repository, write
+
+
+@pytest.fixture
+def retained_sqlite_cursors(project, monkeypatch):
+    """Keep discarded cursors alive, as a non-refcounting runtime may do."""
+    from researchgraph.store import index as index_module
+
+    cursors = []
+
+    class Connection(sqlite3.Connection):
+        def cursor(self, *args, **kwargs):
+            cursor = super().cursor(*args, **kwargs)
+            cursors.append(cursor)
+            return cursor
+
+        def execute(self, *args, **kwargs):
+            cursor = super().execute(*args, **kwargs)
+            cursors.append(cursor)
+            return cursor
+
+        def executemany(self, *args, **kwargs):
+            cursor = super().executemany(*args, **kwargs)
+            cursors.append(cursor)
+            return cursor
+
+    connect = sqlite3.connect
+
+    def tracked_connect(*args, **kwargs):
+        return connect(*args, **kwargs, factory=Connection)
+
+    project.index.close()
+    monkeypatch.setattr(index_module.sqlite3, "connect", tracked_connect)
+    return cursors
+
+
+def test_index_closes_retained_cursors_before_schema_replacement(
+    project, retained_sqlite_cursors
+):
+    from researchgraph.store.history import intervals_as_dicts
+
+    value = node()
+    project.apply(write(value), commit=False)
+    project.get_nodes()
+    project.index._cache_token()
+    # A one-row PRAGMA result must not retain a schema lock until GC.
+    with project.index.connection:
+        with closing(project.index.connection.execute("CREATE TABLE probe(value)")):
+            pass
+        with closing(project.index.connection.execute("DROP TABLE probe")):
+            pass
+    project.index._projection_hash()
+    assert project.index.ready(NOW)[0].id == value.id
+    assert intervals_as_dicts(project.index.connection)[0]["node_id"] == value.id
+    # Exercise loaded-cache deserialization as well as warm reads and rebuilds.
+    project.index._loaded_hash = None
+    assert project.get_nodes()[0].id == value.id
+    value.tags = ["changed"]
+    project.apply(write(value, op="tag", args={"node": value.id}), commit=False)
+    assert project.get_node(value.id).tags == ["changed"]
+    assert retained_sqlite_cursors
+    for cursor in retained_sqlite_cursors:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed cursor"):
+            cursor.fetchone()
+
+
+@pytest.mark.parametrize("operation", ["projection", "ready", "history"])
+def test_index_closes_read_cursors_on_conversion_error(
+    project, retained_sqlite_cursors, monkeypatch, operation
+):
+    from researchgraph.store import history as history_module
+    from researchgraph.store import index as index_module
+
+    project.apply(write(node()), commit=False)
+    retained_sqlite_cursors.clear()
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("conversion failed")
+
+    if operation == "projection":
+        monkeypatch.setattr(index_module, "record_key", fail)
+        read = project.index._projection_hash
+    elif operation == "ready":
+        monkeypatch.setattr(project.index, "get_node", fail)
+
+        def read():
+            return project.index.ready(NOW)
+
+    else:
+        monkeypatch.setattr(history_module, "zip", fail, raising=False)
+
+        def read():
+            return history_module.intervals_as_dicts(project.index.connection)
+
+    with pytest.raises(RuntimeError, match="conversion failed"):
+        read()
+    assert retained_sqlite_cursors
+    for cursor in retained_sqlite_cursors:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed cursor"):
+            cursor.fetchone()
+
+
+def test_history_closes_cursor_when_sql_execution_fails(
+    project, retained_sqlite_cursors
+):
+    from researchgraph.store.history import intervals_as_dicts
+
+    project.get_nodes()
+    with project.index.connection, closing(project.index.connection.cursor()) as cursor:
+        cursor.execute("DROP TABLE status_intervals")
+    retained_sqlite_cursors.clear()
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        intervals_as_dicts(project.index.connection)
+    assert retained_sqlite_cursors
+    for cursor in retained_sqlite_cursors:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed cursor"):
+            cursor.fetchone()
+
+
+@pytest.mark.parametrize("code", [sqlite3.SQLITE_IOERR, sqlite3.SQLITE_INTERRUPT])
+@pytest.mark.parametrize("operation", ["refresh", "public_read"])
+def test_same_inode_probe_propagates_unexpected_sqlite_error_without_retry(
+    project, retained_sqlite_cursors, monkeypatch, code, operation
+):
+    from researchgraph.store import index as index_module
+
+    value = node()
+    project.apply(write(value))
+    index = project.index
+    connection = index.connection
+    cache = index.path
+    identity = index._identity
+    cache_bytes = cache.read_bytes()
+    source_bytes = {
+        path: path.read_bytes() for path in (project.path / "graph").rglob("*.yaml")
+    }
+    head = project._git.head()
+    error = sqlite3.OperationalError("injected unexpected liveness probe failure")
+    error.sqlite_errorcode = code
+    probes, closes, reconnects = [], [], []
+
+    class ProbeCursor:
+        def __init__(self, cursor):
+            self.cursor = cursor
+
+        def execute(self, sql, *args):
+            if sql == "SELECT 1":
+                probes.append(sql)
+                raise error
+            return self.cursor.execute(sql, *args)
+
+        def close(self):
+            self.cursor.close()
+
+    class ProbeConnection:
+        def cursor(self):
+            return ProbeCursor(connection.cursor())
+
+        def close(self):
+            closes.append(connection)
+            connection.close()
+
+    connect = index_module.sqlite3.connect
+
+    def tracked_connect(*args, **kwargs):
+        reconnects.append(args)
+        return connect(*args, **kwargs)
+
+    proxy = ProbeConnection()
+    index.connection = proxy
+    monkeypatch.setattr(index_module.sqlite3, "connect", tracked_connect)
+    retained_sqlite_cursors.clear()
+    try:
+        with pytest.raises(sqlite3.OperationalError) as caught:
+            if operation == "refresh":
+                index.refresh()
+            else:
+                project.get_nodes()
+        assert caught.value is error
+        assert probes == ["SELECT 1"]
+        assert closes == reconnects == []
+        assert index.connection is proxy
+        assert index._identity == identity
+        stat = cache.stat()
+        assert (stat.st_dev, stat.st_ino) == identity
+        assert cache.read_bytes() == cache_bytes
+        assert {path: path.read_bytes() for path in source_bytes} == source_bytes
+        assert project._git.head() == head
+        assert retained_sqlite_cursors
+        for cursor in retained_sqlite_cursors:
+            with pytest.raises(sqlite3.ProgrammingError, match="closed cursor"):
+                cursor.fetchone()
+    finally:
+        # Restore the real owner for fixture cleanup, without leaking a fallback
+        # connection when this regression is exercised against the broken code.
+        if index.connection is not proxy:
+            index.connection.close()
+        index.connection = connection
+
+
+def test_index_close_replaces_history_without_mutating_retained_epoch(project):
+    first, second = node(), node("ta-bbbbbbbb")
+    project.apply(write(first, second))
+    edge = Edge("ed-aaaaaaaa", "relates-to", first.id, second.id, ALICE, NOW)
+    project.apply(write(edges=[edge], op="link"))
+    project.claim(first.id, actor=ALICE, now=NOW + timedelta(seconds=1))
+    project.release(first.id, actor=ALICE, now=NOW + timedelta(seconds=2))
+    index = project.index
+    expected_ready = [n.to_dict() for n in index.ready(NOW + timedelta(seconds=3))]
+    old_source = index._query_source
+    expected_batch = old_source.clone_ready_batch()
+    expected_nodes = {key: value.to_dict() for key, value in old_source.nodes.items()}
+    old_history = index.history
+    old_head = old_history.head
+    containers = {
+        name: getattr(old_history, name)
+        for name in ("transitions", "provenance", "latest", "edge_commits")
+    }
+    expected_containers = deepcopy(containers)
+    assert all(containers.values())
+    assert old_head == project._git.head()
+    source_bytes = {
+        path: path.read_bytes() for path in (project.path / "graph").rglob("*.yaml")
+    }
+
+    index.close()
+    fresh_history = index.history
+    assert fresh_history is not old_history
+    assert fresh_history.git is old_history.git is project._git
+    assert fresh_history.head != old_head
+    assert fresh_history.transitions == []
+    assert fresh_history.provenance == {}
+    assert fresh_history.latest == {}
+    assert fresh_history.edge_commits == {}
+    assert fresh_history.last_walk_seconds == 0.0
+    for name, retained in containers.items():
+        assert getattr(old_history, name) is retained
+        assert retained == expected_containers[name]
+        assert getattr(fresh_history, name) is not retained
+    assert old_history.head == old_head
+    assert old_source.clone_ready_batch() == expected_batch
+    assert {
+        key: value.to_dict() for key, value in old_source.nodes.items()
+    } == expected_nodes
+
+    # Removing only the disposable cache requires a complete new history walk,
+    # rather than proving reopen with a valid SQLite projection alone.
+    index.path.unlink()
+    assert [
+        n.to_dict() for n in index.ready(NOW + timedelta(seconds=3))
+    ] == expected_ready
+    assert index.history is fresh_history
+    assert fresh_history.head == old_head
+    for name, retained in containers.items():
+        assert getattr(fresh_history, name) == expected_containers[name]
+        assert getattr(fresh_history, name) is not retained
+        assert getattr(old_history, name) is retained
+        assert retained == expected_containers[name]
+    assert index._query_source is not old_source
+    assert old_source.clone_ready_batch() == expected_batch
+    assert {
+        key: value.to_dict() for key, value in old_source.nodes.items()
+    } == expected_nodes
+    assert {path: path.read_bytes() for path in source_bytes} == source_bytes
+    assert project._git.head() == old_head
 
 
 def test_typed_refresh_same_metadata_and_deleted_cache(project):
@@ -56,7 +322,7 @@ def test_content_hash_all_files_history_and_head(project):
 
 def test_corrupt_cache_but_invalid_source_not_hidden(project):
     project.apply(write(node()), commit=False)
-    project.index.connection.close()
+    project.index.close()
     (project.path / ".researchgraph/index.sqlite").write_bytes(b"broken sqlite")
     assert project.get_nodes()[0].id == "ta-aaaaaaaa"
     (project.path / "graph/nodes/ta-aaaaaaaa.yaml").write_text("invalid: [")
@@ -254,7 +520,7 @@ def test_large_backend_matches_independent_framing_and_small_backend(
         project.index.close()
     project.index.close()
     assert project.index.connection is None
-    assert all(process.poll() is not None for process in scanner._processes)
+    assert scanner.process.poll() is not None
 
 
 def test_small_index_never_starts_helpers_and_close_releases_connection(project):
@@ -291,12 +557,12 @@ def test_later_explicit_read_can_recover_after_reported_helper_crash(
     try:
         project.get_node("ta-aaaaaaaa")
         previous = project.index._hash_scanner
-        worker = previous._processes[0]
+        worker = previous.process
         worker.kill()
         worker.wait(timeout=5)
         with pytest.raises(OSError):
             project.get_node("ta-aaaaaaaa")
-        assert all(process.poll() is not None for process in previous._processes)
+        assert previous.process.poll() is not None
         assert project.get_node("ta-aaaaaaaa").id == "ta-aaaaaaaa"
         assert project.index._hash_scanner is not previous
     finally:
@@ -442,3 +708,40 @@ def test_cache_alias_does_not_modify_unrelated_database(project, alias):
         assert (
             database.execute("SELECT value FROM sentinel").fetchone()[0] == "user work"
         )
+
+
+def test_failed_path_encoding_never_publishes_partial_scan_frames(project):
+    assert project.get_nodes() == []
+    invalid = project.path / "graph" / os.fsdecode(b"bad-\xff")
+    invalid.write_bytes(b"must not be omitted")
+    for _ in range(3):
+        with pytest.raises(RuleViolation) as raised:
+            project.get_nodes()
+        assert raised.value.rule == "schema"
+    invalid.unlink()
+    assert project.get_nodes() == []
+
+
+def test_reused_names_never_reuse_file_type_or_content(project, tmp_path):
+    path = project.path / "graph/extra"
+    path.write_bytes(b"a")
+    first = project.index.content_hash()
+    stamp = path.stat()
+    path.write_bytes(b"b")
+    os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    assert project.index.content_hash() != first
+    path.unlink()
+    target = tmp_path / "outside"
+    target.write_bytes(b"a")
+    path.symlink_to(target)
+    with pytest.raises(RuleViolation) as raised:
+        project.get_nodes()
+    assert raised.value.rule == "schema"
+    path.unlink()
+    path.mkdir()
+    (path / "child").write_bytes(b"a")
+    assert project.index.content_hash() != first
+    (path / "child").unlink()
+    path.rmdir()
+    path.write_bytes(b"a")
+    assert project.index.content_hash() == first

@@ -507,10 +507,10 @@ QUERY_CALLS = [
 @pytest.mark.parametrize("name,args", QUERY_CALLS)
 def test_every_query_rebuild_equivalence_and_context(tmp_path, name, args, monkeypatch):
     project = restore(tmp_path, [record("Task", "a")], profile="tasks")
-    from researchgraph.store import index as index_module
+    from researchgraph.store import source_scan as source_module
 
     hashed, heads = [], []
-    original_hash, original_head = index_module.hash_file, project._git.head
+    original_hash, original_head = source_module.hash_file, project._git.head
 
     def hash_file(path):
         hashed.append(path)
@@ -520,7 +520,7 @@ def test_every_query_rebuild_equivalence_and_context(tmp_path, name, args, monke
         heads.append(True)
         return original_head()
 
-    monkeypatch.setattr(index_module, "hash_file", hash_file)
+    monkeypatch.setattr(source_module, "hash_file", hash_file)
     monkeypatch.setattr(project._git, "head", head)
     before = call(project, name, *args)
     assert hashed and heads

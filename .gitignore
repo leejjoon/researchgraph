@@ -2,3 +2,7 @@
 __pycache__/
 *.egg-info/
 .hypothesis/
+/build/
+/dist/
+/src/researchgraph/_native_clone.*.so
+/src/researchgraph/store/_native_scan.*.so

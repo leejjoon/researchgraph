@@ -7,6 +7,7 @@ archive commit identifiers are preserved as opaque provenance, without bundles.
 import itertools
 import json
 import subprocess
+from contextlib import closing
 from datetime import UTC, datetime
 from time import perf_counter
 
@@ -37,13 +38,12 @@ def record_key(record):
 
 def intervals_as_dicts(connection):
     """Return export-shaped rows with canonical times and ordered keys."""
-    return [
-        dict(zip(INTERVAL_KEYS, row))
-        for row in connection.execute(
+    with closing(connection.cursor()) as cursor:
+        cursor.execute(
             "SELECT node_id,status,from_commit,from_time,to_commit,to_time "
             "FROM status_intervals ORDER BY node_id,from_time,status"
         )
-    ]
+        return [dict(zip(INTERVAL_KEYS, row)) for row in cursor]
 
 
 class History:

@@ -8,9 +8,12 @@ always refreshes before constructing one.
 
 import json
 import subprocess
+from bisect import bisect_right
 from collections import Counter, defaultdict
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
+from researchgraph import _native_clone
 from researchgraph.model import RuleViolation, Status, format_timestamp, parse_timestamp
 from researchgraph.store.history import intervals_as_dicts
 from researchgraph.store.io import _canonical_equal
@@ -43,6 +46,7 @@ class View:
 
     def __init__(self, profile, nodes, edges, now):
         self.profile, self.nodes, self.edges, self.now = profile, nodes, edges, now
+        self.claimable = {n.name for n in profile.node_types if n.claimable}
         self.outgoing, self.incoming = defaultdict(list), defaultdict(list)
         self.parents, self.children = defaultdict(list), defaultdict(list)
         self.accounting = defaultdict(list)
@@ -95,11 +99,16 @@ class View:
 
     def ready(self, node):
         return (
-            self.profile.node_type(node.type).claimable
+            node.type in self.claimable
             and (node.status == Status.ACTIVE or self.lease_expired(node))
-            and not self.blocking(node)
-            and not any(
-                self.over_budget(self.nodes[a]) for a in closure(node.id, self.parents)
+            and (not self.incoming.get(node.id) or not self.blocking(node))
+            and not self.over_budget(node)
+            and (
+                not self.parents.get(node.id)
+                or not any(
+                    self.over_budget(self.nodes[a])
+                    for a in closure(node.id, self.parents) - {node.id}
+                )
             )
         )
 
@@ -153,6 +162,10 @@ def evaluation_time(project, now, as_of):
         try:
             return parse_timestamp(as_of)
         except ValueError:
+            source = query_source(project)
+            commit = project.index._scanned_head if as_of == "HEAD" else as_of
+            if commit in source.commit_times:
+                return source.commit_times[commit]
             result = project._git.run(
                 "show", "-s", "--format=%ct", "--end-of-options", as_of + "^{commit}"
             )
@@ -161,43 +174,324 @@ def evaluation_time(project, now, as_of):
         raise RuleViolation("schema", f"Invalid read time: {exc}") from exc
 
 
+def copy_json(value):
+    """Detach a JSON projection without copying immutable scalar leaves."""
+    if isinstance(value, dict):
+        return {key: copy_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [copy_json(item) for item in value]
+    return value
+
+
+class _NodeColumns:
+    pass
+
+
+class _ActorColumns:
+    pass
+
+
+def _shared_columns(values, holder_type):
+    # Temporary holders give ordinary dictionaries shared immutable keys. Copies
+    # still own independent values; profile-field mappings never use this path.
+    holder = holder_type()
+    for key, value in values.items():
+        setattr(holder, key, value)
+    return vars(holder)
+
+
+class QuerySource:
+    """Read-only, source-epoch-derived timelines and reusable typed overlays.
+
+    Owned by Index and discarded whenever its authoritative models are reloaded.
+    No return value exposes these models or the serialized projection templates.
+    """
+
+    def __init__(self, index):
+        self.profile = index.project.profile
+        self.nodes, self.edges = index._nodes, index._edges
+        # Private templates and overlays are read-only. Reuse epoch-owned empty
+        # containers by field; public projections always allocate fresh ones.
+        self._empty_fields = index._empty_fields
+        self._empty_approvals = index._empty_approvals
+        self._empty_artifacts = index._empty_artifacts
+        self._empty_tags = index._empty_tags
+        self._actor_templates = {}
+        self.ready_order = [n.id for n in sorted(self.nodes.values(), key=ready_order)]
+        # These nodes cannot be affected by graph readiness constraints at any
+        # historical boundary in this epoch. Include retired/future edges when
+        # identifying constraints, so their temporal visibility needs no cache.
+        constrained = {n.id for n in self.nodes.values() if n.budget}
+        for edge in self.edges.values():
+            if edge.type == "blocks":
+                constrained.add(edge.to)
+            if edge.type in CONTAINMENT:
+                constrained.add(edge.from_)
+        claimable = {n.name for n in self.profile.node_types if n.claimable}
+        self.unconstrained = {
+            n.id
+            for n in self.nodes.values()
+            if n.type in claimable and n.id not in constrained
+        }
+        self.intervals = intervals_as_dicts(index.connection)
+        self.timelines = defaultdict(list)
+        # Archive commit strings are opaque provenance, not locally resolvable
+        # revisions. Cache only actual commits reachable from the scanned HEAD;
+        # other refs and abbreviations still go through git show.
+        self.commit_times = {}
+        if index._scanned_head is not None:
+            for line in index.project._git.run(
+                "log", "--format=%H %ct", index._scanned_head
+            ).stdout.splitlines():
+                commit, seconds = line.split()
+                self.commit_times[commit] = datetime.fromtimestamp(int(seconds), UTC)
+        self.variants, self.serialized = {}, {}
+        for interval in self.intervals:
+            start = parse_timestamp(interval["from_time"])
+            end = parse_timestamp(interval["to_time"]) if interval["to_time"] else None
+            self.timelines[interval["node_id"]].append(
+                (start, end, Status(interval["status"]))
+            )
+        for timeline in self.timelines.values():
+            timeline.sort(key=lambda row: row[0])
+        self.static_map, self.static_bounds, self.dynamic_nodes = {}, {}, {}
+        for identifier, node in self.nodes.items():
+            timeline = self.timelines.get(identifier, ())
+            if (
+                len(timeline) == 1
+                and timeline[0][2] == node.status
+                and not node.approvals
+                and not node.artifacts
+            ):
+                start, end, _ = timeline[0]
+                self.static_map[identifier] = node
+                self.static_bounds[identifier] = max(start, node.created), end
+                # The range fully represents this node's single interval. Do
+                # not also retain per-node lists and status-enum tuples.
+                self.timelines.pop(identifier, None)
+            else:
+                self.dynamic_nodes[identifier] = node
+        self.starts = {
+            identifier: [row[0] for row in timeline]
+            for identifier, timeline in self.timelines.items()
+        }
+        self.static_start = max(
+            (start for start, _ in self.static_bounds.values()), default=None
+        )
+        self.static_end = min(
+            (end for _, end in self.static_bounds.values() if end is not None),
+            default=None,
+        )
+        # A single epoch-owned batch, never a cache of per-boundary ready sets.
+        # Complex rows retain the normal serializer and dynamic predicates.
+        ready_templates, self.ready_ranks, batched = [], [], set()
+        self.ready_rank = {
+            identifier: rank for rank, identifier in enumerate(self.ready_order)
+        }
+        for identifier in self.ready_order:
+            node = self.static_map.get(identifier)
+            if (
+                node is None
+                or node.status != Status.ACTIVE
+                or identifier not in self.unconstrained
+                or node.budget is not None
+                or node.usage is not None
+                or node.lease is not None
+            ):
+                continue
+            template = self._template(node)
+            if any(
+                isinstance(value, (dict, list)) for value in template["fields"].values()
+            ):
+                continue
+            # Scalar skeletons preserve canonical key order without retaining
+            # a GC-visible mutable DTO tree per static row. All mutable columns
+            # are inserted into fresh caller-owned containers when cloned.
+            columns = {"author", "fields", "approvals", "artifacts", "tags"}
+            skeleton = _shared_columns(
+                {
+                    key: None if key in columns else value
+                    for key, value in template.items()
+                },
+                _NodeColumns,
+            )
+            ready_templates.append(
+                (
+                    skeleton,
+                    template["author"],
+                    template["fields"],
+                    tuple(template["tags"]),
+                )
+            )
+            self.ready_ranks.append(self.ready_rank[identifier])
+            batched.add(identifier)
+        self._ready_columns = _native_clone.compile_templates(ready_templates)
+        self.ready_remaining = [
+            identifier for identifier in self.ready_order if identifier not in batched
+        ]
+
+    def _template(self, node):
+        """Compact canonical private DTO columns; every return path detaches."""
+        template = node.to_dict()
+        for name in ("fields", "approvals", "artifacts", "tags"):
+            if not template[name]:
+                template[name] = getattr(self, "_empty_" + name)
+
+        def actor(value):
+            key = tuple(
+                value.get(name)
+                for name in ("kind", "name", "email", "model", "version")
+            )
+            if key not in self._actor_templates:
+                self._actor_templates[key] = _shared_columns(value, _ActorColumns)
+            return self._actor_templates[key]
+
+        template["author"] = actor(template["author"])
+        if template["lease"] is not None:
+            template["lease"]["actor"] = actor(template["lease"]["actor"])
+        for approval in template["approvals"]:
+            approval["actor"] = actor(approval["actor"])
+        for artifact in template["artifacts"]:
+            artifact["added_by"] = actor(artifact["added_by"])
+        return template
+
+    def in_static_envelope(self, now):
+        return (self.static_start is None or self.static_start <= now) and (
+            self.static_end is None or now < self.static_end
+        )
+
+    def clone_ready_batch(self):
+        """Eagerly clone the epoch's proven, privately owned flat columns.
+
+        All top-level dictionaries and mutable column containers are fresh.
+        Event lists are empty, actor/field values and tag elements are scalars;
+        budget, usage and lease are null by construction.
+        """
+        return _native_clone.clone_rows(self._ready_columns)
+
+    def at(self, now):
+        nodes = (
+            self.static_map.copy()
+            if self.in_static_envelope(now)
+            else {
+                identifier: self.static_map[identifier]
+                for identifier, (start, end) in self.static_bounds.items()
+                if start <= now and (end is None or now < end)
+            }
+        )
+        for identifier, node in self.dynamic_nodes.items():
+            if node.created > now:
+                continue
+            timeline = self.timelines.get(identifier, ())
+            position = bisect_right(self.starts.get(identifier, ()), now) - 1
+            while position >= 0:
+                _, end, status = timeline[position]
+                if end is None or now < end:
+                    break
+                position -= 1
+            if position < 0:
+                continue
+            if status == node.status and not node.approvals and not node.artifacts:
+                nodes[identifier] = node
+                continue
+            approvals = tuple(i for i, a in enumerate(node.approvals) if a.at <= now)
+            artifacts = tuple(
+                i for i, a in enumerate(node.artifacts) if a.added_at <= now
+            )
+            if (
+                status == node.status
+                and len(approvals) == len(node.approvals)
+                and len(artifacts) == len(node.artifacts)
+            ):
+                nodes[identifier] = node
+                continue
+            key = status, approvals, artifacts
+            cached = self.variants.get(identifier)
+            if cached is None or cached[0] != key:
+                variant = replace(
+                    node,
+                    status=status,
+                    approvals=(
+                        [node.approvals[i] for i in approvals]
+                        if approvals
+                        else self._empty_approvals
+                    ),
+                    artifacts=(
+                        [node.artifacts[i] for i in artifacts]
+                        if artifacts
+                        else self._empty_artifacts
+                    ),
+                )
+                # Retain only the latest projection of each node, not every
+                # boundary's growing event prefix during a timeline scrub.
+                self.variants[identifier] = key, variant
+            nodes[identifier] = self.variants[identifier][1]
+        edges = {}
+        for identifier, edge in self.edges.items():
+            if edge.created > now or edge.from_ not in nodes or edge.to not in nodes:
+                continue
+            if edge.retired_at is not None and edge.retired_at > now:
+                edge = replace(edge, retired=False, retired_at=None)
+            edges[identifier] = edge
+        return nodes, edges
+
+    def serialize(self, node):
+        key = node.id
+        cached = self.serialized.get(key)
+        if cached is None or cached[2] is not node:
+            template = self._template(node)
+            # Only fields admit arbitrary nested JSON. Flat scalar fields need
+            # a shallow mapping copy, while all fixed empty containers can be
+            # allocated directly without a recursive visitor.
+            nested_fields = any(
+                isinstance(v, (dict, list)) for v in template["fields"].values()
+            )
+            # Keep a strong model identity with this node's latest DTO. Older
+            # retained views can be revisited without stale id()-key reuse.
+            self.serialized[key] = template, nested_fields, node
+        template, nested_fields, _ = self.serialized[key]
+        result = dict(template)
+        result["author"] = dict(template["author"])
+        result["fields"] = (
+            copy_json(template["fields"]) if nested_fields else dict(template["fields"])
+        )
+        result["approvals"] = (
+            copy_json(template["approvals"]) if template["approvals"] else []
+        )
+        result["artifacts"] = (
+            copy_json(template["artifacts"]) if template["artifacts"] else []
+        )
+        result["tags"] = list(template["tags"])
+        for name in ("budget", "usage"):
+            if template[name] is not None:
+                result[name] = dict(template[name])
+        if template["lease"] is not None:
+            result["lease"] = dict(template["lease"])
+            result["lease"]["actor"] = dict(template["lease"]["actor"])
+        return result
+
+
+def query_source(project):
+    index = project.index
+    if (
+        index._query_source is None
+        or index._query_source.profile is not project.profile
+    ):
+        index._query_source = QuerySource(index)
+    return index._query_source
+
+
 class QueryView(View):
     """One refreshed query snapshot, optionally reconstructed at an inclusive time."""
 
     def __init__(self, project, now, as_of):
         self.index = project.index
         self.as_of = as_of is not None
-        self.intervals = intervals_as_dicts(self.index.connection)
-        nodes = {n.id: n for n in self.index.get_nodes()}
-        edges = {e.id: e for e in self.index.get_edges()}
+        self.source = query_source(project)
+        self.intervals = self.source.intervals
+        nodes, edges = self.source.nodes, self.source.edges
         if self.as_of:
-            boundary = format_timestamp(now)
-            available = {}
-            for interval in self.intervals:
-                if interval["from_time"] <= boundary and (
-                    interval["to_time"] is None or boundary < interval["to_time"]
-                ):
-                    previous = available.get(interval["node_id"])
-                    if (
-                        previous is None
-                        or interval["from_time"] >= previous["from_time"]
-                    ):
-                        available[interval["node_id"]] = interval
-            nodes = {
-                i: n for i, n in nodes.items() if n.created <= now and i in available
-            }
-            for identifier, node in nodes.items():
-                node.status = Status(available[identifier]["status"])
-                node.approvals = [a for a in node.approvals if a.at <= now]
-                node.artifacts = [a for a in node.artifacts if a.added_at <= now]
-            edges = {
-                i: e
-                for i, e in edges.items()
-                if e.created <= now and e.from_ in nodes and e.to in nodes
-            }
-            for edge in edges.values():
-                if edge.retired_at is not None and edge.retired_at > now:
-                    edge.retired, edge.retired_at = False, None
+            nodes, edges = self.source.at(now)
         super().__init__(project.profile, nodes, edges, now)
 
     def require(self, identifier):
@@ -213,11 +507,31 @@ class QueryView(View):
     def vocabulary(self, *names):
         return set(names) <= {n.name for n in self.profile.node_types}
 
-    def ready_items(self):
+    def ready_items(self, prepared=None):
+        if not self.as_of or self.source.in_static_envelope(self.now):
+            rows = (
+                prepared[1]
+                if prepared is not None and prepared[0] is self.source
+                else self.source.clone_ready_batch()
+            )
+            # Only non-batched nodes need temporal readiness evaluation. Insert
+            # their fresh rows by source-epoch rank, preserving exact ready order.
+            added = 0
+            for identifier in self.source.ready_remaining:
+                node = self.nodes.get(identifier)
+                if node is None or not self.ready(node):
+                    continue
+                rank = self.source.ready_rank[identifier]
+                position = bisect_right(self.source.ready_ranks, rank) + added
+                rows.insert(position, self.source.serialize(node))
+                added += 1
+            return rows
         return [
-            n.to_dict()
-            for n in sorted(self.nodes.values(), key=ready_order)
-            if self.ready(n)
+            self.source.serialize(n)
+            for identifier in self.source.ready_order
+            if (n := self.nodes.get(identifier)) is not None
+            if (n.status == Status.ACTIVE or self.lease_expired(n))
+            and (identifier in self.source.unconstrained or self.ready(n))
         ]
 
     def blocked_items(self):
@@ -294,8 +608,8 @@ class QueryView(View):
             dict(
                 e.to_dict(),
                 source=self.nodes[e.from_].to_dict(),
-                expected=e.fields.get("expected"),
-                discriminating=e.fields.get("discriminating", True),
+                expected=copy_json(e.fields.get("expected")),
+                discriminating=copy_json(e.fields.get("discriminating", True)),
                 status=str(self.nodes[e.from_].status),
             )
             for e in sorted(self.incoming[identifier], key=created_order)
@@ -324,7 +638,9 @@ class QueryView(View):
                     if e.type == "tests" and e.to == target.id
                 ]
                 cells[target.id] = (
-                    matches[0].fields.get("expected") if len(matches) == 1 else None
+                    copy_json(matches[0].fields.get("expected"))
+                    if len(matches) == 1
+                    else None
                 )
             rows.append(
                 {

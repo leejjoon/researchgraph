@@ -1,6 +1,7 @@
 """Git-derived intervals, archive union and record provenance."""
 
 import json
+from contextlib import closing
 from datetime import timedelta
 from hashlib import sha256
 
@@ -22,6 +23,11 @@ from tests.helpers import ALICE, NOW, node, repository, write
 def rows(project):
     project.get_nodes()
     return intervals_as_dicts(project.index.connection)
+
+
+def stored_column(project, sql):
+    with closing(project.index.connection.cursor()) as cursor:
+        return cursor.execute(sql).fetchone()[0]
 
 
 @pytest.mark.parametrize(
@@ -93,18 +99,16 @@ def test_nested_project_committed_history_and_provenance(tmp_path, directory):
         ]
         assert rows(nested) == expected
         assert (
-            nested.index.connection.execute(
-                "select from_commit from approvals where ordinal=0"
-            ).fetchone()[0]
+            stored_column(nested, "select from_commit from approvals where ordinal=0")
             == budget_commit
         )
         (nested.path / ".researchgraph/index.sqlite").unlink()
         with Project.open(nested.path) as reopened:
             assert rows(reopened) == expected
             assert (
-                reopened.index.connection.execute(
-                    "select from_commit from approvals where ordinal=0"
-                ).fetchone()[0]
+                stored_column(
+                    reopened, "select from_commit from approvals where ordinal=0"
+                )
                 == budget_commit
             )
 
@@ -162,12 +166,7 @@ def test_commit_chain_pending_replacement_and_provenance(project):
     assert pending[0]["from_commit"] == first
     assert pending[0]["to_commit"] is None
     assert pending[0]["to_time"] == format_timestamp(value.updated)
-    assert (
-        project.index.connection.execute(
-            "select from_commit from approvals"
-        ).fetchone()[0]
-        is None
-    )
+    assert stored_column(project, "select from_commit from approvals") is None
     value.tags = ["committed", "metadata-only"]
     final = project.apply(
         write(value, op="tag", args={"node": value.id}, now=value.updated)
@@ -175,18 +174,8 @@ def test_commit_chain_pending_replacement_and_provenance(project):
     committed = rows(project)
     assert committed[0]["to_commit"] == final
     assert committed[1]["from_commit"] == final
-    assert (
-        project.index.connection.execute(
-            "select from_commit from approvals"
-        ).fetchone()[0]
-        == final
-    )
-    assert (
-        project.index.connection.execute(
-            "select from_commit from artifacts"
-        ).fetchone()[0]
-        == final
-    )
+    assert stored_column(project, "select from_commit from approvals") == final
+    assert stored_column(project, "select from_commit from artifacts") == final
     (project.path / ".researchgraph/index.sqlite").unlink()
     assert rows(project) == committed
 
@@ -248,12 +237,7 @@ def test_edge_introduction_provenance_survives_retirement(tmp_path, directory):
         project.apply(write(first, second))
         edge = Edge("ed-aaaaaaaa", "relates-to", first.id, second.id, ALICE, NOW)
         project.apply(write(edges=[edge], op="link"), commit=False)
-        assert (
-            project.index.connection.execute(
-                "SELECT from_commit FROM edges"
-            ).fetchone()[0]
-            is None
-        )
+        assert stored_column(project, "SELECT from_commit FROM edges") is None
         introduced = project.apply(write(edges=[edge], op="link"))
         first.status = Status.RETIRED
         first.updated = NOW + timedelta(seconds=1)
@@ -271,12 +255,7 @@ def test_edge_introduction_provenance_survives_retirement(tmp_path, directory):
             )
         )
         assert introduced != retired
-        assert (
-            project.index.connection.execute(
-                "SELECT from_commit FROM edges"
-            ).fetchone()[0]
-            == introduced
-        )
+        assert stored_column(project, "SELECT from_commit FROM edges") == introduced
         cache = project.path / ".researchgraph/index.sqlite"
         for remove_cache in (False, True):
             if remove_cache:
@@ -284,9 +263,7 @@ def test_edge_introduction_provenance_survives_retirement(tmp_path, directory):
             with Project.open(project.path) as reopened:
                 assert reopened.get_edges()[0].retired
                 assert (
-                    reopened.index.connection.execute(
-                        "SELECT from_commit FROM edges"
-                    ).fetchone()[0]
+                    stored_column(reopened, "SELECT from_commit FROM edges")
                     == introduced
                 )
 

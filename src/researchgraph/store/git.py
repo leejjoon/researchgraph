@@ -31,17 +31,52 @@ class Git:
         if not self.exists():
             self.run("init")
 
-    def head(self) -> str | None:
-        """Resolve HEAD and validate worktree membership in one git invocation."""
-        result = self.run(
-            "rev-parse", "--is-inside-work-tree", "--verify", "HEAD", check=False
-        )
-        lines = result.stdout.splitlines()
+    def head(self, *, before_wait=None) -> str | None:
+        """Resolve HEAD, confirming absence rather than hiding Git failures."""
+        with subprocess.Popen(
+            [
+                "git",
+                "--literal-pathspecs",
+                "-C",
+                str(self.path),
+                "rev-parse",
+                "--is-inside-work-tree",
+                "--verify",
+                "HEAD",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ) as process:
+            if before_wait is not None:
+                before_wait()
+            output, error = process.communicate()
+        lines = output.splitlines()
         if not lines or lines[0] != "true":
             raise RuleViolation("invalid_project", "Project is not in a git worktree")
-        # An unborn branch is still a valid worktree; rev-parse prints its
-        # membership before reporting that HEAD is not yet a revision.
-        return lines[1] if result.returncode == 0 else None
+        if process.returncode == 0:
+            return lines[1]
+        # An unborn branch is valid, but a failed resolution alone does not
+        # establish absence: unreadable or malformed refs can fail identically.
+        if process.returncode == 128:
+            symbolic = self.run("symbolic-ref", "--quiet", "HEAD", check=False)
+            reference = symbolic.stdout.strip()
+            if symbolic.returncode == 0 and reference:
+                references = self.run(
+                    "for-each-ref", "--format=%(refname)", "--", reference, check=False
+                )
+                if (
+                    references.returncode == 0
+                    and not references.stderr.strip()
+                    and reference not in references.stdout.splitlines()
+                ):
+                    return None
+        failure = subprocess.CalledProcessError(
+            process.returncode, process.args, output=output, stderr=error
+        )
+        raise OSError(
+            f"Git HEAD resolution failed (status {process.returncode}): {error.strip()}"
+        ) from failure
 
     def check_clock(self, now: datetime) -> None:
         # Validate precision/zone even for an unborn branch.
