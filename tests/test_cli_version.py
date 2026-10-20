@@ -4,11 +4,14 @@ import subprocess
 import sysconfig
 from pathlib import Path
 
+import pytest
+
 from researchgraph import __version__
 
 
+@pytest.mark.cli
 def test_installed_cli_version():
-    executable = Path(sysconfig.get_path("scripts")) / "rg"
+    executable = (Path(sysconfig.get_path("scripts")) / "rg").resolve()
     result = subprocess.run(
         [str(executable), "--version"], capture_output=True, text=True, check=False
     )

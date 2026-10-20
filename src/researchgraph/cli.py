@@ -538,3 +538,324 @@ def attach_command(ctx, node, artifacts, **local_options):
         local_options,
         lambda project, context: project.attach(node, list(artifacts), **context),
     )
+
+
+def _table_value(value):
+    if isinstance(value, str):
+        return value.replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _read_table(rows):
+    columns = list(dict.fromkeys(key for row in rows for key in row))
+    if not columns:
+        click.echo("RESULT\tCOUNT")
+        click.echo("items\t0")
+        return
+    click.echo("\t".join(key.upper() for key in columns))
+    for row in rows:
+        click.echo(
+            "\t".join(_table_value(row[key]) if key in row else "" for key in columns)
+        )
+
+
+def _read_result(result, json_output):
+    if json_output:
+        click.echo(json.dumps(result, ensure_ascii=False))
+    elif isinstance(result, list):
+        _read_table(result)
+    elif set(result) == {"items"}:
+        _read_table(result["items"])
+    elif set(result) == {"rows", "columns"}:
+        columns = result["columns"]
+        click.echo(
+            "\t".join(
+                ["SOURCE", *(column["id"] for column in columns), "NON_DISCRIMINATING"]
+            )
+        )
+        for row in result["rows"]:
+            click.echo(
+                "\t".join(
+                    [
+                        row["source"]["id"],
+                        *(
+                            _table_value(row["cells"][column["id"]])
+                            for column in columns
+                        ),
+                        _table_value(row["non_discriminating"]),
+                    ]
+                )
+            )
+    elif set(result) == {"nodes", "status_counts", "usage"}:
+        _read_table(result["nodes"])
+        _read_table(
+            [
+                {"status": key, "count": value}
+                for key, value in result["status_counts"].items()
+            ]
+        )
+        _read_table([result["usage"]])
+    else:
+        _read_table([{"field": key, "value": value} for key, value in result.items()])
+
+
+def _run_read(ctx, local_options, as_of, operation):
+    options = _options(ctx, local_options)
+    try:
+        root = _project_root(options["project"])
+        now = _now(options["now"])
+        with Project.open(root, read_only=bool(options["read_only"])) as project:
+            result = operation(
+                project,
+                {
+                    "actor": _actor(root, options["as_agent"]),
+                    "role": options["role"],
+                    "now": now,
+                    "as_of": as_of,
+                },
+            )
+        _read_result(result, options["json_output"])
+    except RuleViolation as exc:
+        _error(ctx, exc)
+
+
+@main.command("ready")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def ready_command(ctx, as_of, **local_options):
+    """List claimable, unblocked nodes in priority order."""
+    _run_read(
+        ctx, local_options, as_of, lambda project, context: project.ready(**context)
+    )
+
+
+@main.command("blocked")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def blocked_command(ctx, as_of, **local_options):
+    """List blocked nodes with their blocker IDs."""
+    _run_read(
+        ctx, local_options, as_of, lambda project, context: project.blocked(**context)
+    )
+
+
+@main.command("queue")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def queue_command(ctx, as_of, **local_options):
+    """List proposed nodes awaiting approval, oldest first."""
+    _run_read(
+        ctx, local_options, as_of, lambda project, context: project.queue(**context)
+    )
+
+
+@main.command("stale")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def stale_command(ctx, as_of, **local_options):
+    """List stale Claims with their replacement-head IDs."""
+    _run_read(
+        ctx, local_options, as_of, lambda project, context: project.stale(**context)
+    )
+
+
+@main.command("digest")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def digest_command(ctx, as_of, **local_options):
+    """Summarize running, ready, blocked, awaiting, failed and Claim groups."""
+    _run_read(
+        ctx, local_options, as_of, lambda project, context: project.digest(**context)
+    )
+
+
+@main.command("show")
+@click.argument("id")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def show_command(ctx, id, as_of, **local_options):
+    """Show node or edge ID, including relations and derived flags."""
+    _run_read(
+        ctx, local_options, as_of, lambda project, context: project.show(id, **context)
+    )
+
+
+@main.command("history")
+@click.argument("id")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def history_command(ctx, id, as_of, **local_options):
+    """List events and commits across ID's supersession family."""
+    _run_read(
+        ctx,
+        local_options,
+        as_of,
+        lambda project, context: project.history(id, **context),
+    )
+
+
+@main.command("evidence")
+@click.argument("claim")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def evidence_command(ctx, claim, as_of, **local_options):
+    """List CLAIM's transitive evidence, excluding CLAIM itself."""
+    _run_read(
+        ctx,
+        local_options,
+        as_of,
+        lambda project, context: project.evidence(claim, **context),
+    )
+
+
+@main.command("weakest")
+@click.argument("claim")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def weakest_command(ctx, claim, as_of, **local_options):
+    """Rank CLAIM's cited evidence by supersession and evidence quality."""
+    _run_read(
+        ctx,
+        local_options,
+        as_of,
+        lambda project, context: project.weakest(claim, **context),
+    )
+
+
+@main.command("alternatives")
+@click.argument("hypothesis")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def alternatives_command(ctx, hypothesis, as_of, **local_options):
+    """List other hypotheses answering HYPOTHESIS's questions."""
+    _run_read(
+        ctx,
+        local_options,
+        as_of,
+        lambda project, context: project.alternatives(hypothesis, **context),
+    )
+
+
+@main.command("predictions")
+@click.argument("hypothesis")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def predictions_command(ctx, hypothesis, as_of, **local_options):
+    """List live tests of HYPOTHESIS with their expected outcomes."""
+    _run_read(
+        ctx,
+        local_options,
+        as_of,
+        lambda project, context: project.predictions(hypothesis, **context),
+    )
+
+
+@main.command("matrix")
+@click.argument("question")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def matrix_command(ctx, question, as_of, **local_options):
+    """Show predictions against QUESTION's hypothesis group."""
+    _run_read(
+        ctx,
+        local_options,
+        as_of,
+        lambda project, context: project.matrix(question, **context),
+    )
+
+
+@main.command("notes")
+@click.argument("id")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def notes_command(ctx, id, as_of, **local_options):
+    """List Notes about ID, newest first."""
+    _run_read(
+        ctx, local_options, as_of, lambda project, context: project.notes(id, **context)
+    )
+
+
+@main.command("subtree")
+@click.argument("id")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def subtree_command(ctx, id, as_of, **local_options):
+    """Show ID's live subtree, status counts and summed usage."""
+    _run_read(
+        ctx,
+        local_options,
+        as_of,
+        lambda project, context: project.subtree(id, **context),
+    )
+
+
+@main.command("since")
+@click.argument("time")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def since_command(ctx, time, as_of, **local_options):
+    """List nodes and edges changed strictly after TIME."""
+    _run_read(
+        ctx,
+        local_options,
+        as_of,
+        lambda project, context: project.since(time, **context),
+    )
+
+
+@main.command("where")
+@click.option("--type", default=None)
+@click.option("--status", default=None)
+@click.option("--author", default=None)
+@click.option(
+    "--field",
+    multiple=True,
+    help="Repeat K=V; conflicting values for one key are invalid.",
+)
+@click.option("--tag", default=None)
+@click.option("--text", default=None)
+@click.option("--over-budget", is_flag=True)
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def where_command(
+    ctx, type, status, author, field, tag, text, over_budget, as_of, **local_options
+):
+    """List nodes matching every supplied filter; repeat --field K=V."""
+
+    def query(project, context):
+        fields = {}
+        for entry in field:
+            key, separator, value = entry.partition("=")
+            if not separator:
+                raise RuleViolation("schema", "Fields must be k=v filters")
+            if key in fields and fields[key] != value:
+                raise RuleViolation("schema", f"Conflicting values for --field {key}")
+            fields[key] = value
+        return project.where(
+            type=type,
+            status=status,
+            author=author,
+            field=fields,
+            tag=tag,
+            text=text,
+            over_budget=over_budget,
+            **context,
+        )
+
+    _run_read(ctx, local_options, as_of, query)

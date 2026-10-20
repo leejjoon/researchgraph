@@ -1282,6 +1282,8 @@ def test_since_as_of_selection_closure_current_payloads_and_rebuilt_bytes(
             ) == project.show(reference, actor=ALICE, now=FUTURE, as_of=boundary)
 
 
+@pytest.mark.cli
+@pytest.mark.usefixtures("cli_cache_policy")
 @pytest.mark.parametrize("placement", ["argument", "project", "cwd"])
 def test_cli_export_import_json_common_options_and_destination_fallback(
     project, tmp_path, monkeypatch, placement
@@ -1316,6 +1318,8 @@ def test_cli_export_import_json_common_options_and_destination_fallback(
         assert git(target, "log", "--format=%s") == "rg: import"
 
 
+@pytest.mark.cli
+@pytest.mark.usefixtures("cli_cache_policy")
 def test_cli_export_read_only_and_import_refusals(project, tmp_path):
     out = tmp_path / "cli.tar.zst"
     succeeds(invoke(project.path, "export", str(out), "--read-only"))

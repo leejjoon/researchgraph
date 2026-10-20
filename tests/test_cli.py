@@ -1,15 +1,21 @@
 """Real mutation CLI doors, structured arguments and source-observable refusals."""
 
 import json
+import os
+import subprocess
+import sysconfig
 from datetime import timedelta
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
 
-from researchgraph.cli import main
 from researchgraph.model import format_timestamp
 from researchgraph.project import Project
 from tests.helpers import ALICE, NOW, git, repository
+
+pytestmark = [pytest.mark.cli, pytest.mark.usefixtures("cli_cache_policy")]
 
 
 @pytest.fixture
@@ -20,6 +26,52 @@ def root(tmp_path):
     return path
 
 
+def prepare_console(arguments):
+    if os.environ.get("RG_TEST_CLI_INDEX_MODE") != "deleted":
+        return
+    projects = []
+    for index, value in enumerate(arguments):
+        if value == "--project" and index + 1 < len(arguments):
+            projects.append(arguments[index + 1])
+        elif value.startswith("--project="):
+            projects.append(value.split("=", 1)[1])
+    root = (
+        Path(projects[-1]).expanduser()
+        if projects
+        else next(
+            (
+                path
+                for path in (Path.cwd(), *Path.cwd().parents)
+                if (path / ".researchgraph/profile.yaml").is_file()
+            ),
+            None,
+        )
+    )
+    if root is not None and root.is_dir():
+        (root / ".researchgraph/index.sqlite").unlink(missing_ok=True)
+
+
+def run_console(arguments):
+    prepare_console(arguments)
+    executable = (Path(sysconfig.get_path("scripts")) / "rg").resolve()
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    process = subprocess.run(
+        [str(executable), *arguments],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        env=environment,
+    )
+    return SimpleNamespace(
+        stdout=process.stdout,
+        stderr=process.stderr,
+        output=process.stdout + process.stderr,
+        exit_code=process.returncode,
+    )
+
+
 def invoke(root, *arguments, agent=None, role=None, now=NOW):
     options = ["--json", "--now", format_timestamp(now)]
     if root is not None:
@@ -28,7 +80,7 @@ def invoke(root, *arguments, agent=None, role=None, now=NOW):
         options += ["--as-agent", agent]
     if role is not None:
         options += ["--role", role]
-    return CliRunner().invoke(main, [*options, *arguments])
+    return run_console([*options, *arguments])
 
 
 def succeeds(result):
@@ -54,6 +106,36 @@ def snapshot(root):
         },
         git(root, "rev-parse", "HEAD"),
     )
+
+
+def test_invoke_executes_installed_console_not_click_runner(root, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("CLI acceptance must execute the installed console")
+
+    monkeypatch.setattr(CliRunner, "invoke", forbidden)
+    value = succeeds(invoke(root, "propose", "Task", "real subprocess"))
+    assert value["title"] == "real subprocess"
+    with Project.open(root) as project:
+        assert project.get_node(value["id"]).to_dict() == value
+
+
+def test_deleted_cli_mode_removes_cache_before_executing_console(root, monkeypatch):
+    with Project.open(root) as project:
+        project.ready(actor=ALICE, now=NOW)
+    index = root / ".researchgraph/index.sqlite"
+    assert index.is_file()
+    monkeypatch.setenv("RG_TEST_CLI_INDEX_MODE", "deleted")
+    observed = []
+    original = subprocess.run
+
+    def execute(*args, **kwargs):
+        observed.append(index.exists())
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", execute)
+    assert succeeds(invoke(root, "ready")) == {"items": []}
+    assert observed == [False]
+    assert index.is_file()
 
 
 def test_propose_actor_and_canonical_json(root):
@@ -239,8 +321,8 @@ def test_no_commit_and_local_option_override(root):
 def test_project_discovery_and_human_output(root, monkeypatch):
     monkeypatch.chdir(root / "artifacts")
     value = succeeds(invoke(None, "propose", "Task", "inside"))
-    result = CliRunner().invoke(
-        main, ["--now", format_timestamp(NOW), "propose", "Task", "human table"]
+    result = run_console(
+        ["--now", format_timestamp(NOW), "propose", "Task", "human table"]
     )
     assert result.exit_code == 0, result.output
     assert "ID" in result.stdout and "TYPE" in result.stdout

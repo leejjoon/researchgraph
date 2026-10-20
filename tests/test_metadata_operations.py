@@ -823,6 +823,8 @@ def test_each_metadata_operation_i1_i2_i7_i8(operation, actions):
             assert [queries(project, ids, now, time) for time in times] == kept
 
 
+@pytest.mark.cli
+@pytest.mark.usefixtures("cli_cache_policy")
 def test_metadata_cli_commands_share_public_output_and_priority_omission(
     project, index_mode
 ):
@@ -874,6 +876,8 @@ def test_metadata_cli_commands_share_public_output_and_priority_omission(
     assert set(attached) == set(project.propose("Task", "shape", **CALL))
 
 
+@pytest.mark.cli
+@pytest.mark.usefixtures("cli_cache_policy")
 @pytest.mark.parametrize(
     "command,options,agent,rule",
     [

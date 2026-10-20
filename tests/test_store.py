@@ -8,11 +8,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from click.testing import CliRunner
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from researchgraph.cli import main
 from researchgraph.model import (
     Actor,
     Approval,
@@ -26,6 +24,7 @@ from researchgraph.profiles import Profile
 from researchgraph.project import Project
 from researchgraph.store import transaction
 from tests.helpers import ALICE, NOW, git, node, refusal, repository, write
+from tests.test_cli import run_console
 
 
 @given(
@@ -430,9 +429,10 @@ def test_flock_waits_across_processes(project):
         assert process.exitcode == 0
 
 
+@pytest.mark.cli
+@pytest.mark.usefixtures("cli_cache_policy")
 def test_cli_init_and_errors(tmp_path):
     repository(tmp_path)
-    runner = CliRunner()
     arguments = [
         "--project",
         str(tmp_path),
@@ -441,27 +441,27 @@ def test_cli_init_and_errors(tmp_path):
         "2026-10-20T00:00:00Z",
         "init",
     ]
-    result = runner.invoke(main, arguments)
+    result = run_console(arguments)
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["profile"] == "research"
-    result = runner.invoke(main, arguments)
+    result = run_console(arguments)
     assert result.exit_code == 2
     assert json.loads(result.stderr)["rule"] == "already_initialised"
-    result = runner.invoke(
-        main, ["--project", str(tmp_path / "missing"), "--read-only", "init"]
+    result = run_console(
+        ["--project", str(tmp_path / "missing"), "--read-only", "init"]
     )
     assert result.exit_code == 2
     assert json.loads(result.stderr)["rule"] == "read_only"
-    result = runner.invoke(main, ["--project", str(tmp_path), "--now", "bad", "init"])
+    result = run_console(["--project", str(tmp_path), "--now", "bad", "init"])
     assert result.exit_code == 2
     assert json.loads(result.stderr)["rule"] == "schema"
 
 
+@pytest.mark.cli
+@pytest.mark.usefixtures("cli_cache_policy")
 def test_cli_agent_refusal_and_no_commit_profile(tmp_path):
     repository(tmp_path)
-    runner = CliRunner()
-    result = runner.invoke(
-        main,
+    result = run_console(
         [
             "init",
             "--project",
@@ -474,8 +474,8 @@ def test_cli_agent_refusal_and_no_commit_profile(tmp_path):
     assert result.exit_code == 2
     assert json.loads(result.stderr)["rule"] == "human_only_approval"
     assert not (tmp_path / ".researchgraph").exists()
-    result = runner.invoke(
-        main, ["init", str(tmp_path), "--profile", "tasks", "--json", "--no-commit"]
+    result = run_console(
+        ["init", str(tmp_path), "--profile", "tasks", "--json", "--no-commit"]
     )
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["profile"] == "tasks"
@@ -485,11 +485,13 @@ def test_cli_agent_refusal_and_no_commit_profile(tmp_path):
     assert git(tmp_path, "rev-list", "--all", "--count") == "0"
 
 
+@pytest.mark.cli
+@pytest.mark.usefixtures("cli_cache_policy")
 def test_cli_invalid_project_exit_three(tmp_path):
     repository(tmp_path)
     destination = tmp_path / "not-a-directory"
     destination.write_bytes(b"keep\n")
-    result = CliRunner().invoke(main, ["--project", str(destination), "init"])
+    result = run_console(["--project", str(destination), "init"])
     assert result.exit_code == 3
     assert json.loads(result.stderr)["rule"] == "invalid_project"
     assert destination.read_bytes() == b"keep\n"

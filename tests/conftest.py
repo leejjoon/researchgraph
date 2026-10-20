@@ -17,6 +17,11 @@ def index_mode(request):
 
 
 @pytest.fixture
+def cli_cache_policy(index_mode, monkeypatch):
+    monkeypatch.setenv("RG_TEST_CLI_INDEX_MODE", index_mode)
+
+
+@pytest.fixture
 def actors():
     return {
         "alice": ALICE,

@@ -6,6 +6,21 @@ dependencies = ["researchgraph"]
 
 [project.entry-points."researchgraph.profiles"]
 test-defaults = "researchgraph_testprofiles:DEFAULTS_PROFILE"
+test-cli-contract = "researchgraph_testprofiles:CLI_PROFILE"
+test-events = "researchgraph_testprofiles:EVENTS_PROFILE"
+test-invalid-location = "researchgraph_testprofiles:INVALID_LOCATION_PROFILE"
+test-invalid-default = "researchgraph_testprofiles:INVALID_DEFAULT_PROFILE"
+test-invalid-null-default = "researchgraph_testprofiles:INVALID_NULL_DEFAULT_PROFILE"
+test-composed-defaults = "researchgraph_testprofiles:COMPOSED_PROFILE"
+test-default-nested = "researchgraph_testprofiles:NESTED_PROFILE"
+test-default-items = "researchgraph_testprofiles:ITEMS_PROFILE"
+test-default-defs = "researchgraph_testprofiles:DEFS_PROFILE"
+test-default-root = "researchgraph_testprofiles:ROOT_PROFILE"
+test-default-anyof = "researchgraph_testprofiles:ANYOF_PROFILE"
+test-default-oneof = "researchgraph_testprofiles:ONEOF_PROFILE"
+test-default-if = "researchgraph_testprofiles:IF_PROFILE"
+test-default-then = "researchgraph_testprofiles:THEN_PROFILE"
+test-default-else = "researchgraph_testprofiles:ELSE_PROFILE"
 
 [build-system]
 requires = ["setuptools>=68"]
