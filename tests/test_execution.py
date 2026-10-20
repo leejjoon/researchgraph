@@ -14,6 +14,7 @@ from hypothesis import strategies as st
 from researchgraph.model import NODE_IMMUTABLE_KEYS, Actor, RuleViolation
 from researchgraph.profiles import Gate, NodeType, Profile
 from researchgraph.project import Project
+from researchgraph.queries import evaluation_time
 from researchgraph.store.io import dump_node, load_node
 from researchgraph.validation import validate_graph
 from tests.helpers import ALICE, NOW, git, refusal, repository
@@ -652,12 +653,28 @@ def queries(project, ids, now, as_of=None):
     call = {"actor": ALICE, "now": now, "as_of": as_of}
     q, h, c = ids["q"], ids["h"], ids["c"]
     visible = project.where(**call)
+    visible_ids = {record["id"] for record in visible}
+    edges = project.get_edges()
+    cutoff = evaluation_time(project, now, as_of)
+    visible_ids.update(
+        {
+            edge.id
+            for edge in edges
+            if as_of is None
+            or (
+                edge.created <= cutoff
+                and edge.from_ in visible_ids
+                and edge.to in visible_ids
+            )
+        }
+    )
 
-    def edge_show(identifier):
+    def required_query(operation, identifier):
         try:
-            return project.show(identifier, **call)
+            return operation(identifier, **call)
         except RuleViolation as exc:
             assert exc.rule == "not_found"
+            assert identifier not in visible_ids
             return {"rule": exc.rule, "ids": exc.ids}
 
     return {
@@ -669,15 +686,15 @@ def queries(project, ids, now, as_of=None):
         "digest": project.digest(**call),
         "since": project.since(NOW - timedelta(seconds=1), **call),
         "show": [project.show(n["id"], **call) for n in visible],
-        "edges": [edge_show(e.id) for e in project.get_edges()],
+        "edges": [required_query(project.show, e.id) for e in edges],
         "history": [project.history(n["id"], **call) for n in visible],
-        "notes": project.notes(h, **call),
-        "subtree": project.subtree(h, **call),
-        "evidence": project.evidence(c, **call),
-        "weakest": project.weakest(c, **call),
-        "alternatives": project.alternatives(h, **call),
-        "predictions": project.predictions(h, **call),
-        "matrix": project.matrix(q, **call),
+        "notes": required_query(project.notes, h),
+        "subtree": required_query(project.subtree, h),
+        "evidence": required_query(project.evidence, c),
+        "weakest": required_query(project.weakest, c),
+        "alternatives": required_query(project.alternatives, h),
+        "predictions": required_query(project.predictions, h),
+        "matrix": required_query(project.matrix, q),
     }
 
 

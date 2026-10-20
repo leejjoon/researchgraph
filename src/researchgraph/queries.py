@@ -249,6 +249,9 @@ class QuerySource:
         for interval in self.intervals:
             start = parse_timestamp(interval["from_time"])
             end = parse_timestamp(interval["to_time"]) if interval["to_time"] else None
+            # Empty half-open intervals never take effect, including tied commits.
+            if end == start:
+                continue
             self.timelines[interval["node_id"]].append(
                 (start, end, Status(interval["status"]))
             )

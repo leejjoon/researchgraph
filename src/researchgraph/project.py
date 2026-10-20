@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import subprocess
+from contextlib import closing
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
 from stat import S_ISDIR, S_ISLNK
@@ -58,6 +59,11 @@ _IDENTIFIER = re.compile(r"[a-z]{2,4}-[a-z2-7]{8}", re.ASCII)
 _OMITTED = object()
 
 
+def _check_empty_import_destination(path):
+    if path.exists() and (not path.is_dir() or any(path.iterdir())):
+        raise RuleViolation("not_empty", "Import destination must be empty")
+
+
 class Project:
     def __init__(self, path: Path, profile: Profile, version: str, read_only: bool):
         self.path = path
@@ -66,6 +72,7 @@ class Project:
         self.profile_version = version
         self.read_only = read_only
         self._closed = False
+        self._import_preflight = False
         self._git = Git(path)
         self._pin_bytes = None
         self.index = Index(self)
@@ -134,6 +141,11 @@ class Project:
         """Refresh profile bytes and the disposable index without a writer lock."""
         if self._closed:
             raise ValueError("Project is closed")
+        if self._import_preflight:
+            # Empty prechange answers are valid only while the actual target
+            # still has no source files, metadata or repository of its own.
+            _check_empty_import_destination(self.path)
+            return
         # The mandatory index content scan validates worktree membership while
         # reading HEAD, avoiding a second git subprocess for every read.
         for relative in (".researchgraph", "graph", "graph/nodes", "graph/edges"):
@@ -275,6 +287,222 @@ class Project:
             ) from exc
         project._refresh()
         return project
+
+    def export(
+        self,
+        out,
+        include_artifacts=False,
+        since=None,
+        *,
+        actor,
+        role=None,
+        now,
+        as_of=None,
+    ):
+        """Write a deterministic archive without changing project source files."""
+        from researchgraph.store.archive import encode, encode_history
+        from researchgraph.validation import validate_graph
+
+        view = self._query_view(actor=actor, role=role, now=now, as_of=as_of)
+        destination = Path(out).expanduser().resolve()
+        git_directory = (
+            self.path / self._git.run("rev-parse", "--git-dir").stdout.strip()
+        ).resolve()
+        protected = [
+            (self.path / name).resolve()
+            for name in ("graph", ".researchgraph", "artifacts", ".git")
+        ]
+        protected.append(git_directory)
+        common = git_directory / "commondir"
+        if common.is_file():
+            protected.append((git_directory / common.read_text().strip()).resolve())
+        if destination == (self.path / ".gitignore").resolve() or any(
+            destination.is_relative_to(path) for path in protected
+        ):
+            raise RuleViolation(
+                "schema",
+                "Export cannot overwrite project source or Git metadata",
+                [str(destination)],
+            )
+        nodes, edges = view.nodes, view.edges
+        included_nodes, included_edges = set(nodes), set(edges)
+        if since is not None:
+            changed = view.since(since)
+            included_nodes = {
+                record["id"] for record in changed if record["id"] in nodes
+            }
+            included_edges = {
+                record["id"] for record in changed if record["id"] in edges
+            }
+            for identifier in included_edges:
+                included_nodes.update((edges[identifier].from_, edges[identifier].to))
+            outgoing = {}
+            for edge in edges.values():
+                if edge.type in {"supersedes", "cites", "derived-from"}:
+                    outgoing.setdefault(edge.from_, []).append(edge)
+            pending = list(included_nodes)
+            visited = set()
+            while pending:
+                identifier = pending.pop()
+                if identifier in visited:
+                    continue
+                visited.add(identifier)
+                for edge in outgoing.get(identifier, ()):
+                    included_edges.add(edge.id)
+                    included_nodes.add(edge.to)
+                    pending.append(edge.to)
+        selected_nodes = {
+            identifier: view.source.nodes[identifier] for identifier in included_nodes
+        }
+        selected_edges = {
+            identifier: view.source.edges[identifier] for identifier in included_edges
+        }
+        # As-of governs membership, never the stored payload (decision 015).
+        validate_graph(self.profile, selected_nodes, selected_edges)
+        files = {
+            ".researchgraph/profile.yaml": self._safe_path(
+                ".researchgraph/profile.yaml"
+            ).read_bytes()
+        }
+        rows = [row for row in view.intervals if row["node_id"] in included_nodes]
+        files[".researchgraph/history.jsonl"] = encode_history(rows)
+        for kind, records in (("nodes", selected_nodes), ("edges", selected_edges)):
+            for identifier in records:
+                relative = f"graph/{kind}/{identifier}.yaml"
+                files[relative] = self._safe_path(relative).read_bytes()
+        directories = {".researchgraph/", "graph/", "graph/nodes/", "graph/edges/"}
+        if include_artifacts:
+            directories.add("artifacts/")
+            artifact_root = self._safe_path("artifacts")
+            if artifact_root.exists():
+                for path in artifact_root.rglob("*"):
+                    relative = path.relative_to(self.path).as_posix()
+                    self._safe_path(relative)
+                    if (
+                        (since is not None or as_of is not None)
+                        and len(PurePosixPath(relative).parts) > 1
+                        and PurePosixPath(relative).parts[1] not in included_nodes
+                    ):
+                        continue
+                    if path.is_dir():
+                        directories.add(relative + "/")
+                    elif path.is_file():
+                        files[relative] = path.read_bytes()
+                    else:
+                        raise RuleViolation(
+                            "schema", "Artifacts must be regular files", [relative]
+                        )
+        content = encode(files, directories)
+        try:
+            atomic_write(destination.parent, {destination.name: content})
+        except OSError as exc:
+            raise RuleViolation(
+                "write_failed", f"Export failed: {exc}", [str(destination)]
+            ) from exc
+        return {"path": str(destination)}
+
+    @classmethod
+    def import_(
+        cls,
+        archive,
+        path,
+        *,
+        actor,
+        role=None,
+        now,
+        commit=True,
+        read_only=False,
+    ) -> "Project":
+        """Validate completely before creating the destination or its own git repo."""
+        from researchgraph.store.archive import read
+        from researchgraph.store.index import SCHEMA
+
+        if read_only:
+            raise RuleViolation("read_only", "Project is read-only")
+        cls._actor(actor)
+        try:
+            format_timestamp(now)
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise RuleViolation("schema", f"Invalid write time: {exc}") from exc
+        files, directories, profile, version, nodes, edges, _, floor = read(archive)
+        if floor is not None and now < floor:
+            raise RuleViolation(
+                "clock_skew", "Import time is earlier than restored timestamps"
+            )
+        change = Write("import", actor, role, now, {}, nodes, edges)
+        validate_permissions(profile, change, {})
+        root = Path(path).expanduser().resolve()
+        _check_empty_import_destination(root)
+        project = cls(root, profile, version, False)
+        try:
+            project._import_preflight = True
+            try:
+                # Ordinary validator reads use the same empty index schema,
+                # owned and closed by Index, but never create a destination DB.
+                project.index.connection = sqlite3.connect(":memory:")
+                with closing(project.index.connection.cursor()) as cursor:
+                    cursor.executescript(SCHEMA)
+                project.index.connection.create_function(
+                    "rg_now", 0, lambda: format_timestamp(now)
+                )
+                project.index._scanned_head = None
+                project.index._compact_models()
+                for relative in [*files, *directories]:
+                    project._safe_path(relative)
+                project._validate(change, restoring=True)
+            except RuleViolation as exc:
+                if exc.rule == "not_empty":
+                    raise
+                raise RuleViolation(
+                    "bad_archive", f"Invalid restored graph: {exc}", exc.ids
+                ) from exc
+            finally:
+                project._import_preflight = False
+                project.index.close()
+            _check_empty_import_destination(root)
+            root.mkdir(parents=True, exist_ok=True)
+            # Import must not inherit an unrelated ancestor repository or HEAD.
+            metadata = project._safe_path(".researchgraph")
+            metadata.mkdir(exist_ok=True)
+            with write_lock(root):
+                if any(p.name != ".researchgraph" for p in root.iterdir()) or any(
+                    p.name != "lock" for p in (root / ".researchgraph").iterdir()
+                ):
+                    raise RuleViolation(
+                        "not_empty", "Import destination is no longer empty"
+                    )
+                project._git.run("init", str(root))
+                for relative in directories | {
+                    "graph",
+                    "graph/nodes",
+                    "graph/edges",
+                    "artifacts",
+                }:
+                    project._safe_path(relative).mkdir(parents=True, exist_ok=True)
+                restored = {
+                    **files,
+                    ".gitignore": b".researchgraph/index.sqlite\n.researchgraph/lock\n",
+                }
+                for relative in restored:
+                    project._safe_path(relative).parent.mkdir(
+                        parents=True, exist_ok=True
+                    )
+                atomic_write(root, restored)
+                project._pin_bytes = files[".researchgraph/profile.yaml"]
+                project.index.refresh()
+                if commit:
+                    commit_id = project._commit(list(restored), change)
+                    project.index.refresh()
+                    project._events(change, commit_id)
+            return project
+        except (OSError, sqlite3.Error, subprocess.SubprocessError) as exc:
+            project.close()
+            raise RuleViolation(
+                "write_failed", f"Import failed: {exc}", list(files)
+            ) from exc
+        except BaseException:
+            project.close()
+            raise
 
     @staticmethod
     def _identifier(value):
@@ -776,12 +1004,13 @@ class Project:
         }
         return nodes, edges
 
-    def _validate(self, write: Write):
+    def _validate(self, write: Write, *, restoring=False):
         """Normalize schemas, enforce core policy, then invoke profile callbacks."""
         if self.read_only:
             raise RuleViolation("read_only", "Project is read-only")
         try:
-            self._git.check_clock(write.now)
+            if not restoring:
+                self._git.check_clock(write.now)
             self._actor(write.actor)
             if not isinstance(write.op, str) or not write.op or "\n" in write.op:
                 raise RuleViolation("schema", "Invalid operation name")
@@ -889,7 +1118,7 @@ class Project:
                     self._actor(node.lease.actor)
                     format_timestamp(node.lease.acquired_at)
                     format_timestamp(node.lease.expires_at)
-                self._fields(node, definition, edge=False)
+                self._fields(node, definition, edge=False, restoring=restoring)
                 Node.from_dict(node.to_dict())
             for edge in write.edges:
                 self._identifier(edge.id)
@@ -913,7 +1142,7 @@ class Project:
                         )
                 if type(edge.retired) is not bool:
                     raise RuleViolation("schema", "Retired must be boolean", [edge.id])
-                self._fields(edge, definition, edge=True)
+                self._fields(edge, definition, edge=True, restoring=restoring)
                 Edge.from_dict(edge.to_dict())
             validate_write(self.profile, write, before_nodes, before_edges)
             self._artifact_paths(write)
@@ -930,9 +1159,9 @@ class Project:
         ) as exc:
             raise RuleViolation("schema", f"Invalid write: {exc}") from exc
 
-    def _fields(self, record, definition, *, edge):
+    def _fields(self, record, definition, *, edge, restoring=False):
         path = self.path / f"graph/{'edges' if edge else 'nodes'}/{record.id}.yaml"
-        if not path.exists():
+        if not restoring and not path.exists():
             record.fields = self.profile.normalize_fields(
                 record.type, record.fields, edge=edge
             )
@@ -1022,7 +1251,7 @@ class Project:
 
     def _commit(self, paths, write):
         identifier = write.args.get("node")
-        if identifier is None:
+        if identifier is None and write.op not in {"init", "import"}:
             identifier = next(
                 (record.id for record in [*write.nodes, *write.edges]), None
             )

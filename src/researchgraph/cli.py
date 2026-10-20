@@ -135,6 +135,75 @@ def _run_write(ctx, local_options, operation):
         _error(ctx, exc)
 
 
+@main.command("export")
+@click.argument("out", type=click.Path(path_type=Path))
+@click.option("--include-artifacts", is_flag=True)
+@click.option("--since", default=None)
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def export_command(ctx, out, include_artifacts, since, as_of, **local_options):
+    """Export the graph to OUT, optionally including artifact files."""
+    options = _options(ctx, local_options)
+    try:
+        root = _project_root(options["project"])
+        now = _now(options["now"])
+        with Project.open(root, read_only=bool(options["read_only"])) as project:
+            result = project.export(
+                out,
+                include_artifacts=include_artifacts,
+                since=since,
+                actor=_actor(root, options["as_agent"]),
+                role=options["role"],
+                now=now,
+                as_of=as_of,
+            )
+        click.echo(
+            json.dumps(result, ensure_ascii=False)
+            if options["json_output"]
+            else result["path"]
+        )
+    except RuleViolation as exc:
+        _error(ctx, exc)
+
+
+@main.command("import")
+@click.argument("archive", type=click.Path(path_type=Path))
+@click.argument("path", required=False, type=click.Path(path_type=Path))
+@_common_options
+@click.pass_context
+def import_command(ctx, archive, path, **local_options):
+    """Import ARCHIVE into PATH (or --project)."""
+    options = _options(ctx, local_options)
+    root = (path or options["project"] or Path.cwd()).expanduser().resolve()
+    try:
+        if options["read_only"]:
+            raise RuleViolation("read_only", "Project is read-only")
+        now = _now(options["now"])
+        actor = _actor(root, options["as_agent"])
+        with Project.import_(
+            archive,
+            root,
+            actor=actor,
+            role=options["role"],
+            now=now,
+            commit=options["commit"] is not False,
+            read_only=bool(options["read_only"]),
+        ) as project:
+            result = {
+                "path": str(project.path),
+                "profile": project.profile_name,
+                "version": project.profile_version,
+            }
+        click.echo(
+            json.dumps(result, ensure_ascii=False)
+            if options["json_output"]
+            else f"Imported {result['path']} ({result['profile']} {result['version']})"
+        )
+    except RuleViolation as exc:
+        _error(ctx, exc)
+
+
 @main.command("init")
 @click.argument("path", required=False, type=click.Path(path_type=Path))
 @click.option("--profile", default="research", show_default=True)

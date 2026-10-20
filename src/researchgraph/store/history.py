@@ -32,6 +32,35 @@ INTERVAL_KEYS = (
 )
 
 
+def _merge_intervals(intervals, native, pending=()):
+    """Close and union intervals without losing stable same-time walk order."""
+
+    def close(rows):
+        grouped = {}
+        for row in rows:
+            grouped.setdefault(row[0], []).append(list(row))
+        result = []
+        for group in grouped.values():
+            group.sort(key=lambda row: row[3])
+            for previous, current in itertools.pairwise(group):
+                if previous[5] is None:
+                    previous[4:6] = current[2:4]
+            result.extend(tuple(row) for row in group)
+        return result
+
+    native = close(native)
+    # Canonical archive order is not a commit walk at equal timestamps.
+    # Its already-closed intervals precede the snapshot's open interval.
+    intervals = sorted(intervals, key=lambda row: (row[3], row[5] is None))
+    combined = list(dict.fromkeys([*intervals, *native]))
+    starts = {}
+    for row in combined:
+        key = row[:4]
+        if key not in starts or row[5] is not None:
+            starts[key] = row
+    return close([*starts.values(), *pending])
+
+
 def record_key(record):
     return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -207,35 +236,20 @@ class History:
                 if archive.exists() and imported:
                     continue
                 native.append((node_id, status, commit, time, None, None))
+            baseline = dict(self.latest)
+            # Before an import is committed there is no native node revision.
+            # Its archived open status is already the working-tree baseline,
+            # not a new pending transition at the node's old updated timestamp.
+            for row in sorted(intervals, key=lambda row: row[3]):
+                if row[5] is None and row[0] not in self.latest:
+                    baseline[row[0]] = row[1]
             pending = [
                 (n.id, str(n.status), None, format_timestamp(n.updated), None, None)
                 for n in nodes
-                if self.latest.get(n.id) != str(n.status)
+                if baseline.get(n.id) != str(n.status)
             ]
 
-            def close(rows):
-                grouped = {}
-                for row in rows:
-                    grouped.setdefault(row[0], []).append(list(row))
-                result = []
-                for group in grouped.values():
-                    group.sort(key=lambda row: row[3])
-                    for previous, current in itertools.pairwise(group):
-                        if previous[5] is None:
-                            previous[4:6] = current[2:4]
-                    result.extend(tuple(row) for row in group)
-                return result
-
-            native = close(native)
-            # Union by full row, retaining stable same-time commit walk order.
-            combined = list(dict.fromkeys([*intervals, *native]))
-            # An archive open row and its locally closed equivalent are one interval.
-            starts = {}
-            for row in combined:
-                key = row[:4]
-                if key not in starts or row[5] is not None:
-                    starts[key] = row
-            return close([*starts.values(), *pending]), self.provenance
+            return _merge_intervals(intervals, native, pending), self.provenance
         except (
             OSError,
             ValueError,
