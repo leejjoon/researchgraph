@@ -557,6 +557,54 @@ def test_where_allows_identical_repeated_fields(graph, deleted):
 
 
 @pytest.mark.parametrize("deleted", [False, True])
+@pytest.mark.parametrize(
+    "fields,invalid",
+    [
+        (("kind=missing", "kind=expansion"), True),
+        (("kind=expansion", "kind=missing"), True),
+        (("missing-equals",), True),
+        (("kind=expansion", "missing-equals"), True),
+        (("kind=expansion", "kind=expansion"), False),
+        (("command=a=b", "command=a=b", "kind=expansion"), False),
+    ],
+)
+def test_where_field_api_installed_console_parity(graph, deleted, fields, invalid):
+    from researchgraph.model import RuleViolation
+
+    prepare_cache(graph.root, deleted)
+    before = source_snapshot(graph.root)
+    if invalid:
+        with pytest.raises(RuleViolation) as caught:
+            api(graph.root, "where", field=fields)
+        assert caught.value.rule == "schema"
+    else:
+        expected = api(graph.root, "where", field=fields)
+        assert graph.ids["filter"] in ids(expected)
+        mapping = dict(entry.split("=", 1) for entry in fields)
+        assert expected == api(graph.root, "where", field=mapping)
+    assert source_snapshot(graph.root) == before
+
+    prepare_cache(graph.root, deleted)
+    result = run_console(
+        [
+            "--project",
+            str(graph.root),
+            "--json",
+            "--now",
+            format_timestamp(READ_NOW),
+            "--read-only",
+            "where",
+            *[argument for entry in fields for argument in ("--field", entry)],
+        ]
+    )
+    assert source_snapshot(graph.root) == before
+    if invalid:
+        refused(result, "schema")
+    else:
+        assert succeeds(result) == expected
+
+
+@pytest.mark.parametrize("deleted", [False, True])
 def test_as_of_approval_commit_timestamp_and_later_edge(graph, deleted):
     for boundary, status in [
         (graph.ids["before_approval"], "proposed"),

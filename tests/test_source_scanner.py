@@ -359,6 +359,14 @@ def test_schema_errors_repeat_without_partial_cache(tmp_path, kind):
     root = sources(tmp_path)
     files = SourceFiles(root)
     files.discover()
+    previous = (
+        files._files,
+        files.frames,
+        files.paths,
+        files._frame_descriptor,
+        files._records,
+        files._discovered,
+    )
     invalid = root / "graph" / (os.fsdecode(b"bad-\xff") if kind == "utf8" else "link")
     if kind == "symlink":
         invalid.symlink_to(root / "graph/nodes/first")
@@ -366,8 +374,23 @@ def test_schema_errors_repeat_without_partial_cache(tmp_path, kind):
         invalid.write_bytes(b"invalid")
     for _ in range(2):
         with pytest.raises(RuleViolation) as refused:
-            files.discover()
+            files.discover(_batch_sink=lambda paths: None)
         assert refused.value.rule == "schema"
+        assert all(
+            old is current
+            for old, current in zip(
+                previous,
+                (
+                    files._files,
+                    files.frames,
+                    files.paths,
+                    files._frame_descriptor,
+                    files._records,
+                    files._discovered,
+                ),
+                strict=True,
+            )
+        )
         with SourceScanner(root) as scanner:
             with pytest.raises(RuleViolation) as refused:
                 scanner.scan()
@@ -392,17 +415,44 @@ def test_discovery_batches_start_before_walk_finishes_and_publish_atomically(tmp
     root = sources(tmp_path)
     for i in range(1030):
         (root / "graph/nodes" / str(i)).write_bytes(b"x")
+    nested = root / "graph/중첩/더 깊이/경로\n파일"
+    nested.parent.mkdir(parents=True)
+    nested.write_bytes(b"nested")
+    expected = {str(path) for path in (root / "graph").rglob("*") if path.is_file()} | {
+        str(root / ".researchgraph/history.jsonl")
+    }
     files = SourceFiles(root)
     batches = []
 
-    def sink(records):
-        assert files._files is None
-        assert 0 < len(records) <= 512
-        batches.append(records)
+    def sink(paths):
+        assert files._files is published
+        assert type(paths) is tuple
+        assert 0 < len(paths) <= 512
+        assert all(type(path) is str and os.path.isabs(path) for path in paths)
+        batches.append(paths)
 
-    assert files.discover(_batch_sink=sink) == 1033
-    assert sum(map(len, batches)) == 1033
-    assert len(batches) == 3
+    for _ in range(2):
+        published = files._files
+        records = files._records
+        descriptor = files._frame_descriptor
+        batches.clear()
+        assert files.discover(_batch_sink=sink) == len(expected)
+        flattened = [path for batch in batches for path in batch]
+        assert len(flattened) == len(expected)
+        assert set(flattened) == expected
+        assert len(batches) == 3
+        assert type(files._discovered) is list
+        assert all(
+            type(record) is tuple
+            and len(record) == 2
+            and record == (os.path.relpath(record[1], root), record[1])
+            for record in files._discovered
+        )
+        assert {record[1] for record in files._discovered} == expected
+        if published is not None:
+            assert files._files is published
+            assert files._frame_descriptor is descriptor
+            assert all(record is records[record[0]] for record in files._discovered)
     previous = (
         files._files,
         files.frames,
@@ -413,7 +463,7 @@ def test_discovery_batches_start_before_walk_finishes_and_publish_atomically(tmp
     invalid = root / "graph" / os.fsdecode(b"bad-\xff")
     invalid.write_bytes(b"bad")
     with pytest.raises(RuleViolation):
-        files.discover(_batch_sink=lambda records: None)
+        files.discover(_batch_sink=lambda paths: None)
     assert previous == (
         files._files,
         files.frames,
@@ -421,6 +471,42 @@ def test_discovery_batches_start_before_walk_finishes_and_publish_atomically(tmp
         files._records,
         files._discovered,
     )
+
+
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        RuntimeError("sink failed"),
+        KeyboardInterrupt("sink interrupted"),
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "sink decode failed"),
+    ],
+)
+def test_discovery_sink_failure_propagates_without_partial_state(
+    tmp_path, warm, failure
+):
+    root = sources(tmp_path)
+    for i in range(520):
+        (root / "graph/nodes" / str(i)).write_bytes(b"x")
+    files = SourceFiles(root)
+    if warm:
+        files.discover()
+    previous = vars(files).copy()
+    (root / "graph/new-current-file").write_bytes(b"new")
+    batches = []
+
+    def sink(paths):
+        batches.append(paths)
+        if len(batches) == 2:
+            raise failure
+
+    with pytest.raises(type(failure)) as raised:
+        files.discover(_batch_sink=sink)
+    assert raised.value is failure
+    assert len(batches) == 2
+    assert vars(files).keys() == previous.keys()
+    assert all(value is previous[name] for name, value in vars(files).items())
+    assert files.discover() == 524
 
 
 def test_pipeline_many_batches_exact_sorted_codec_and_late_errors(tmp_path):

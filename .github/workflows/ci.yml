@@ -1,0 +1,246 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONHASHSEED: '0'
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    env:
+      TMPDIR: ${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/system-tmp
+    strategy:
+      fail-fast: false
+      matrix:
+        index-mode: [kept, deleted]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.4'
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.11.8'
+      - name: Install and disclose runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${{ runner.temp }}/acceptance-${{ matrix.index-mode }}"
+          mkdir -p "$evidence" "$TMPDIR"
+          uv venv .venv --python "$(command -v python)"
+          source .venv/bin/activate
+          echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
+          uv pip install -e '.[test]' -e tests/testprofiles "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
+          uv --version | tee "$evidence/uv.txt"
+          uv pip freeze | tee "$evidence/dependencies.txt"
+          git --version | tee "$evidence/git.txt"
+          git rev-parse HEAD | tee "$evidence/head.txt"
+          python - <<'PY' | tee "$evidence/runtime.json"
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import platform
+          import sqlite3
+          import sys
+          import sysconfig
+          runner = Path('examples/minimal_runner.py')
+          console = Path(sysconfig.get_path('scripts')) / 'rg'
+          print(json.dumps({
+              'python': sys.version, 'executable': sys.executable,
+              'implementation': platform.python_implementation(),
+              'platform': platform.platform(), 'sqlite': sqlite3.sqlite_version,
+              'SOABI': sysconfig.get_config_var('SOABI'),
+              'rg': str(console.resolve()), 'rg_exists': console.is_file(),
+              'runner': str(runner.resolve()),
+              'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
+              'PYTHONHASHSEED': os.environ['PYTHONHASHSEED'],
+              'hypothesis_seed': 20261020,
+          }, indent=2))
+          assert console.is_file()
+          PY
+      - name: Lint and Python formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruff check .
+          ruff format --check src tests examples setup.py
+      - name: Full suite including both strict performance gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests --index-mode '${{ matrix.index-mode }}' --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/full.xml' --basetemp='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/full-tmp' | tee '${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/full.txt'
+      - name: Dedicated installed console acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests -m cli --index-mode '${{ matrix.index-mode }}' --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli.xml' --basetemp='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli-tmp' | tee '${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli.txt'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: acceptance-${{ matrix.index-mode }}
+          path: ${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  scale:
+    runs-on: ubuntu-24.04
+    env:
+      TMPDIR: ${{ runner.temp }}/scale/system-tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.4'
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.11.8'
+      - name: Install and disclose runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${{ runner.temp }}/scale"
+          mkdir -p "$evidence" "$TMPDIR"
+          uv venv .venv --python "$(command -v python)"
+          source .venv/bin/activate
+          echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
+          uv pip install -e '.[test]' -e tests/testprofiles "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
+          uv --version | tee "$evidence/uv.txt"
+          uv pip freeze | tee "$evidence/dependencies.txt"
+          git --version | tee "$evidence/git.txt"
+          git rev-parse HEAD | tee "$evidence/head.txt"
+          python - <<'PY' | tee "$evidence/runtime.json"
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import platform
+          import sqlite3
+          import sys
+          import sysconfig
+          runner = Path('examples/minimal_runner.py')
+          console = Path(sysconfig.get_path('scripts')) / 'rg'
+          print(json.dumps({
+              'python': sys.version, 'executable': sys.executable,
+              'implementation': platform.python_implementation(),
+              'platform': platform.platform(), 'sqlite': sqlite3.sqlite_version,
+              'SOABI': sysconfig.get_config_var('SOABI'),
+              'rg': str(console.resolve()), 'rg_exists': console.is_file(),
+              'runner': str(runner.resolve()),
+              'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
+              'PYTHONHASHSEED': os.environ['PYTHONHASHSEED'],
+              'hypothesis_seed': 20261020,
+          }, indent=2))
+          assert console.is_file()
+          PY
+      - name: Strict 5000-node temporal and fresh 20000-node rebuild gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_performance.py::test_public_temporal_scrub_budget tests/test_performance.py::test_fresh_twenty_thousand_node_rebuild_budget --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/performance.xml' --basetemp='${{ runner.temp }}/scale/performance-tmp' | tee '${{ runner.temp }}/scale/performance.txt'
+      - name: Distribution, version, runner and documentation gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_packaging.py tests/test_cli_version.py::test_installed_cli_version tests/test_runner.py tests/test_docs.py --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/distribution.xml' --basetemp='${{ runner.temp }}/scale/distribution-tmp' | tee '${{ runner.temp }}/scale/distribution.txt'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: scale
+          path: ${{ runner.temp }}/scale/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  compatibility:
+    runs-on: ubuntu-24.04
+    env:
+      TMPDIR: ${{ runner.temp }}/compatibility-${{ matrix.python }}/system-tmp
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', pypy3.11]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.11.8'
+      - name: Install and disclose runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${{ runner.temp }}/compatibility-${{ matrix.python }}"
+          mkdir -p "$evidence" "$TMPDIR"
+          uv venv .venv --python "$(command -v python)"
+          source .venv/bin/activate
+          echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
+          uv pip install -e '.[test]' -e tests/testprofiles "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
+          uv --version | tee "$evidence/uv.txt"
+          uv pip freeze | tee "$evidence/dependencies.txt"
+          git --version | tee "$evidence/git.txt"
+          git rev-parse HEAD | tee "$evidence/head.txt"
+          python - <<'PY' | tee "$evidence/runtime.json"
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import platform
+          import sqlite3
+          import sys
+          import sysconfig
+          runner = Path('examples/minimal_runner.py')
+          console = Path(sysconfig.get_path('scripts')) / 'rg'
+          print(json.dumps({
+              'python': sys.version, 'executable': sys.executable,
+              'implementation': platform.python_implementation(),
+              'platform': platform.platform(), 'sqlite': sqlite3.sqlite_version,
+              'SOABI': sysconfig.get_config_var('SOABI'),
+              'rg': str(console.resolve()), 'rg_exists': console.is_file(),
+              'runner': str(runner.resolve()),
+              'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
+              'PYTHONHASHSEED': os.environ['PYTHONHASHSEED'],
+              'hypothesis_seed': 20261020,
+          }, indent=2))
+          assert console.is_file()
+          PY
+      - name: Focused functionality only; no full-suite or performance claim
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest \
+            tests/test_io.py tests/test_model.py tests/test_profiles.py \
+            tests/test_native.py tests/test_temporal.py \
+            tests/test_source_scanner.py tests/test_mapped_hashing.py tests/test_hashing.py \
+            tests/test_validation.py tests/test_profile_pins.py tests/test_queries.py \
+            tests/test_cli_queries.py::test_where_field_api_installed_console_parity \
+            tests/test_store.py::test_persistent_rename_failure_uses_direct_precall_restoration \
+            tests/test_cli_queries.py::test_all_query_json_matches_public_api_and_cache \
+            tests/test_cli_profiles.py tests/test_runner.py tests/test_docs.py tests/test_packaging.py \
+            tests/test_archives.py::test_canonical_members_metadata_long_unicode_and_current_artifact_bytes \
+            tests/test_archives.py::test_frozen_canonical_pax_header_bytes_without_payload \
+            tests/test_archives.py::test_export_as_of_selects_current_bytes_and_complete_history \
+            --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 \
+            --junitxml='${{ runner.temp }}/compatibility-${{ matrix.python }}/focused.xml' \
+            --basetemp='${{ runner.temp }}/compatibility-${{ matrix.python }}/focused-tmp' \
+            | tee '${{ runner.temp }}/compatibility-${{ matrix.python }}/focused.txt'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: compatibility-${{ matrix.python }}
+          path: ${{ runner.temp }}/compatibility-${{ matrix.python }}/
+          include-hidden-files: true
+          if-no-files-found: error

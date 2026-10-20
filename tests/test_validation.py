@@ -21,6 +21,7 @@ from researchgraph.model import (
 )
 from researchgraph.profiles import Gate, Profile
 from researchgraph.project import Project
+from researchgraph.store.io import dump_edge, load_edge
 from researchgraph.validation import (
     validate_changes,
     validate_graph,
@@ -667,3 +668,319 @@ def test_graph_endpoint_and_schema_errors_precede_cycles_and_duplicates(
         {a.id: a, b.id: b},
         {edge.id: edge for edge in edges},
     )
+
+
+def effect_snapshot(project):
+    """Observe authoritative bytes, staging and both records and derived readiness."""
+    return (
+        {
+            p.relative_to(project.path).as_posix(): p.read_bytes()
+            for directory in ("graph", "artifacts")
+            for p in (project.path / directory).rglob("*")
+            if p.is_file()
+        },
+        git(project.path, "rev-parse", "HEAD"),
+        git(project.path, "ls-files", "--stage"),
+        git(project.path, "diff", "--cached", "--binary"),
+        [n.to_dict() for n in project.get_nodes()],
+        [e.to_dict() for e in project.get_edges()],
+        project.ready(actor=BOT, now=NOW),
+    )
+
+
+def refuse_effect(project, candidate, rule="schema"):
+    staged = project.path / "unrelated-staged.txt"
+    staged.write_bytes(b"keep this staged content\n")
+    git(project.path, "add", "--", staged.name)
+    artifact = project.path / "artifacts/ta-aaaaaaaa/evidence.bin"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(b"\x00unchanged evidence\xff")
+    before = effect_snapshot(project)
+    refusal(rule, project.apply, candidate)
+    assert effect_snapshot(project) == before
+    project.close()
+    (project.path / ".researchgraph/index.sqlite").unlink()
+    with Project.open(project.path) as cold:
+        assert effect_snapshot(cold) == before
+
+
+@pytest.mark.parametrize(
+    "effect",
+    [
+        "retire_blocker",
+        "supersedes",
+        "instructs",
+        "explains",
+        "new_edge",
+        "new_node",
+        "unrelated_tags",
+        "unrelated_priority",
+    ],
+)
+def test_apply_tag_cannot_smuggle_other_effects(project, effect):
+    a, b, c = node(), node("ta-bbbbbbbb"), node("ta-cccccccc")
+    blocker = relation("blocks", a.id, b.id)
+    project.apply(write(a, b, c, edges=[blocker]))
+    changed = project.get_node(b.id)
+    changed.tags = ["allowed"]
+    candidate = Write("tag", BOT, None, NOW, {"node": b.id}, [changed], [])
+    if effect == "retire_blocker":
+        retired = deepcopy(blocker)
+        retired.retired, retired.retired_at = True, NOW
+        candidate.edges = [retired]
+    elif effect in {"supersedes", "instructs", "explains", "new_edge"}:
+        kind = "relates-to" if effect == "new_edge" else effect
+        source = c
+        if effect in {"instructs", "explains"}:
+            type_ = "Instruction" if effect == "instructs" else "Failure"
+            prefix = project.profile.node_type(type_).prefix
+            source = Node(
+                prefix + "-aaaaaaaa",
+                type_,
+                "generated",
+                "",
+                BOT,
+                NOW,
+                status=Status.ACTIVE,
+            )
+            candidate.nodes.append(source)
+        edge = relation(kind, source.id, b.id, "bbbbbbbb")
+        edge.author = BOT
+        candidate.edges = [edge]
+    elif effect == "new_node":
+        generated = node("ta-dddddddd")
+        generated.author = BOT
+        candidate.nodes.append(generated)
+    else:
+        unrelated = project.get_node(c.id)
+        if effect == "unrelated_tags":
+            unrelated.tags = ["smuggled"]
+        else:
+            unrelated.priority = 99
+        candidate.nodes.append(unrelated)
+    refuse_effect(
+        project,
+        candidate,
+        "reserved_edge_type"
+        if effect in {"supersedes", "instructs", "explains"}
+        else "schema",
+    )
+
+
+@pytest.mark.parametrize("op", ["unknown", "Tag", "approve-extra"])
+def test_apply_rejects_unsupported_operation_names(project, op):
+    project.apply(write(node()))
+    refuse_effect(project, Write(op, BOT, None, NOW, {"node": node().id}, [], []))
+
+
+@pytest.mark.parametrize("op", ["retire", "reject", "supersede"])
+def test_apply_edge_retirement_must_be_incident_to_declared_target(project, op):
+    a, b, c = node(), node("ta-bbbbbbbb"), node("ta-cccccccc")
+    if op == "reject":
+        a = Node("hy-aaaaaaaa", "Hypothesis", "H", "", ALICE, NOW)
+    edge = relation("blocks", b.id, c.id)
+    project.apply(write(a, b, c, edges=[edge]))
+    candidate = event(a, op, Status.RETIRED)
+    retired = deepcopy(edge)
+    retired.retired, retired.retired_at = True, NOW
+    candidate.edges = [retired]
+    refuse_effect(project, candidate)
+
+
+@pytest.mark.parametrize(
+    "bad_time", [NOW - timedelta(seconds=1), NOW + timedelta(seconds=1)]
+)
+def test_apply_edge_retirement_timestamp_belongs_to_write(project, bad_time):
+    a, b = node(), node("ta-bbbbbbbb")
+    edge = relation("blocks", a.id, b.id)
+    project.apply(write(a, b, edges=[edge]))
+    candidate = event(a, "retire", Status.RETIRED)
+    retired = deepcopy(edge)
+    retired.retired, retired.retired_at = True, bad_time
+    candidate.edges = [retired]
+    refuse_effect(project, candidate)
+
+
+@pytest.mark.parametrize("op", ["instruct", "fail", "supersede"])
+def test_apply_generated_relation_must_bind_its_declared_target(project, op):
+    a, b = node(), node("ta-bbbbbbbb")
+    if op == "fail":
+        a.status = Status.RUNNING
+        a.lease = Lease(ALICE, NOW, NOW + timedelta(seconds=7200))
+        project.apply(write(a, b, op="import"))
+        candidate = event(a, op, Status.FAILED)
+        candidate.nodes[0].lease = None
+    else:
+        project.apply(write(a, b))
+        candidate = (
+            event(a, op, Status.RETIRED)
+            if op == "supersede"
+            else write(op=op, args={"node": a.id})
+        )
+    type_, relation_type = {
+        "instruct": ("Instruction", "instructs"),
+        "fail": ("Failure", "explains"),
+        "supersede": ("Task", "supersedes"),
+    }[op]
+    prefix = project.profile.node_type(type_).prefix
+    generated = Node(
+        prefix + "-cccccccc",
+        type_,
+        "generated",
+        "",
+        ALICE,
+        NOW,
+        status=Status.ACTIVE,
+    )
+    candidate.nodes.append(generated)
+    candidate.edges = [relation(relation_type, generated.id, b.id)]
+    refuse_effect(project, candidate)
+
+
+@pytest.mark.parametrize("op", ["tag", "link", "attach", "approve", "init"])
+def test_apply_cannot_create_nodes_outside_generation_operations(project, op):
+    project.apply(write(node()))
+    generated = node("ta-bbbbbbbb")
+    refuse_effect(project, write(generated, op=op))
+
+
+def test_apply_link_edges_match_explicit_endpoint_arguments(project):
+    a, b, c = node(), node("ta-bbbbbbbb"), node("ta-cccccccc")
+    project.apply(write(a, b, c))
+    candidate = write(
+        edges=[relation("relates-to", a.id, c.id)],
+        op="link",
+        args={"from": a.id, "to": b.id},
+    )
+    refuse_effect(project, candidate)
+
+
+@pytest.mark.parametrize("op", ["propose", "link"])
+def test_apply_cannot_create_an_already_retired_edge(project, op):
+    a, b = node(), node("ta-bbbbbbbb")
+    project.apply(write(a, b))
+    edge = relation("blocks", a.id, b.id, retired=True, retired_at=NOW)
+    refuse_effect(project, write(edges=[edge], op=op))
+
+
+@pytest.mark.parametrize("op", ["instruct", "fail", "expand"])
+def test_apply_generated_nodes_have_the_operations_category(project, op):
+    a = node()
+    if op == "fail":
+        a.status = Status.RUNNING
+        a.lease = Lease(ALICE, NOW, NOW + timedelta(seconds=7200))
+        project.apply(write(a, op="import"))
+        candidate = event(a, op, Status.FAILED)
+        candidate.nodes[0].lease = None
+    else:
+        project.apply(write(a))
+        candidate = write(
+            op=op, args={"nodes": [a.id]} if op == "expand" else {"node": a.id}
+        )
+    generated = Node(
+        "re-bbbbbbbb",
+        "Result",
+        "unrelated result",
+        "",
+        ALICE,
+        NOW,
+        status=Status.ACTIVE,
+    )
+    candidate.nodes.append(generated)
+    refuse_effect(project, candidate)
+
+
+def test_apply_expansion_fields_match_explicit_targets(project):
+    a, b = node(), node("ta-bbbbbbbb")
+    project.apply(write(a, b))
+    generated = node("ta-cccccccc")
+    generated.fields = {"kind": "expansion", "targets": [b.id]}
+    refuse_effect(project, write(generated, op="expand", args={"nodes": [a.id]}))
+
+
+def test_apply_retirement_requires_its_target_retirement_effect(project):
+    a, b = node(), node("ta-bbbbbbbb")
+    edge = relation("blocks", a.id, b.id)
+    project.apply(write(a, b, edges=[edge]))
+    edge.retired, edge.retired_at = True, NOW
+    refuse_effect(project, write(edges=[edge], op="retire", args={"node": a.id}))
+
+
+def test_apply_keeps_targetless_multi_node_tag_and_raw_proposal_batches(project):
+    a, b = node(), node("ta-bbbbbbbb")
+    project.apply(write(a, b, edges=[relation("blocks", a.id, b.id)]))
+    a.tags, b.tags = ["first"], ["second"]
+    project.apply(write(a, b, op="tag"))
+    assert project.get_node(a.id).tags == ["first"]
+    assert project.get_node(b.id).tags == ["second"]
+    before = effect_snapshot(project)
+    project.close()
+    (project.path / ".researchgraph/index.sqlite").unlink()
+    with Project.open(project.path) as cold:
+        assert effect_snapshot(cold) == before
+
+
+def test_effect_policy_preserves_generated_and_inherited_relations(project):
+    a, b = node(), node("ta-bbbbbbbb")
+    project.apply(write(a, b, edges=[relation("blocks", a.id, b.id)]))
+    project.instruct(a.id, "retain generated instruction", actor=ALICE, now=NOW)
+    expansion = project.expand([a.id, b.id], actor=ALICE, now=NOW)
+    assert expansion["type"] == "Task"
+    assert expansion["fields"]["targets"] == [a.id, b.id]
+    project.claim(a.id, actor=BOT, now=NOW)
+    project.fail(a.id, "failed check", actor=BOT, now=NOW)
+    failure = next(n for n in project.get_nodes() if n.type == "Failure")
+    explains = next(e for e in project.get_edges() if e.type == "explains")
+    assert (explains.from_, explains.to) == (failure.id, a.id)
+    replacement = project.supersede(failure.id, actor=ALICE, now=NOW)
+    assert project.get_node(failure.id).status == Status.RETIRED
+    assert any(
+        e.type == "explains"
+        and e.from_ == replacement["id"]
+        and e.to == a.id
+        and not e.retired
+        for e in project.get_edges()
+    )
+    task_replacement = project.supersede(
+        a.id, instruction="retain replacement instruction", actor=BOT, now=NOW
+    )
+    assert any(
+        e.type == "blocks"
+        and e.from_ == task_replacement["id"]
+        and e.to == b.id
+        and not e.retired
+        for e in project.get_edges()
+    )
+    assert any(
+        e.type == "instructs" and e.to == task_replacement["id"] and not e.retired
+        for e in project.get_edges()
+    )
+
+
+def test_supersede_inherited_edge_defaults_preserve_raw_old_fields(tmp_path):
+    with Project.init(
+        repository(tmp_path / "project"), "test-cli-contract", actor=ALICE, now=NOW
+    ) as project:
+        a = project.propose("Task", "source", actor=ALICE, now=NOW)
+        b = project.propose("Task", "target", actor=ALICE, now=NOW)
+        edge = project.link("depends", a["id"], b["id"], actor=ALICE, now=NOW)
+        path = project.path / f"graph/edges/{edge['id']}.yaml"
+        raw = load_edge(path)
+        raw["fields"] = {}
+        path.write_text(dump_edge(raw))
+        replacement = project.supersede(a["id"], actor=ALICE, now=NOW)
+        edges = {value.id: value for value in project.get_edges()}
+        assert edges[edge["id"]].retired
+        assert edges[edge["id"]].fields == {}
+        inherited = next(
+            value
+            for value in edges.values()
+            if value.type == "depends" and value.from_ == replacement["id"]
+        )
+        assert inherited.to == b["id"] and not inherited.retired
+        assert inherited.fields == {"weight": 2}
+        before = effect_snapshot(project)
+        root = project.path
+    (root / ".researchgraph/index.sqlite").unlink()
+    with Project.open(root) as cold:
+        assert effect_snapshot(cold) == before

@@ -58,11 +58,7 @@ def main():
                     raise OSError("Invalid source scan request")
                 digest = None
                 with scanner.stream() as stream:
-                    count = files.discover(
-                        _batch_sink=lambda records: stream.submit(
-                            tuple(path for _, path in records)
-                        )
-                    )
+                    count = files.discover(_batch_sink=stream.submit)
                     file_batches = stream.finish()
                 del stream
 

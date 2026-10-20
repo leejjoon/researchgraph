@@ -825,7 +825,7 @@ def since_command(ctx, time, as_of, **local_options):
 @click.option(
     "--field",
     multiple=True,
-    help="Repeat K=V; conflicting values for one key are invalid.",
+    help="Repeat K=V, splitting at the first =; identical repeats are allowed, conflicts invalid.",
 )
 @click.option("--tag", default=None)
 @click.option("--text", default=None)
@@ -839,19 +839,11 @@ def where_command(
     """List nodes matching every supplied filter; repeat --field K=V."""
 
     def query(project, context):
-        fields = {}
-        for entry in field:
-            key, separator, value = entry.partition("=")
-            if not separator:
-                raise RuleViolation("schema", "Fields must be k=v filters")
-            if key in fields and fields[key] != value:
-                raise RuleViolation("schema", f"Conflicting values for --field {key}")
-            fields[key] = value
         return project.where(
             type=type,
             status=status,
             author=author,
-            field=fields,
+            field=field,
             tag=tag,
             text=text,
             over_budget=over_budget,

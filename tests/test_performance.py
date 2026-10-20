@@ -5,6 +5,7 @@ The helper also supports parent-owned phase instrumentation without a second fix
 """
 
 import base64
+import json
 import os
 import platform
 import subprocess
@@ -12,10 +13,14 @@ import sys
 from datetime import timedelta
 from time import perf_counter
 
+import pytest
+
 from researchgraph.model import Approval, Lease, Node, Status, format_timestamp
 from researchgraph.project import Project
 from researchgraph.store.io import dump_node
 from tests.helpers import ALICE, NOW, git, repository
+
+pytestmark = pytest.mark.performance
 
 
 def prepare_temporal_scrub(path, *, task_count=5000):
@@ -131,11 +136,73 @@ def measure_temporal_scrub(project, commits, ordered_ids):
     return {"elapsed_seconds": perf_counter() - started, "scan_seconds": scans}
 
 
-def test_public_temporal_scrub_budget(tmp_path):
+def test_public_temporal_scrub_budget(tmp_path, record_property):
     project, commits, ordered, disclosure = prepare_temporal_scrub(tmp_path / "scale")
     try:
         measurement = measure_temporal_scrub(project, commits, ordered)
+        for key, value in {**measurement, **disclosure}.items():
+            record_property(key, json.dumps(value, ensure_ascii=False))
         print({**measurement, **disclosure})
         assert measurement["elapsed_seconds"] < 2.0
+    finally:
+        project.close()
+
+
+def test_fresh_twenty_thousand_node_rebuild_budget(tmp_path, record_property):
+    preparation = perf_counter()
+    root = repository(tmp_path / "rebuild-20k")
+    with Project.init(root, "tasks", actor=ALICE, now=NOW):
+        pass
+    template = dump_node(
+        Node(
+            "ta-aaaaaaaa",
+            "Task",
+            "Task 00000000",
+            "",
+            ALICE,
+            NOW,
+            status=Status.ACTIVE,
+        ).to_dict()
+    )
+    source_bytes = 0
+    for i in range(20000):
+        suffix = base64.b32encode(i.to_bytes(5, "big")).decode().lower()
+        identifier = "ta-" + suffix
+        content = (
+            template.replace("ta-aaaaaaaa", identifier)
+            .replace("Task 00000000", f"Task {i:08}")
+            .encode("utf-8")
+        )
+        (root / "graph/nodes" / (identifier + ".yaml")).write_bytes(content)
+        source_bytes += len(content)
+    (root / ".researchgraph/index.sqlite").unlink()
+    prepared_seconds = perf_counter() - preparation
+    started = perf_counter()
+    project = Project.open(root)
+    wall_seconds = perf_counter() - started
+    try:
+        walk_seconds = project.index.last_history_seconds
+        rebuild_seconds = wall_seconds - walk_seconds
+        disclosure = {
+            "phase": "20k_fresh_rebuild",
+            "nodes": 20000,
+            "edges": 0,
+            "history_bytes": 0,
+            "source_bytes": source_bytes,
+            "prepare_seconds": prepared_seconds,
+            "wall_seconds": wall_seconds,
+            "git_walk_seconds": walk_seconds,
+            "excluding_only_git_walk_seconds": rebuild_seconds,
+            "internal_rebuild_seconds": project.index.last_rebuild_seconds,
+            "content_scan_seconds": project.index.last_scan_seconds,
+            "budget_seconds": 5.0,
+            "python": sys.version,
+            "platform": platform.platform(),
+        }
+        for key, value in disclosure.items():
+            record_property(key, json.dumps(value, ensure_ascii=False))
+        print(disclosure)
+        assert len(project.get_nodes()) == 20000
+        assert rebuild_seconds < 5.0
     finally:
         project.close()

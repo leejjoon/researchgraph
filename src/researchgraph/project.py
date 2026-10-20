@@ -46,7 +46,13 @@ from researchgraph.profiles import Profile, version_tuple
 from researchgraph.queries import QueryView, evaluation_time
 from researchgraph.store.git import Git
 from researchgraph.store.index import Index
-from researchgraph.store.io import dump_edge, dump_node, load_edge, load_node
+from researchgraph.store.io import (
+    _dump_mapping,
+    dump_edge,
+    dump_node,
+    load_edge,
+    load_node,
+)
 from researchgraph.store.transaction import atomic_write, write_lock
 from researchgraph.validation import (
     validate_edge_endpoints,
@@ -329,9 +335,9 @@ class Project:
                 atomic_write(
                     root,
                     {
-                        paths[
-                            0
-                        ]: f'name: {installed.name}\nversion: "{installed.version}"\n'.encode(),
+                        paths[0]: _dump_mapping(
+                            {"name": installed.name, "version": installed.version}
+                        ).encode(),
                         paths[1]: content,
                     },
                 )

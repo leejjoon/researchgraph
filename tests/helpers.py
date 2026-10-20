@@ -1,7 +1,9 @@
 """Real git repositories and graph records shared by storage-layer tests."""
 
+import shutil
 import subprocess
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -24,6 +26,20 @@ def repository(path):
     git(path, "config", "user.email", "alice@git.test")
     git(path, "config", "commit.gpgsign", "false")
     return path
+
+
+def copy_checkout(destination):
+    """Copy tracked current source bytes without Git/build state, not a clean clone."""
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=root, capture_output=True, text=True, check=True
+    )
+    destination.mkdir(parents=True)
+    for relative in filter(None, result.stdout.split("\0")):
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(root / relative, target)
+    return destination
 
 
 def node(id="ta-aaaaaaaa", **kwargs):

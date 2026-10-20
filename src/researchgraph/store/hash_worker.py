@@ -11,6 +11,7 @@ import sys
 from collections import OrderedDict
 from dataclasses import dataclass
 
+from researchgraph.store import _native_scan
 from researchgraph.store.hashing import ERROR_LIMIT, _write_all, hash_file
 
 
@@ -94,7 +95,7 @@ class MappedFiles:
         if self._closed:
             raise ValueError("Mapped hash resources are closed")
         try:
-            identity = self._identity(os.stat(path, follow_symlinks=False))
+            identity = _native_scan.fresh_file_identity(path)
         except OSError:
             self._discard(path)
             raise

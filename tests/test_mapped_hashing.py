@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from researchgraph.store import hash_worker
+from researchgraph.store import _native_scan, hash_worker
 
 
 def sha(data):
@@ -183,14 +183,14 @@ def test_stable_paths_stat_paths_and_hash_every_byte_each_time(tmp_path, monkeyp
     content = b"all bytes" * 2048
     path.write_bytes(content)
     expected = sha(content)
-    original_stat, original_fstat = os.stat, os.fstat
+    original_identity = _native_scan.fresh_file_identity
+    original_fstat = os.fstat
     original_sha = hashlib.sha256
     stats, fstats, hashed = [], [], []
 
-    def stat_path(source, *args, **kwargs):
-        if source == path:
-            stats.append((source, kwargs.get("follow_symlinks", True)))
-        return original_stat(source, *args, **kwargs)
+    def fresh_identity(source):
+        stats.append(source)
+        return original_identity(source)
 
     def fstat(descriptor):
         fstats.append(descriptor)
@@ -200,13 +200,13 @@ def test_stable_paths_stat_paths_and_hash_every_byte_each_time(tmp_path, monkeyp
         hashed.append(len(data))
         return original_sha(data)
 
-    monkeypatch.setattr(hash_worker.os, "stat", stat_path)
+    monkeypatch.setattr(_native_scan, "fresh_file_identity", fresh_identity)
     monkeypatch.setattr(hash_worker.os, "fstat", fstat)
     monkeypatch.setattr(hash_worker.hashlib, "sha256", digest)
     with hash_worker.MappedFiles() as files:
         for _ in range(3):
             assert files.digest(path) == expected
-    assert stats == [(path, False)] * 3
+    assert stats == [path] * 3
     assert len(fstats) == 2  # Both checks occur only when opening a new mapping.
     assert hashed == [len(content)] * 3
 
@@ -251,6 +251,56 @@ def test_original_descriptor_closed_and_reuse_cannot_affect_live_mapping(
             if reused != opened[0]:
                 os.close(opened[0])
             os.close(reused)
+
+
+def test_native_identity_called_for_mapping_hits_with_changed_live_bytes(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "source"
+    path.write_bytes(b"before")
+    original_identity = _native_scan.fresh_file_identity
+    calls = []
+
+    def fresh_identity(source):
+        calls.append(source)
+        return original_identity(source)
+
+    monkeypatch.setattr(_native_scan, "fresh_file_identity", fresh_identity)
+    with hash_worker.MappedFiles() as files:
+        assert files.digest(path) == sha(b"before")
+        entry = files._entries[path]
+        stamp = path.stat()
+        path.write_bytes(b"after!")
+        os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        assert files.digest(path) == sha(b"after!")
+        assert files._entries[path] is entry
+        replacement = tmp_path / "replacement"
+        replacement.write_bytes(b"atomic")
+        replacement.replace(path)
+        assert files.digest(path) == sha(b"atomic")
+        assert_closed(entry)
+    assert calls == [path] * 3
+
+
+def test_native_identity_failure_releases_cached_mapping(tmp_path, monkeypatch):
+    path = tmp_path / "source"
+    path.write_bytes(b"content")
+    failure = PermissionError("fresh metadata denied")
+
+    def failed_identity(source):
+        assert source == path
+        raise failure
+
+    with hash_worker.MappedFiles() as files:
+        assert files.digest(path) == sha(b"content")
+        entry = files._entries[path]
+        monkeypatch.setattr(_native_scan, "fresh_file_identity", failed_identity)
+        with pytest.raises(PermissionError) as raised:
+            files.digest(path)
+        assert raised.value is failure
+        assert_closed(entry)
+        assert not files._entries
+        assert files._mapped_bytes == 0
 
 
 def test_descriptor_validation_error_closes_original_without_fallback(

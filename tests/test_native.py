@@ -1,6 +1,7 @@
 """Required native contracts; direct imports intentionally fail before integration."""
 
 import ctypes
+import errno
 import math
 import os
 import sys
@@ -24,6 +25,121 @@ COLUMNS = (
     "lease",
 )
 MUTABLE_COLUMNS = ("author", "fields", "approvals", "artifacts", "tags")
+
+
+@pytest.mark.parametrize("representation", ["str", "bytes", "pathlike"])
+def test_fresh_file_identity_exact_tuple_and_live_replacements(
+    tmp_path, representation
+):
+    parent = tmp_path / "별\nparent"
+    parent.mkdir()
+    path = parent / "source"
+    path.write_bytes(b"before")
+
+    def identity():
+        source = {
+            "str": str(path),
+            "bytes": os.fsencode(path),
+            "pathlike": path,
+        }[representation]
+        actual = scan.fresh_file_identity(source)
+        info = os.stat(path, follow_symlinks=False)
+        assert type(actual) is tuple and len(actual) == 3
+        assert all(type(value) is int for value in actual)
+        assert actual == (info.st_dev, info.st_ino, info.st_size)
+        return actual
+
+    before = identity()
+    stamp = path.stat()
+    path.write_bytes(b"after!")
+    os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    assert identity() == before
+    replacement = parent / "replacement"
+    replacement.write_bytes(b"atomic")
+    os.utime(replacement, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    replacement.replace(path)
+    assert identity()[1] != before[1]
+    parent.rename(tmp_path / "old-parent")
+    parent.mkdir()
+    path.write_bytes(b"new directory contents")
+    assert identity() != before
+
+
+@pytest.mark.parametrize("kind", ["missing", "symlink", "directory", "fifo"])
+def test_fresh_file_identity_refuses_nonregular_or_missing(tmp_path, kind):
+    path = tmp_path / "source"
+    if kind == "symlink":
+        target = tmp_path / "target"
+        target.write_bytes(b"content")
+        path.symlink_to(target)
+    elif kind == "directory":
+        path.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(path)
+    with pytest.raises(OSError):
+        scan.fresh_file_identity(path)
+
+
+def test_fresh_file_identity_missing_preserves_errno_and_filename(tmp_path):
+    path = str(tmp_path / "missing-별")
+    with pytest.raises(FileNotFoundError) as raised:
+        scan.fresh_file_identity(path)
+    assert raised.value.filename == path
+    assert raised.value.errno == errno.ENOENT
+
+
+def test_fresh_file_identity_bytes_pathlike_and_filesystem_surrogates(tmp_path):
+    path = os.fsencode(tmp_path) + b"/source-\xff"
+    with open(path, "wb") as stream:
+        stream.write(b"content")
+
+    class BytesPath:
+        def __fspath__(self):
+            return path
+
+    info = os.lstat(path)
+    expected = (info.st_dev, info.st_ino, info.st_size)
+    assert scan.fresh_file_identity(BytesPath()) == expected
+    assert scan.fresh_file_identity(os.fsdecode(path)) == expected
+    missing = path + b"-missing"
+    with pytest.raises(FileNotFoundError) as raised:
+        scan.fresh_file_identity(missing)
+    assert raised.value.filename == missing
+    assert raised.value.errno == errno.ENOENT
+
+
+@pytest.mark.parametrize("source", ["bad\0name", b"bad\0name"])
+def test_fresh_file_identity_rejects_embedded_null(source):
+    with pytest.raises(ValueError, match="null"):
+        scan.fresh_file_identity(source)
+
+
+@pytest.mark.parametrize("source", [None, 1, [], object()])
+def test_fresh_file_identity_rejects_invalid_path_types(source):
+    with pytest.raises(TypeError):
+        scan.fresh_file_identity(source)
+
+
+def test_fresh_file_identity_pathlike_errors_propagate():
+    failure = RuntimeError("path conversion failed")
+
+    class BrokenPath:
+        def __fspath__(self):
+            raise failure
+
+    with pytest.raises(RuntimeError) as raised:
+        scan.fresh_file_identity(BrokenPath())
+    assert raised.value is failure
+
+
+@pytest.mark.parametrize("value", [b"bad\0name", "bad\0name", 1])
+def test_fresh_file_identity_validates_pathlike_result(value):
+    class CustomPath:
+        def __fspath__(self):
+            return value
+
+    with pytest.raises(TypeError if type(value) is int else ValueError):
+        scan.fresh_file_identity(CustomPath())
 
 
 def template(fields=None, tags=()):
@@ -422,7 +538,7 @@ def test_scan_empty_graph_optional_history_and_no_callback(tmp_path):
     assert_records(records, tmp_path, [".researchgraph/history.jsonl"])
     batches = []
     assert scan.discover(str(tmp_path), {}, batches.append) == records
-    assert batches == [tuple(records)]
+    assert batches == [tuple(path for _, path in records)]
 
 
 def test_scan_unicode_newline_hidden_deep_and_long_paths(tmp_path):
@@ -569,7 +685,7 @@ def test_scan_cached_history_reuse_still_requires_fresh_membership(tmp_path):
     batches = []
     second = scan.discover(str(tmp_path), previous, batches.append)
     assert second[0] is first[0]
-    assert batches[0][0] is first[0]
+    assert batches[0][0] is first[0][1]
     history.unlink()
     assert scan.discover(str(tmp_path), previous) == []
     history.mkdir()
@@ -609,11 +725,12 @@ def test_scan_more_than_eight_bounded_tuple_batches_and_final_history(tmp_path):
     assert len(batches) == 9
     assert all(type(batch) is tuple and 0 < len(batch) <= 512 for batch in batches)
     assert all(len(batch) == 512 for batch in batches[:-1])
-    assert batches[-1][-1][0] == ".researchgraph/history.jsonl"
-    emitted = [record for batch in batches for record in batch]
-    assert emitted == records
-    assert all(left is right for left, right in zip(emitted, records))
-    assert len({record[0] for record in emitted}) == len(names)
+    assert batches[-1][-1] == str(tmp_path / ".researchgraph/history.jsonl")
+    emitted = [path for batch in batches for path in batch]
+    assert emitted == [path for _, path in records]
+    assert all(type(path) is str and os.path.isabs(path) for path in emitted)
+    assert all(left is right for left, (_, right) in zip(emitted, records))
+    assert len(set(emitted)) == len(names)
     assert set(scan.discover(str(tmp_path), {})) == set(records)
     assert_fd_unchanged(before)
 

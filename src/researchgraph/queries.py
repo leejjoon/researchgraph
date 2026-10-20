@@ -920,8 +920,10 @@ class QueryView(View):
 
         None disables type, status, author-name, tag and text filters. Text is a
         case-insensitive title/body substring. Field accepts a mapping, one k=v
-        string, or iterable of k=v strings; values compare as strings and malformed
-        entries raise schema RuleViolation. over_budget=False adds no constraint;
+        string, or iterable of k=v strings, split at the first equals sign. Values
+        compare as strings; identical repeats are allowed, while conflicting
+        repeats and malformed entries raise schema RuleViolation.
+        over_budget=False adds no constraint;
         True requires exhausted current budget/usage. Tags and other non-status
         fields remain current even in an as-of view.
         """
@@ -931,8 +933,15 @@ class QueryView(View):
             fields = field
         else:
             entries = [field] if isinstance(field, str) else field
+            fields = {}
             try:
-                fields = dict(entry.split("=", 1) for entry in entries)
+                for entry in entries:
+                    key, value = entry.split("=", 1)
+                    if key in fields and fields[key] != value:
+                        raise RuleViolation(
+                            "schema", f"Conflicting values for field {key}"
+                        )
+                    fields[key] = value
             except (ValueError, TypeError, AttributeError) as exc:
                 raise RuleViolation("schema", "Fields must be k=v filters") from exc
         return [

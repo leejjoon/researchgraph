@@ -331,6 +331,75 @@ def test_rename_failure_restores_precall_bytes(project, monkeypatch, failed_rena
     assert not list((project.path / "graph/nodes").glob("*.tmp"))
 
 
+@pytest.mark.parametrize("fail_direct_restore", [False, True])
+def test_persistent_rename_failure_uses_direct_precall_restoration(
+    project, monkeypatch, fail_direct_restore
+):
+    paths = [project.path / f"artifacts/rollback-{name}.bin" for name in "abc"]
+    for path in paths:
+        path.write_bytes(b"committed baseline\n")
+    git(project.path, "add", "artifacts")
+    git(project.path, "commit", "-m", "rollback baselines")
+    for index, path in enumerate(paths):
+        path.write_bytes(f"pending bytes {index}\n".encode())
+    git(project.path, "add", str(paths[0].relative_to(project.path)))
+    paths[0].write_bytes(b"pending bytes after staging\x00\xff\n")
+    before = {path: path.read_bytes() for path in paths}
+    head = git(project.path, "rev-parse", "HEAD")
+    staged = git(project.path, "diff", "--cached", "--binary")
+    index_entries = git(project.path, "ls-files", "--stage")
+    status = git(project.path, "status", "--porcelain")
+    replacement = b"replacement, not the pending baseline\n"
+    original_replace = transaction.os.replace
+    original_write = Path.write_bytes
+    renames = []
+    direct_restorations = []
+
+    def fail_persistently(source, destination):
+        renames.append(Path(destination))
+        if len(renames) >= 3:
+            raise OSError("persistent replacement/restore rename failure")
+        return original_replace(source, destination)
+
+    def restore_directly(path, content):
+        if path in before and content == before[path]:
+            direct_restorations.append(path)
+            if fail_direct_restore and path == paths[1]:
+                raise OSError("direct restoration denied for rollback-b")
+        return original_write(path, content)
+
+    monkeypatch.setattr(transaction.os, "replace", fail_persistently)
+    monkeypatch.setattr(Path, "write_bytes", restore_directly)
+    error = refusal(
+        "write_failed",
+        transaction.atomic_write,
+        project.path,
+        {str(path.relative_to(project.path)): replacement for path in paths},
+    )
+    assert renames == paths + list(reversed(paths))
+    assert direct_restorations == list(reversed(paths))
+    assert "persistent replacement/restore rename failure" in str(error)
+    assert isinstance(error.__cause__, OSError)
+    assert "persistent replacement/restore rename failure" in str(error.__cause__)
+    assert set(error.ids) == {str(path.relative_to(project.path)) for path in paths}
+    if fail_direct_restore:
+        assert "restoration failed" in str(error)
+        assert "artifacts/rollback-b.bin" in str(error)
+        assert "direct restoration denied for rollback-b" in str(error)
+        # Both restoration mechanisms failed here: do not claim full rollback.
+        assert paths[1].read_bytes() == replacement != before[paths[1]]
+        assert paths[0].read_bytes() == before[paths[0]]
+        assert paths[2].read_bytes() == before[paths[2]]
+    else:
+        assert "restoration failed" not in str(error)
+        assert {path: path.read_bytes() for path in paths} == before
+        assert git(project.path, "status", "--porcelain") == status
+    assert git(project.path, "rev-parse", "HEAD") == head
+    assert git(project.path, "diff", "--cached", "--binary") == staged
+    assert git(project.path, "ls-files", "--stage") == index_entries
+    assert not list(project.path.rglob("*.tmp"))
+
+
 def test_commit_failure_preserves_files(project):
     hook = project.path / ".git/hooks/pre-commit"
     hook.write_text("#!/bin/sh\nexit 1\n")

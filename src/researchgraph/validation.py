@@ -25,6 +25,20 @@ ACYCLIC_RELATIONS = frozenset(
 _HUMAN_ONLY = frozenset(
     {"init", "reject", "instruct", "expand", "budget", "retire", "import"}
 )
+_SUPPORTED_OPERATIONS = _HUMAN_ONLY | {
+    "propose",
+    "link",
+    "approve",
+    "supersede",
+    "claim",
+    "renew",
+    "release",
+    "complete",
+    "fail",
+    "tag",
+    "attach",
+}
+_RESERVED_RELATIONS = frozenset({"supersedes", "instructs", "explains"})
 _EVENTS = {
     "approve",
     "reject",
@@ -293,8 +307,168 @@ def _ready(profile, target, nodes, edges, now):
     return View(profile, nodes, edges, now).ready(target)
 
 
+def _transferable(profile, edge, target):
+    if target not in (edge.from_, edge.to):
+        return False
+    inherit = profile.edge_type(edge.type).inherit
+    return inherit == "both" or (inherit == "outgoing" and edge.from_ == target)
+
+
+def _validate_effects(profile, write, before_nodes, before_edges):
+    """Authorize effect categories, not builder-shaped output batches.
+
+    Candidate writes may carry unchanged records and omit builder outputs. An
+    explicit target still binds every changed existing node, generated reserved
+    relation and retired edge. Imports retain their historical creation semantics.
+    """
+    if write.op not in _SUPPORTED_OPERATIONS:
+        _refuse("schema", "Unsupported operation name")
+    if write.op == "import":
+        return
+    target = write.args.get("node")
+    original = before_nodes.get(target)
+    new_nodes = {n.id: n for n in write.nodes if n.id not in before_nodes}
+    changed_nodes = {n.id: n for n in write.nodes if n.id in before_nodes}
+    changed_edges = {e.id: e for e in write.edges if e.id in before_edges}
+    replacements = {
+        n.id
+        for n in new_nodes.values()
+        if original is not None and n.type == original.type
+    }
+    transfers = {
+        (edge.type, edge.from_, edge.to): edge
+        for edge in before_edges.values()
+        if write.op == "supersede"
+        and not edge.retired
+        and _transferable(profile, edge, target)
+    }
+
+    def inherited(edge):
+        if (
+            write.op != "supersede"
+            or write.args.get("inherit_edges") is False
+            or not ({edge.from_, edge.to} & replacements)
+        ):
+            return False
+        old = transfers.get(
+            (
+                edge.type,
+                target if edge.from_ in replacements else edge.from_,
+                target if edge.to in replacements else edge.to,
+            )
+        )
+        retired = changed_edges.get(old.id) if old is not None else None
+        return (
+            old is not None
+            and retired is not None
+            and retired.retired
+            and _canonical_equal(
+                edge.fields,
+                profile.normalize_fields(old.type, old.fields, edge=True),
+            )
+        )
+
+    for edge in write.edges:
+        old = before_edges.get(edge.id)
+        if old is not None:
+            if _canonical_equal(old.to_dict(), edge.to_dict()):
+                continue
+            retiring = changed_nodes.get(target)
+            if (
+                write.op not in {"reject", "retire", "supersede"}
+                or old.retired
+                or not edge.retired
+                or edge.retired_at != write.now
+                or target not in (old.from_, old.to)
+                or retiring is None
+                or retiring.status != Status.RETIRED
+                or (write.op == "supersede" and not _transferable(profile, old, target))
+            ):
+                _refuse("schema", "Edge retirement outside its operation", edge.id)
+            continue
+        if edge.type in _RESERVED_RELATIONS:
+            allowed = (
+                (
+                    write.op == "supersede"
+                    and edge.type == "supersedes"
+                    and edge.from_ in replacements
+                    and edge.to == target
+                )
+                or (
+                    write.op == "instruct"
+                    and edge.type == "instructs"
+                    and edge.from_ in new_nodes
+                    and new_nodes[edge.from_].type == "Instruction"
+                    and edge.to == target
+                )
+                or (
+                    write.op == "fail"
+                    and edge.type == "explains"
+                    and edge.from_ in new_nodes
+                    and new_nodes[edge.from_].type == "Failure"
+                    and edge.to == target
+                )
+                or (
+                    write.op == "supersede"
+                    and edge.type == "instructs"
+                    and edge.from_ in new_nodes
+                    and new_nodes[edge.from_].type == "Instruction"
+                    and edge.to in replacements
+                )
+                or inherited(edge)
+            )
+            if not allowed:
+                _refuse(
+                    "reserved_edge_type"
+                    if write.op not in {"supersede", "instruct", "fail"}
+                    else "schema",
+                    "Relation is not generated by this operation",
+                    edge.id,
+                )
+        elif write.op not in {"propose", "link"} and not inherited(edge):
+            _refuse("schema", "Edge creation outside its operation", edge.id)
+        if edge.retired or edge.retired_at is not None:
+            _refuse("schema", "Generated edges must be live", edge.id)
+        if write.op == "link" and any(
+            key in write.args and write.args[key] != endpoint
+            for key, endpoint in (("from", edge.from_), ("to", edge.to))
+        ):
+            _refuse("schema", "Edge differs from its declared endpoints", edge.id)
+
+    for node in new_nodes.values():
+        allowed = (
+            write.op == "propose"
+            or (write.op == "fail" and node.type == "Failure")
+            or (write.op == "instruct" and node.type == "Instruction")
+            or (write.op == "expand" and node.type == "Task")
+            or (
+                write.op == "supersede"
+                and (node.id in replacements or node.type == "Instruction")
+            )
+        )
+        if not allowed:
+            _refuse("schema", "Node creation outside its operation", node.id)
+        if (
+            write.op == "expand"
+            and "nodes" in write.args
+            and (
+                node.fields.get("kind") != "expansion"
+                or not _canonical_equal(node.fields.get("targets"), write.args["nodes"])
+            )
+        ):
+            _refuse("schema", "Expansion differs from its declared targets", node.id)
+    for node in changed_nodes.values():
+        if _canonical_equal(before_nodes[node.id].to_dict(), node.to_dict()):
+            continue
+        if write.op not in _EVENTS | {"tag", "attach"} or (
+            "node" in write.args and node.id != target
+        ):
+            _refuse("schema", "Node change outside its declared operation", node.id)
+
+
 def validate_changes(profile, write, before_nodes, before_edges):
     """I2, I6 and candidate lifecycle effects; no privileged fixture path."""
+    _validate_effects(profile, write, before_nodes, before_edges)
     for edge in write.edges:
         old = before_edges.get(edge.id)
         if old is not None:
@@ -312,16 +486,6 @@ def validate_changes(profile, write, before_nodes, before_edges):
                 or edge.created != write.now
             ):
                 _refuse("schema", "Invalid generated-edge author or timestamp", edge.id)
-            if write.op in {"propose", "link"} and edge.type in {
-                "supersedes",
-                "instructs",
-                "explains",
-            }:
-                _refuse(
-                    "reserved_edge_type",
-                    "Relation is reserved for its operation",
-                    edge.id,
-                )
     for node in write.nodes:
         old = before_nodes.get(node.id)
         if old is None:

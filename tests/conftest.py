@@ -11,7 +11,23 @@ from researchgraph.project import Project
 from tests.helpers import ALICE, NOW, repository
 
 
-@pytest.fixture(params=["kept", "deleted"])
+def pytest_addoption(parser):
+    parser.addoption(
+        "--index-mode",
+        choices=("both", "kept", "deleted"),
+        default="both",
+        help="Select the named acceptance fixture; unrelated unit/scale tests are unchanged",
+    )
+
+
+def pytest_generate_tests(metafunc):
+    if "index_mode" in metafunc.fixturenames:
+        selected = metafunc.config.getoption("--index-mode")
+        modes = ["kept", "deleted"] if selected == "both" else [selected]
+        metafunc.parametrize("index_mode", modes, indirect=True)
+
+
+@pytest.fixture
 def index_mode(request):
     return request.param
 

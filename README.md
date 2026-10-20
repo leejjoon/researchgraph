@@ -38,7 +38,7 @@ from researchgraph import Project
 from researchgraph.model import Actor
 
 with Project.open("demo") as project:
-    ready = project.ready(actor=Actor("agent", "consumer"), now=datetime.now(UTC))
+    ready = project.ready(actor=Actor("agent", "consumer"), now=datetime.now(UTC).replace(microsecond=0))
     print(ready["items"])
 ```
 
@@ -83,5 +83,29 @@ managers to close index connections and helper processes deterministically.
   retries terminal failures. Review commands and profiles before running them;
   there is no sandbox, scheduler, agent prompt, metering, or expansion-hook
   execution in the core. Viewer and MCP remain v0.2, not delivered v0.1 features.
+
+## Verification
+
+Install `.[test]` and `tests/testprofiles` into the isolated environment (use the
+quickstart's existing-dependency constraint on PyPy 3.11), then run:
+
+```sh
+.venv/bin/ruff check .
+.venv/bin/ruff format --check src tests examples setup.py
+PYTHONHASHSEED=0 .venv/bin/python -m pytest tests --index-mode kept --hypothesis-seed=20261020 --basetemp=/tmp/researchgraph-kept
+PYTHONHASHSEED=0 .venv/bin/python -m pytest tests --index-mode deleted --hypothesis-seed=20261020 --basetemp=/tmp/researchgraph-deleted
+.venv/bin/python -m pytest tests -m cli --index-mode both
+```
+
+`--index-mode` selects the actual acceptance fixture (`both` by default), not a
+global cache hook; independent unit and scale tests are unchanged. Temporary
+projects must live outside the checkout so they cannot inherit its Git repository.
+CI defines full and dedicated installed-console gates on CPython 3.14.4, plus
+focused CPython/PyPy 3.11 functionality checks, not interpreter-wide performance
+claims. Scale reports retain the unchanged 5,000-Task/200-public-historical-call
+<2s gate and a fresh 20,000-Task rebuild <5s excluding only the separately measured
+Git walk; full public-call time is also reported. JUnit properties and temporary
+fixtures are uploaded even on failure. Local execution is separate evidence from
+a hosted Actions run; neither proves the separate external astroharness Gate 1.
 
 Licence: BSD-3-Clause.

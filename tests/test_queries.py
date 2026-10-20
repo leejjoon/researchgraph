@@ -8,9 +8,19 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from researchgraph.model import Approval, Artifact, Edge, Lease, Node, Status, Write
+from researchgraph.model import (
+    Approval,
+    Artifact,
+    Edge,
+    Lease,
+    Node,
+    Status,
+    Write,
+    format_timestamp,
+)
 from researchgraph.project import Project
-from tests.helpers import ALICE, NOW, refusal, repository
+from researchgraph.store.io import dump_edge
+from tests.helpers import ALICE, NOW, git, refusal, repository
 from tests.strategies import query_nodes
 
 
@@ -205,6 +215,49 @@ def test_retired_accounting_progress_and_budget_boundary(tmp_path):
     assert call(project, "ready")["items"] == []
 
 
+@pytest.mark.parametrize("deleted", [False, True])
+@pytest.mark.parametrize(
+    "fields",
+    [
+        ["kind=missing", "kind=expansion"],
+        ["kind=expansion", "kind=missing"],
+        ["missing-equals"],
+        ["kind=expansion", "missing-equals"],
+        [None],
+        1,
+    ],
+)
+def test_where_field_schema_errors(tmp_path, deleted, fields):
+    task = record("Task", "a", fields={"kind": "expansion"})
+    with restore(tmp_path, [task]) as project:
+        assert ids(call(project, "where", field="kind=expansion")) == [task.id]
+        project.index.close()
+        if deleted:
+            project.index.path.unlink()
+        refusal("schema", call, project, "where", field=fields)
+
+
+@pytest.mark.parametrize("deleted", [False, True])
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"kind": "expansion", "command": "a=b"},
+        "command=a=b",
+        ["kind=expansion", "kind=expansion", "command=a=b"],
+        ("command=a=b", "command=a=b", "kind=expansion"),
+    ],
+)
+def test_where_field_shapes_repeats_and_first_equals(tmp_path, deleted, fields):
+    task = record("Task", "a", fields={"kind": "expansion", "command": "a=b"})
+    other = record("Task", "b", fields={"kind": "expansion", "command": "a"})
+    with restore(tmp_path, [task, other]) as project:
+        assert ids(call(project, "where", field="command=a=b")) == [task.id]
+        project.index.close()
+        if deleted:
+            project.index.path.unlink()
+        assert ids(call(project, "where", field=fields)) == [task.id]
+
+
 def test_digest_failed_boundary_and_history_events(tmp_path):
     task = record("Task", "a")
     task.status = Status.FAILED
@@ -338,7 +391,7 @@ def test_retired_supersedes_history_and_record_ordinals(tmp_path):
     assert call(project, "history", new.id, as_of=NOW) == events
 
 
-def test_historical_retired_accounting_and_current_metadata(tmp_path):
+def test_historical_retired_accounting_and_current_metadata(tmp_path, monkeypatch):
     h, old, new = record("Hypothesis", "a"), record("Task", "a"), record("Task", "b")
     h.budget = {"tokens": 5}
     old.usage = {"tokens": 5}
@@ -347,8 +400,13 @@ def test_historical_retired_accounting_and_current_metadata(tmp_path):
     retirement = NOW + timedelta(seconds=1)
     retired = project.get_edges()[0]
     retired.retired, retired.retired_at = True, retirement
-    # Legal low-level edge retirement candidate; the node remains untouched.
-    project.apply(Write("retire", ALICE, None, retirement, {}, [], [retired]))
+    # A hand-written historical state, not an authorized node-retirement write.
+    relative = f"graph/edges/{retired.id}.yaml"
+    (project.path / relative).write_text(dump_edge(retired.to_dict()))
+    monkeypatch.setenv("GIT_AUTHOR_DATE", format_timestamp(retirement))
+    monkeypatch.setenv("GIT_COMMITTER_DATE", format_timestamp(retirement))
+    git(project.path, "add", "--", relative)
+    git(project.path, "commit", "-m", "hand-written historical edge state")
     assert old.id not in ids(call(project, "subtree", h.id)["nodes"])
     assert old.id in ids(call(project, "subtree", h.id, as_of=NOW)["nodes"])
     assert call(project, "subtree", h.id)["usage"]["tokens"] == 5

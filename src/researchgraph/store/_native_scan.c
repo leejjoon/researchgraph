@@ -10,11 +10,64 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* Fixed source discovery only: no file reads, hashing or task execution.
+/* Fixed source discovery and fresh file metadata: no byte reads, hashing or task execution.
    The caller owns hash-work cancellation and publication after a complete scan. */
 typedef struct {
     PyObject *path_error;
 } ScanState;
+
+static PyObject *fresh_file_identity(PyObject *self, PyObject *arg) {
+    PyObject *path = PyOS_FSPath(arg);
+    if (!path) return NULL;
+    PyObject *encoded = PyBytes_Check(path) ? Py_NewRef(path) : PyUnicode_EncodeFSDefault(path);
+    PyObject *result = NULL, *device = NULL, *inode = NULL, *size = NULL;
+    struct stat info;
+    if (!encoded) goto done;
+    const char *name = PyBytes_AS_STRING(encoded);
+    if (memchr(name, '\0', PyBytes_GET_SIZE(encoded))) {
+        PyErr_SetString(PyExc_ValueError, "embedded null byte");
+        goto done;
+    }
+    for (;;) {
+        int rc, saved;
+        Py_BEGIN_ALLOW_THREADS
+        rc = lstat(name, &info);
+        saved = errno;
+        Py_END_ALLOW_THREADS
+        if (PyErr_CheckSignals() < 0) goto done;
+        if (rc == 0) break;
+        if (saved == EINTR) continue;
+        errno = saved;
+        PyErr_SetFromErrnoWithFilenameObject(PyExc_OSError, path);
+        goto done;
+    }
+    if (!S_ISREG(info.st_mode)) {
+        PyErr_SetString(PyExc_OSError, "Hash source is not a regular file");
+        goto done;
+    }
+    _Static_assert(sizeof(info.st_dev) <= sizeof(unsigned long long), "device ID must not narrow");
+    _Static_assert(sizeof(info.st_ino) <= sizeof(unsigned long long), "inode ID must not narrow");
+    _Static_assert(sizeof(info.st_size) <= sizeof(long long), "file size must not narrow");
+    /* POSIX permits signed or unsigned device/inode integer types. */
+    device = (dev_t)-1 < (dev_t)1
+        ? PyLong_FromLongLong((long long)info.st_dev)
+        : PyLong_FromUnsignedLongLong((unsigned long long)info.st_dev);
+    if (!device) goto done;
+    inode = (ino_t)-1 < (ino_t)1
+        ? PyLong_FromLongLong((long long)info.st_ino)
+        : PyLong_FromUnsignedLongLong((unsigned long long)info.st_ino);
+    if (!inode) goto done;
+    size = PyLong_FromLongLong((long long)info.st_size);
+    if (!size) goto done;
+    result = PyTuple_Pack(3, device, inode, size);
+ done:
+    Py_XDECREF(size);
+    Py_XDECREF(inode);
+    Py_XDECREF(device);
+    Py_XDECREF(encoded);
+    Py_DECREF(path);
+    return result;
+}
 
 static PyObject *join_path(PyObject *parent, const char *name) {
     const char *base = PyBytes_AS_STRING(parent);
@@ -113,7 +166,8 @@ static int emit_batch(PyObject *result, PyObject *sink, Py_ssize_t *emitted, int
     PyObject *batch = PyTuple_New(count);
     if (!batch) return -1;
     for (Py_ssize_t i = 0; i < count; i++) {
-        PyTuple_SET_ITEM(batch, i, Py_NewRef(PyList_GET_ITEM(result, *emitted + i)));
+        PyObject *record = PyList_GET_ITEM(result, *emitted + i);
+        PyTuple_SET_ITEM(batch, i, Py_NewRef(PyTuple_GET_ITEM(record, 1)));
     }
     PyObject *returned = PyObject_CallOneArg(sink, batch);
     Py_DECREF(batch);
@@ -486,7 +540,8 @@ static int scan_exec(PyObject *module) {
 }
 
 static PyMethodDef methods[] = {
-    {"discover", discover, METH_VARARGS, "Fresh paths with an optional fixed 512-record pipeline sink."},
+    {"fresh_file_identity", fresh_file_identity, METH_O, "Fresh no-follow regular-file metadata as (device, inode, size); no bytes or cached metadata."},
+    {"discover", discover, METH_VARARGS, "Fresh path pairs with an optional sink of absolute-path tuples, at most 512 paths each."},
     {"compile_frames", compile_frames, METH_VARARGS, "Own immutable canonical framing with empty SHA slots."},
     {"frame_hashes", frame_hashes, METH_VARARGS, "Assemble every current raw hash into canonical framing."},
     {NULL, NULL, 0, NULL}

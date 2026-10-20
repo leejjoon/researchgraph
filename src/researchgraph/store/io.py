@@ -134,9 +134,9 @@ def _canonical(mapping, keys):
     return result
 
 
-def _dump(mapping, keys):
+def _dump_mapping(mapping):
     return yaml.dump(
-        _canonical(mapping, keys),
+        mapping,
         Dumper=_CanonicalDumper,
         allow_unicode=True,
         default_flow_style=False,
@@ -145,6 +145,10 @@ def _dump(mapping, keys):
         width=float("inf"),
         line_break="\n",
     )
+
+
+def _dump(mapping, keys):
+    return _dump_mapping(_canonical(mapping, keys))
 
 
 # PyYAML exposes the same safe YAML 1.1 constructors in its optional native

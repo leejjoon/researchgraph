@@ -22,7 +22,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["cli: acceptance through the resolved installed console script"]
+markers = [
+    "cli: acceptance through the resolved installed console script",
+    "performance: strict disclosed synthetic-scale budgets",
+]
 
 [tool.ruff]
 target-version = "py311"

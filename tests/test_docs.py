@@ -1,16 +1,55 @@
 """T17: public call documentation and the exact quickstart as an executable recipe."""
 
 import ast
+import datetime as datetime_module
 import json
 import os
+import runpy
 import shutil
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+from types import ModuleType
 
 from researchgraph import Project
+from tests.helpers import ALICE, NOW, copy_checkout, repository
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_exact_readme_python_block_accepts_subsecond_wall_clock(
+    tmp_path, monkeypatch, capsys
+):
+    document = (ROOT / "README.md").read_text()
+    assert document.count("```python\n") == 1
+    recipe = document.split("```python\n", 1)[1].split("\n```", 1)[0]
+    with Project.init(repository(tmp_path / "demo"), actor=ALICE, now=NOW):
+        pass
+    monkeypatch.chdir(tmp_path)
+    clock_calls = []
+    wall_clock = datetime(2026, 10, 20, 1, 2, 3, 456789, tzinfo=UTC)
+
+    class ControlledDatetime(datetime):
+        @staticmethod
+        def now(tz):
+            clock_calls.append(tz)
+            return wall_clock
+
+    # Preserve the real module globals used by PyPy's timezone implementation.
+    provider = ModuleType("datetime")
+    provider.__dict__.update(vars(datetime_module))
+    provider.datetime = ControlledDatetime
+    monkeypatch.setitem(sys.modules, "datetime", provider)
+    recipe_path = tmp_path / "readme_example.py"
+    recipe_path.write_text(recipe)
+    namespace = runpy.run_path(str(recipe_path))
+    assert clock_calls == [UTC]
+    assert type(wall_clock) is datetime and wall_clock.microsecond != 0
+    assert namespace["ready"]["items"] == []
+    captured = capsys.readouterr()
+    assert captured.out == "[]\n"
+    assert captured.err == ""
 
 
 def declarations(statements, prefix=""):
@@ -49,16 +88,7 @@ def test_exact_quickstart_reproduces_three_tasks_in_an_isolated_install(tmp_path
     assert shutil.which("uv"), (
         "Install uv to execute the documented isolated installation"
     )
-    source = tmp_path / "source checkout λ"
-    source.mkdir()
-    tracked = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True, check=True
-    ).stdout.split("\0")
-    for relative in filter(None, tracked):
-        original = ROOT / relative
-        destination = source / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(original, destination)
+    source = copy_checkout(tmp_path / "source checkout λ")
     document = (ROOT / "docs/quickstart.md").read_text()
     recipe = document.split("```sh\n", 1)[1].split("\n```", 1)[0]
     environment = os.environ.copy()
