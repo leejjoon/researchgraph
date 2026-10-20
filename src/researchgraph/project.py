@@ -25,8 +25,11 @@ from researchgraph.model import (
 )
 from researchgraph.operations import (
     _approve,
+    _attach,
+    _budget,
     _claim,
     _complete,
+    _expand,
     _fail,
     _instruct,
     _link,
@@ -36,6 +39,7 @@ from researchgraph.operations import (
     _renew,
     _retire,
     _supersede,
+    _tag,
 )
 from researchgraph.profiles import Profile, version_tuple
 from researchgraph.queries import QueryView, evaluation_time
@@ -51,6 +55,7 @@ from researchgraph.validation import (
 )
 
 _IDENTIFIER = re.compile(r"[a-z]{2,4}-[a-z2-7]{8}", re.ASCII)
+_OMITTED = object()
 
 
 class Project:
@@ -549,6 +554,70 @@ class Project:
             now,
             commit,
             _fail,
+        )
+
+    def expand(self, nodes, hint=None, *, actor, role=None, now, commit=True):
+        """Create one expansion Task without executing the profile's hook."""
+        return self._operation(
+            "expand",
+            {"nodes": nodes, "hint": hint},
+            actor,
+            role,
+            now,
+            commit,
+            _expand,
+        )
+
+    def budget(
+        self,
+        node,
+        tokens=None,
+        compute_seconds=None,
+        *,
+        actor,
+        role=None,
+        now,
+        commit=True,
+    ):
+        """Replace the subtree budget with exactly the supplied dimensions."""
+        return self._operation(
+            "budget",
+            {"node": node, "tokens": tokens, "compute_seconds": compute_seconds},
+            actor,
+            role,
+            now,
+            commit,
+            _budget,
+        )
+
+    def tag(
+        self,
+        node,
+        add=None,
+        remove=None,
+        priority=_OMITTED,
+        *,
+        actor,
+        role=None,
+        now,
+        commit=True,
+    ):
+        """Edit sorted labels and optionally set or clear priority, without an event."""
+        args = {"node": node, "add": add, "remove": remove}
+        if priority is not _OMITTED:
+            args["priority"] = priority
+        return self._operation("tag", args, actor, role, now, commit, _tag)
+
+    def attach(self, node, artifacts, *, actor, role=None, now, commit=True):
+        """Append artifact records and stage the named files without moving them."""
+        return self._operation(
+            "attach",
+            {"node": node, "artifacts": artifacts},
+            actor,
+            role,
+            now,
+            commit,
+            _attach,
         )
 
     def _operation(self, op, args, actor, role, now, commit, builder):

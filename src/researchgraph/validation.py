@@ -154,6 +154,16 @@ def validate_permissions(profile, write, nodes):
         required = "Instruction"
     if required is not None and required not in {n.name for n in profile.node_types}:
         _refuse("unsupported_by_profile", f"Profile does not declare {required}")
+    if write.op == "expand" and write.args["nodes"]:
+        try:
+            profile.normalize_fields(
+                "Task", {"kind": "expansion", "targets": write.args["nodes"]}
+            )
+        except RuleViolation as exc:
+            raise RuleViolation(
+                "unsupported_by_profile",
+                "Task schema cannot represent an expansion task",
+            ) from exc
     if target is None:
         return
     op = write.op

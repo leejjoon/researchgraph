@@ -398,3 +398,74 @@ def fail_command(
             **context,
         ),
     )
+
+
+@main.command("expand")
+@click.argument("targets", nargs=-1)
+@click.option("--hint", default=None)
+@_common_options
+@click.pass_context
+def expand_command(ctx, targets, hint, **local_options):
+    """Create an Expansion task for TARGETS without executing it."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.expand(list(targets), hint=hint, **context),
+    )
+
+
+@main.command("budget")
+@click.argument("node")
+@click.option("--tokens", type=int, default=None)
+@click.option("--compute-seconds", type=int, default=None)
+@_common_options
+@click.pass_context
+def budget_command(ctx, node, tokens, compute_seconds, **local_options):
+    """Set NODE's budget to the supplied dimensions."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.budget(
+            node, tokens=tokens, compute_seconds=compute_seconds, **context
+        ),
+    )
+
+
+@main.command("tag")
+@click.argument("node")
+@click.option("--add", multiple=True)
+@click.option("--remove", multiple=True)
+@click.option("--priority", default=None)
+@_common_options
+@click.pass_context
+def tag_command(ctx, node, add, remove, priority, **local_options):
+    """Edit NODE's tags and optionally set or clear its priority."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.tag(
+            node,
+            add=list(add),
+            remove=list(remove),
+            **(
+                {"priority": _json_argument(priority, "--priority")}
+                if priority is not None
+                else {}
+            ),
+            **context,
+        ),
+    )
+
+
+@main.command("attach")
+@click.argument("node")
+@click.option("--artifact", "artifacts", multiple=True)
+@_common_options
+@click.pass_context
+def attach_command(ctx, node, artifacts, **local_options):
+    """Append artifact files to NODE."""
+    _run_write(
+        ctx,
+        local_options,
+        lambda project, context: project.attach(node, list(artifacts), **context),
+    )

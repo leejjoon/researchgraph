@@ -350,3 +350,77 @@ def _fail(project, write, nodes, edges):
         _edge(project, write, pending, "explains", failure.id, node.id, {})
     )
     return node.id, False
+
+
+def _expand(project, write, nodes, edges):
+    targets = write.args["nodes"]
+    if not targets:
+        raise RuleViolation("no_targets", "Expansion requires at least one target")
+    hint = write.args["hint"]
+    if hint is not None and not isinstance(hint, str):
+        raise RuleViolation("schema", "Expansion hint must be a string")
+    node = _node(
+        project,
+        write,
+        set(),
+        "Task",
+        ("Expand: " + ", ".join(nodes[target].title for target in targets))[:200],
+        "" if hint is None else hint,
+        {"kind": "expansion", "targets": targets},
+    )
+    write.nodes = [node]
+    return node.id, False
+
+
+def _budget(project, write, nodes, edges):
+    dimensions = {
+        key: write.args[key]
+        for key in ("tokens", "compute_seconds")
+        if write.args[key] is not None
+    }
+    if any(type(value) is not int for value in dimensions.values()):
+        raise RuleViolation("schema", "Budget dimensions must be integers")
+    if any(value < 0 for value in dimensions.values()):
+        raise RuleViolation("negative", "Budget must be non-negative")
+    node = deepcopy(nodes[write.args["node"]])
+    node.budget = dimensions or None
+    node.updated = write.now
+    note = " ".join(f"{key}={value}" for key, value in dimensions.items()) or "none"
+    node.approvals.append(Approval(write.actor, write.now, "budget", write.role, note))
+    write.nodes = [node]
+    return node.id, False
+
+
+def _tag(project, write, nodes, edges):
+    tags = {}
+    for key in ("add", "remove"):
+        value = write.args[key]
+        if value is None:
+            value = []
+        if not isinstance(value, list) or any(
+            not isinstance(tag, str) for tag in value
+        ):
+            raise RuleViolation("schema", "Tags must be lists of strings")
+        tags[key] = value
+    node = deepcopy(nodes[write.args["node"]])
+    node.tags = sorted((set(node.tags) | set(tags["add"])) - set(tags["remove"]))
+    if "priority" in write.args:
+        priority = write.args["priority"]
+        if priority is not None and type(priority) is not int:
+            raise RuleViolation("schema", "Priority must be an integer or null")
+        node.priority = priority
+    node.updated = write.now
+    write.nodes = [node]
+    return node.id, False
+
+
+def _attach(project, write, nodes, edges):
+    node = deepcopy(nodes[write.args["node"]])
+    node.artifacts.extend(
+        project._artifact_records(
+            write.args["artifacts"], node.id, write.actor, write.now
+        )
+    )
+    node.updated = write.now
+    write.nodes = [node]
+    return node.id, False
