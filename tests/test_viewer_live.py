@@ -4,9 +4,11 @@ import json
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
+from researchgraph.model import RuleViolation
 from researchgraph.project import Project
 from tests.browser_helpers import viewer_page
 from tests.helpers import ALICE, repository
@@ -64,11 +66,38 @@ def test_dashboard_digest_stale_and_overlapping_subtree_totals_match_native(
             actor=ALICE,
             now=now,
         )
+        result = project.propose("Result", "Measured result", actor=ALICE, now=now)
+        project.link("derived-from", result["id"], shared["id"], actor=ALICE, now=now)
+        claim = project.propose("Claim", "Auditable claim", actor=ALICE, now=now)
+        project.link("cites", claim["id"], result["id"], actor=ALICE, now=now)
     with (
         loopback_server(tmp_path) as owner,
-        live_page(chromium_browser, owner) as (page, dashboard, _, errors),
+        live_page(chromium_browser, owner) as (page, dashboard, requests, errors),
     ):
         data = dashboard.evaluate("element=>element.snapshot")
+        calls = [
+            (urlsplit(url).path, parse_qs(urlsplit(url).query)) for url in requests
+        ]
+        assert ("/api/ready", {}) in calls
+        assert ("/api/blocked", {}) in calls
+        assert ("/api/where", {"status": ['"running"']}) in calls
+        assert ("/api/where", {"type": ['"Claim"']}) in calls
+        assert data["ready"] == succeeds(invoke(tmp_path, "ready", now=clock()))
+        assert data["blocked"] == succeeds(invoke(tmp_path, "blocked", now=clock()))
+        assert data["running"] == succeeds(
+            invoke(tmp_path, "where", "--status", "running", now=clock())
+        )
+        native_claims = succeeds(
+            invoke(tmp_path, "where", "--type", "Claim", now=clock())
+        )
+        assert [row["node"] for row in data["claims"]] == native_claims
+        evidence = succeeds(invoke(tmp_path, "evidence", claim["id"], now=clock()))
+        assert {result["id"], shared["id"]} <= {
+            node["id"] for node in evidence["items"]
+        }
+        assert data["claims"][0]["evidence"] == evidence
+        dashboard.get_by_text("Claims — native where membership", exact=True).click()
+        assert shared["id"] in dashboard.locator("table").inner_text()
         assert data["digest"] == succeeds(invoke(tmp_path, "digest", now=clock()))
         assert data["stale"] == succeeds(invoke(tmp_path, "stale", now=clock()))
         unique = set()
@@ -77,7 +106,8 @@ def test_dashboard_digest_stale_and_overlapping_subtree_totals_match_native(
             assert set(row["members"]) == {node["id"] for node in expected["nodes"]}
             assert sum(row["counts"].values()) == len(row["members"])
             unique.update(row["members"])
-        assert data["progressTotal"] == len(unique) == 3
+        assert unique == {first["id"], second["id"], shared["id"], result["id"]}
+        assert data["progressTotal"] == len(unique) == 4
         assert len(data["failures"]) == 1
         assert sum(node["type"] == "Failure" for node in data["graph"]["nodes"]) == 2
         dashboard.locator("[data-failure-feed] > summary").click()
@@ -87,6 +117,31 @@ def test_dashboard_digest_stale_and_overlapping_subtree_totals_match_native(
         print(f"dashboard_screenshot={screenshot}")
         assert not page.evaluate("()=>window.bad===true")
         assert dashboard.locator("script,img").count() == 0
+        assert not errors
+
+
+def test_failed_native_ready_read_keeps_snapshot_and_reports_error(
+    tmp_path, chromium_browser, index_mode, monkeypatch
+):
+    now = clock()
+    with Project.init(repository(tmp_path), "tasks", actor=ALICE, now=now) as project:
+        project.propose("Task", "Retained snapshot", actor=ALICE, now=now)
+    with (
+        loopback_server(tmp_path) as owner,
+        live_page(chromium_browser, owner) as (page, dashboard, _, errors),
+    ):
+        before = dashboard.evaluate("element=>element.snapshot")
+
+        def unavailable(self, **context):
+            raise RuleViolation("schema", "Dedicated ready read unavailable")
+
+        monkeypatch.setattr(Project, "ready", unavailable)
+        dashboard.get_by_role("button", name="Refresh monitoring", exact=True).click()
+        page.wait_for_function(
+            "()=>document.querySelector('research-dashboard').textContent.includes('Dedicated ready read unavailable')"
+        )
+        assert dashboard.evaluate("element=>element.snapshot") == before
+        assert "Snapshot may be stale" in dashboard.inner_text()
         assert not errors
 
 
@@ -156,6 +211,13 @@ def test_actual_node_edge_events_patch_graph_before_delayed_snapshot(
         page.wait_for_function(
             "()=>document.querySelector('research-graph').graph!==null"
         )
+        # Establish live delivery before delaying readbacks, not just initial GETs.
+        with Project.open(tmp_path) as project:
+            warmup = project.propose("Task", "Stream warmup", actor=ALICE, now=clock())
+        page.wait_for_function(
+            "id=>document.querySelector('research-graph').graph.nodes.some(node=>node.id===id)",
+            arg=warmup["id"],
+        )
         hold.set()
         try:
             with Project.open(tmp_path) as project:
@@ -217,7 +279,7 @@ def test_fifty_running_twenty_real_cli_writes_reach_sse_and_dom_under_three_seco
                 sse_latency = perf_counter() - started
                 assert event["node"] == claimed and event["previous_status"] == "active"
                 page.wait_for_function(
-                    "id=>document.querySelector('research-graph').shadowRoot.querySelector(`[data-node-id='${id}']`)?.dataset.status==='running' && document.querySelector('research-dashboard').snapshot.digest.items.find(group=>group.kind==='running').nodes.some(node=>node.id===id)",
+                    "id=>document.querySelector('research-graph').shadowRoot.querySelector(`[data-node-id='${id}']`)?.dataset.status==='running' && document.querySelector('research-dashboard').snapshot.running.some(node=>node.id===id) && document.querySelector('research-dashboard').querySelector(`[data-running-id='${id}']`)!==null",
                     arg=identifier,
                 )
                 dom_latency = perf_counter() - started
@@ -337,13 +399,14 @@ def test_actual_record_disappearance_reset_refetches_all_native_snapshots(
         removed = project.propose("Task", "Raw disappearance", actor=ALICE, now=now)
     with (
         loopback_server(tmp_path) as owner,
-        live_page(chromium_browser, owner) as (page, dashboard, _, errors),
+        live_page(chromium_browser, owner) as (page, dashboard, requests, errors),
     ):
         page.locator(f'research-graph [data-node-id="{removed["id"]}"]').click()
         page.wait_for_function(
             "id=>document.querySelector('research-inspector').node?.id===id",
             arg=removed["id"],
         )
+        baseline = len(requests)
         (tmp_path / "graph/nodes" / f"{removed['id']}.yaml").unlink()
         page.wait_for_function(
             "id=>{const board=document.querySelector('research-dashboard').snapshot;const graph=document.querySelector('research-graph').graph;return board && graph && !board.graph.nodes.some(node=>node.id===id) && !graph.nodes.some(node=>node.id===id)}",
@@ -352,6 +415,17 @@ def test_actual_record_disappearance_reset_refetches_all_native_snapshots(
         assert dashboard.evaluate("element=>element.snapshot.graph") == succeeds(
             invoke(tmp_path, "graph", now=clock())
         )
+        calls = [
+            (urlsplit(url).path, parse_qs(urlsplit(url).query))
+            for url in requests[baseline:]
+        ]
+        assert ("/api/ready", {}) in calls
+        assert ("/api/blocked", {}) in calls
+        assert ("/api/where", {"status": ['"running"']}) in calls
+        for operation in ("ready", "blocked"):
+            assert dashboard.evaluate(
+                f"element=>element.snapshot.{operation}"
+            ) == succeeds(invoke(tmp_path, operation, now=clock()))
         page.wait_for_function(
             "()=>document.querySelector('research-inspector').readOnly===null"
         )

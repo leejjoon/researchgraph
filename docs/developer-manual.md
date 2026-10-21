@@ -232,9 +232,14 @@ state, and performs authoritative profile/graph/digest readback on reset/index o
 reconnection. An in-flight older snapshot cannot overwrite a newer delta.
 
 `dashboard.js` registers `research-dashboard`. Its detached `snapshot` contains
-native graph/digest/stale results, native subtree membership with disjoint progress
-buckets, an overall distinct-member total, seven-day Failure-creation records and
-Claim relationships. The progress precedence is retired, done, failed, native
+native graph/digest/stale results, dedicated ready/blocked/running results, native
+subtree membership with disjoint progress buckets, an overall distinct-member
+total, seven-day Failure-creation records and Claim relationships. On index,
+reset and reconnect, monitoring explicitly reads `ready`, `blocked` and
+`where(status="running")` rather than substituting digest groups. When Claim is
+declared, rows come from `where(type="Claim")` and each includes the native
+`evidence(claim)` result, whose transitive inputs are not just direct cites.
+The progress precedence is retired, done, failed, native
 ready, native blocked, running, proposed, other. Summary groups remain the native
 overlapping digest groups, not invented disjoint counts. Activity expiry labels
 explicitly compare recorded lease timestamps with browser wall time. Detailed

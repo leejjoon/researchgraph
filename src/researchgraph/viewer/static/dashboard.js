@@ -120,18 +120,22 @@ export class ResearchDashboard extends HTMLElement {
     try {
       const prefix = apiPrefix(this.getAttribute("src") ?? "/api");
       const options = { signal: request.signal };
-      const [graph, digest, stale, profile] = (await Promise.all([
+      const [graph, digest, stale, profile, ready, blocked, running] = (await Promise.all([
         readOperation(prefix, "graph", {}, options),
         readOperation(prefix, "digest", {}, options),
         readOperation(prefix, "stale", {}, options),
         readOperation(prefix, "profile", {}, options),
+        readOperation(prefix, "ready", {}, options),
+        readOperation(prefix, "blocked", {}, options),
+        readOperation(prefix, "where", { status: "running" }, options),
       ])).map(response => response.value);
       if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges) || !Array.isArray(digest.items) || !Array.isArray(stale.items) || !Array.isArray(profile.node_types) || !Array.isArray(profile.edge_types)) throw new Error("Invalid graph, digest, stale or profile response.");
+      if (!Array.isArray(ready.items) || !Array.isArray(blocked.items) || !Array.isArray(running)) throw new Error("Invalid native ready, blocked or running response.");
       if (digest.items.some(group => !Array.isArray(group.nodes) || typeof group.count !== "number")) throw new Error("Invalid native digest groups.");
       const groups = new Map(digest.items.map(group => [group.kind, group.nodes]));
       if (DIGEST_KINDS.some(kind => !groups.has(kind))) throw new Error("Missing native digest group.");
-      const ready = new Set(groups.get("ready").map(node => node.id));
-      const blocked = new Set(groups.get("blocked").map(node => node.id));
+      const readyIds = new Set(ready.items.map(node => node.id));
+      const blockedIds = new Set(blocked.items.map(node => node.id));
       const hypotheses = profile.node_types.some(type => type.name === "Hypothesis") ? graph.nodes.filter(node => node.type === "Hypothesis") : [];
       const unique = new Set();
       const progress = await Promise.all(hypotheses.map(async hypothesis => {
@@ -141,21 +145,28 @@ export class ResearchDashboard extends HTMLElement {
         const counts = Object.fromEntries(CATEGORIES.map(category => [category, 0]));
         for (const node of members.values()) {
           unique.add(node.id);
-          const category = ["retired", "done", "failed"].includes(node.status) ? node.status : ready.has(node.id) ? "ready" : blocked.has(node.id) ? "blocked" : ["running", "proposed"].includes(node.status) ? node.status : "other";
+          const category = ["retired", "done", "failed"].includes(node.status) ? node.status : readyIds.has(node.id) ? "ready" : blockedIds.has(node.id) ? "blocked" : ["running", "proposed"].includes(node.status) ? node.status : "other";
           counts[category]++;
         }
         return { id: hypothesis.id, members: [...members.keys()], counts };
       }));
-      if (request.signal.aborted || this.#request !== request || epoch !== this.#epoch || !this.isConnected) return;
       const end = Math.floor(Date.now() / 1000) * 1000;
       const start = end - WEEK;
       const failures = graph.nodes.filter(node => node.type === "Failure" && Date.parse(node.created) >= start && Date.parse(node.created) <= end);
-      const claims = groups.get("claims").map(node => ({
-        node,
-        supports: graph.edges.filter(edge => edge.type === "supports" && (edge.from === node.id || edge.to === node.id)),
-        contradicts: graph.edges.filter(edge => edge.type === "contradicts" && (edge.from === node.id || edge.to === node.id)),
+      const claimNodes = profile.node_types.some(type => type.name === "Claim") ? (await readOperation(prefix, "where", { type: "Claim" }, options)).value : [];
+      if (!Array.isArray(claimNodes)) throw new Error("Invalid native Claim query response.");
+      const claims = await Promise.all(claimNodes.map(async node => {
+        const { value: evidence } = await readOperation(prefix, "evidence", { claim: node.id }, options);
+        if (!Array.isArray(evidence.items)) throw new Error("Invalid native evidence response.");
+        return {
+          node,
+          evidence,
+          supports: graph.edges.filter(edge => edge.type === "supports" && (edge.from === node.id || edge.to === node.id)),
+          contradicts: graph.edges.filter(edge => edge.type === "contradicts" && (edge.from === node.id || edge.to === node.id)),
+        };
       }));
-      this.#snapshot = { graph, digest, stale, progress, progressTotal: unique.size, failures, claims };
+      if (request.signal.aborted || this.#request !== request || epoch !== this.#epoch || !this.isConnected) return;
+      this.#snapshot = { graph, digest, stale, ready, blocked, running, progress, progressTotal: unique.size, failures, claims };
       this.#profile = profile;
       this.#window = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
       this.#error = null;
@@ -204,7 +215,7 @@ export class ResearchDashboard extends HTMLElement {
       this.#renderLog();
       return;
     }
-    const { graph, digest, stale, progress, progressTotal, failures, claims } = this.#snapshot;
+    const { graph, digest, stale, ready, running, progress, progressTotal, failures, claims } = this.#snapshot;
     const summary = this.#section("Native digest", false);
     for (const group of digest.items) {
       const counter = element("p", `${group.kind}: ${group.count}`);
@@ -226,7 +237,6 @@ export class ResearchDashboard extends HTMLElement {
       progressSection.append(article);
     }
     const activity = this.#section("Activity — native running records");
-    const running = digest.items.find(group => group.kind === "running").nodes;
     if (!running.length) activity.append(element("p", "No items."));
     for (const node of running) {
       const article = element("article");
@@ -238,9 +248,8 @@ export class ResearchDashboard extends HTMLElement {
       activity.append(article);
     }
     activity.append(element("h4", "Native ready records — unclaimed or reclaimable"));
-    const ready = digest.items.find(group => group.kind === "ready").nodes;
-    if (!ready.length) activity.append(element("p", "No items."));
-    for (const node of ready) activity.append(this.#open(node));
+    if (!ready.items.length) activity.append(element("p", "No items."));
+    for (const node of ready.items) activity.append(this.#open(node));
     const feed = this.#section("Failures — rolling 7 days");
     feed.dataset.failureFeed = "";
     feed.append(element("p", `Failure creation window (inclusive): ${this.#window.start} through ${this.#window.end}.`));
@@ -254,12 +263,12 @@ export class ResearchDashboard extends HTMLElement {
       }
       feed.append(article);
     }
-    const claimSection = this.#section("Claims — native digest membership");
+    const claimSection = this.#section("Claims — native where membership");
     if (!this.#profile.node_types.some(type => type.name === "Claim")) claimSection.append(element("p", "Claim not declared by this profile."));
     else if (!claims.length) claimSection.append(element("p", "No items."));
     const table = element("table");
     const head = element("tr");
-    for (const title of ["Claim", "Supports", "Contradicts", "Evidence ids (cites)", "Stale"]) head.append(element("th", title));
+    for (const title of ["Claim", "Supports", "Contradicts", "Evidence ids (native transitive inputs)", "Stale"]) head.append(element("th", title));
     table.append(head);
     const staleIds = new Set(stale.items.map(node => node.id));
     for (const claim of claims) {
@@ -271,8 +280,7 @@ export class ResearchDashboard extends HTMLElement {
         const declared = this.#profile.edge_types.some(type => type.name === kind);
         row.append(element("td", !declared ? "Not declared" : claim[kind].length ? claim[kind].map(edge => `${edge.id}: ${edge.from} → ${edge.to}${edge.retired ? " (retired)" : ""}`).join("; ") : "No items"));
       }
-      const evidence = graph.edges.filter(edge => edge.type === "cites" && edge.from === claim.node.id);
-      row.append(element("td", !this.#profile.edge_types.some(type => type.name === "cites") ? "Not declared" : evidence.length ? evidence.map(edge => `${edge.to}${edge.retired ? " (retired)" : ""}`).join(", ") : "No items"), element("td", String(staleIds.has(claim.node.id))));
+      row.append(element("td", claim.evidence.items.length ? claim.evidence.items.map(node => node.id).join(", ") : "No items"), element("td", String(staleIds.has(claim.node.id))));
       table.append(row);
     }
     claimSection.append(table);

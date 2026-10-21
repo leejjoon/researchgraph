@@ -325,8 +325,11 @@ Hypothesis progress uses native containment subtrees and disjoint precedence
 buckets; the overall total counts distinct members, not the sum of overlapping
 rows. Activity shows recorded lease holder/acquisition/expiry, not synthetic CPU
 or capacity telemetry. The failure feed includes Failure records created in the
-displayed inclusive rolling seven-day window. Claim rows show declared
-supports/contradicts/cites records, including explicit retired markers.
+displayed inclusive rolling seven-day window. Claim rows use `where --type Claim`
+and show declared supports/contradicts records, including explicit retired
+markers, plus transitive input IDs returned by `evidence`, not just direct cites.
+Activity and progress use dedicated `ready`, `blocked` and `where --status running`
+readbacks; the six digest counters retain their separate native meanings.
 
 Open detailed panels to inspect these records or the bounded plain-text event
 log (last 100 received envelopes, not a durable audit log). Connection state,
