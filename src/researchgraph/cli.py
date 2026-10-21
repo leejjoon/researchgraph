@@ -1,6 +1,10 @@
 """Command-line interface for researchgraph."""
 
 import json
+import math
+import os
+import select
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -615,6 +619,58 @@ def _run_read(ctx, local_options, as_of, operation):
                 },
             )
         _read_result(result, options["json_output"])
+    except RuleViolation as exc:
+        _error(ctx, exc)
+
+
+@main.command("events")
+@click.option("--follow", is_flag=True)
+@click.option("--since", default=None)
+@click.option(
+    "--poll-interval",
+    type=click.FloatRange(min=0, min_open=True),
+    default=1.0,
+    show_default=True,
+)
+@_common_options
+@click.pass_context
+def events_command(ctx, follow, since, poll_interval, **local_options):
+    """Print observed graph notifications, optionally following until stdin closes."""
+    options = _options(ctx, local_options)
+    try:
+        if not math.isfinite(poll_interval):
+            raise RuleViolation("schema", "--poll-interval must be finite and positive")
+        root = _project_root(options["project"])
+        actor = _actor(root, options["as_agent"])
+        with Project.open(root, read_only=True) as project:
+            while True:
+                result = project.changes(
+                    actor=actor,
+                    role=options["role"],
+                    now=_now(options["now"]),
+                    since=since,
+                )
+                since = None
+                for event in result["events"]:
+                    if options["json_output"]:
+                        click.echo(json.dumps(event, ensure_ascii=False))
+                    else:
+                        if event["kind"] == "index":
+                            detail = f"nodes={event['counts']['nodes']} edges={event['counts']['edges']}"
+                            if event.get("reset"):
+                                detail += " reset"
+                        else:
+                            detail = f"{event['change']} {event['id']}"
+                        click.echo(
+                            f"{event['at']} {event['cursor']} {event['kind']} {detail}"
+                        )
+                if not follow:
+                    break
+                readable, _, _ = select.select([sys.stdin], [], [], poll_interval)
+                if readable and not os.read(sys.stdin.fileno(), 4096):
+                    break
+    except KeyboardInterrupt:
+        return
     except RuleViolation as exc:
         _error(ctx, exc)
 

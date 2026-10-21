@@ -424,6 +424,14 @@ error type solely from exit 2. Shared write errors are documented after the refe
 **Effect / result**: Validate before destination creation; restore pinned layout, preserve timestamps, make one import commit; JSON `{path,profile,version}`.
 **Errors**: Shared write rules including `clock_skew`; `not_empty`, `bad_archive`, `profile_too_new`.
 
+### events
+**Invocation**: `rg events` or `rg events --follow`.
+**Arguments**: None. This is a stream, outside the 37 graph operations.
+**Options and defaults**: `--follow` false; `--since` absent full cursor; `--poll-interval` 1 second, positive and finite; [Common options](#common-options). Current observations only.
+**Permissions / preconditions**: Any actor; always read-only, without the writer lock. Keep stdin open to follow; closing stdin or SIGINT exits zero and closes the owner.
+**Effect / result**: One notification per JSONL line under `--json`, otherwise one human line. Initial observation reports index counts; subsequent polls coalesce persisted node/edge changes and notify index/clock changes. Carry the full `v1:<generation>:<sequence>` cursor; unknown, malformed, expired or previous-instance cursors yield one index reset, requiring fresh graph/digest/ready/blocked/running/profile reads. Every invocation starts a new generation, so a cursor from an earlier invocation resets rather than pretending durable replay. Python `ChangeSource.snapshot` associates a graph with a cursor for gap-free catch-up within one source. No event log file or historical audit is created.
+**Errors**: Shared read errors; `schema` for nonfinite intervals, Click usage error for nonpositive intervals.
+
 ### graph
 **Invocation**: `rg graph`.
 **Arguments**: None.

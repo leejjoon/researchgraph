@@ -36,7 +36,7 @@ def test_registry_matches_spec_and_actual_command_categories():
     check_inventory(OPERATIONS, spec)
     assert len(OPERATIONS) == 37
     assert set(spec) == {"Writes", "Reads", "Streams", "Servers"}
-    assert spec["Streams"] == spec["Servers"] == set()
+    assert spec["Streams"] == {"events"} and spec["Servers"] == set()
     assert set(main.commands) == set().union(*spec.values())
     # Ensure the catalogue is data-only, not a source of execution callables.
     assert json.loads(json.dumps(OPERATIONS)) == list(OPERATIONS)
@@ -121,7 +121,8 @@ def test_every_parameter_type_default_required_and_repeatable_matches_click():
 def test_installed_help_options_equal_registry_without_regrouping_commands():
     top = run_console(["--help"])
     assert top.exit_code == 0
-    assert help_commands(top.stdout) == {op["name"] for op in OPERATIONS}
+    spec = spec_commands((ROOT / "spec/operations.md").read_text())
+    assert help_commands(top.stdout) == set().union(*spec.values())
     assert "\nWrites:\n" not in top.stdout and "\nReads:\n" not in top.stdout
     for op in OPERATIONS:
         result = run_console([op["name"], "--help"])

@@ -4,8 +4,8 @@ For external Python/CLI integrations with researchgraph 0.0.1, the v0.1 mileston
 and bundled profiles research 1.0 and tasks 1.0. This is descriptive documentation,
 not a replacement for the [normative operations](../spec/operations.md). Report
 implementation/specification disagreements rather than editing the spec to satisfy
-these examples. The [user manual](user-manual.md) supplies the complete 37-command
-reference and everyday concepts; the [research tutorial](research-tutorial.ipynb)
+these examples. The [user manual](user-manual.md) supplies the complete 37-graph-command
+reference, the events stream and everyday concepts; the [research tutorial](research-tutorial.ipynb)
 is a synthetic experiment with explicitly simulated human approvals.
 
 ## Installation from source or a local wheel
@@ -108,8 +108,9 @@ intermediate states; envelope time and HEAD describe observation, not causation.
 
 ## Wrapper contracts, errors and durability
 
-With --json, stdout is one JSON value; non-JSON output is a human table, not a
-stable machine interface. T15 freezes the JSON families:
+For graph operations, --json stdout is one JSON value; events instead emits
+one JSON object per line. Non-JSON output is human-facing, not a stable machine
+interface. T15 freezes the graph JSON families:
 
 - Writes generally return node mappings, link an edge mapping. init/import return
   path/profile/version metadata; export returns path metadata.

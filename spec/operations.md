@@ -93,8 +93,9 @@ Every graph read accepts `--as-of <time|commit>`; `store-layout.md` says what is
 
 | Stream | Arguments | Output |
 | --- | --- | --- |
+| `events` | `--follow`, `--since CURSOR`, `--poll-interval SECONDS` (positive finite, default 1) | One envelope per JSONL or human line; exit 0 on stdin close or SIGINT |
 
-The events stream, when introduced, uses `--follow`, `--since CURSOR` and `--poll-interval SECONDS`. JSON output is one event object per line; human output is one line per event. Follow exits 0 on stdin close or SIGINT. It is read-only and takes no writer lock. Python changes and CLI/SSE use the identical full cursor and reset semantics in `store-layout.md`, Change events.
+The events stream uses `--follow`, `--since CURSOR` and `--poll-interval SECONDS` (positive finite, default 1). JSON output is one event object per line; human output is one line per event. Follow exits 0 on stdin close or SIGINT. It is read-only and takes no writer lock. Each invocation starts a new generation, so a cursor from a previous invocation resets even with unchanged bytes. Python changes and CLI/SSE use the identical full cursor and reset semantics in `store-layout.md`, Change events.
 
 ## Servers
 
@@ -105,7 +106,7 @@ MCP and HTTP launchers are added with their implementation, outside graph-operat
 
 ## CLI conventions
 - `rg --project PATH` or run inside the project.
-- `--json` emits one JSON object (or array) on stdout; without it, a human table. Node and edge objects use the YAML key names; `show` adds `edges`, `instructions`, `pins`, `flags` and `warnings`; `history` is a list of `{kind: interval|approval|artifact|supersedes, node, commit, at, ...}` oldest first; `matrix` is `{rows: [{source, cells: {hypothesis: expected}, non_discriminating}], columns: [...]}`; `subtree` is `{nodes: [...], status_counts: {...}, usage: {...}}`. `ready`, `blocked`, `queue`, `stale`, `evidence` and `digest` return `{items: [...]}` with node objects plus the extra keys their rows name (`blocking`, `gate`, `approvals`, `responsible`, `artifacts`, counts). These shapes are frozen at T15 for the v0.2 wrappers.
+- For graph operations, `--json` emits one JSON object (or array) on stdout; without it, a human table. Streams use their separately documented line-oriented output. Node and edge objects use the YAML key names; `show` adds `edges`, `instructions`, `pins`, `flags` and `warnings`; `history` is a list of `{kind: interval|approval|artifact|supersedes, node, commit, at, ...}` oldest first; `matrix` is `{rows: [{source, cells: {hypothesis: expected}, non_discriminating}], columns: [...]}`; `subtree` is `{nodes: [...], status_counts: {...}, usage: {...}}`. `ready`, `blocked`, `queue`, `stale`, `evidence` and `digest` return `{items: [...]}` with node objects plus the extra keys their rows name (`blocking`, `gate`, `approvals`, `responsible`, `artifacts`, counts). These shapes are frozen at T15 for the v0.2 wrappers.
 - `stale` items always contain `responsible` as an array of node IDs, including for a single cause; there is no scalar form.
 - `--commit/--no-commit` on writes (default commit). Event hooks fire only after a commit.
 - `--read-only` opens the project read-only for the whole invocation.
