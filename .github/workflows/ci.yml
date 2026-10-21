@@ -152,7 +152,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/test_packaging.py tests/test_cli_version.py::test_installed_cli_version tests/test_runner.py tests/test_docs.py --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/distribution.xml' --basetemp='${{ runner.temp }}/scale/distribution-tmp' | tee '${{ runner.temp }}/scale/distribution.txt'
+          python -m pytest tests/test_packaging.py tests/test_cli_version.py::test_installed_cli_version tests/test_runner.py tests/test_docs.py tests/test_notebook.py --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/distribution.xml' --basetemp='${{ runner.temp }}/scale/distribution-tmp' | tee '${{ runner.temp }}/scale/distribution.txt'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

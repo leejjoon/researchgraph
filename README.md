@@ -6,6 +6,9 @@ A project is a directory of small YAML files (nodes, edges) under version contro
 
 - Start here if you are an agent: `AGENTS.md`
 - Executable three-task walkthrough: [quickstart](docs/quickstart.md)
+- End-to-end workflows and complete CLI reference: [user manual](docs/user-manual.md)
+- Python API and CLI integrations: [developer manual](docs/developer-manual.md)
+- Synthetic research lifecycle: [tutorial notebook](docs/research-tutorial.ipynb), with [local setup and execution](docs/developer-manual.md#notebook-setup-and-execution)
 - Normative specification: `spec/`
 - Work list: `tasks/v0.1.md`
 - Why: `docs/proposal.md`, `docs/decisions/`

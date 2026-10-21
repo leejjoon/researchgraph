@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,40 @@ PINS = {
     "astral-sh/setup-uv": "1c37ad07a6a961277cf70c0d37d6f313000f5884",
     "actions/upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
 }
+
+
+def test_notebook_tooling_is_pinned_only_in_test_extra():
+    metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    expected = {"nbclient==0.11.0", "nbformat==5.11.1", "ipykernel==7.4.0"}
+    assert expected <= set(metadata["project"]["optional-dependencies"]["test"])
+    assert not any(
+        item.split("=")[0] in {"nbclient", "nbformat", "ipykernel"}
+        for item in metadata["project"]["dependencies"]
+    )
+
+
+def test_notebook_ci_execution_targets_are_separate_from_compatibility():
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    selections = {}
+    for name, job in workflow["jobs"].items():
+        commands = []
+        for step in job["steps"]:
+            script = step.get("run", "").replace("\\\n", " ")
+            for line in script.splitlines():
+                if "python -m pytest " in line:
+                    commands.append(re.findall(r"\btests(?:/[\w./:]+)?\b", line))
+                    assert "if" not in step
+        selections[name] = commands
+    assert any("tests" in command for command in selections["acceptance"])
+    assert any("tests/test_notebook.py" in command for command in selections["scale"])
+    compatibility = {
+        item for command in selections["compatibility"] for item in command
+    }
+    assert "tests/test_docs.py" in compatibility
+    assert "tests/test_notebook.py" not in compatibility
+    assert "tests" not in compatibility
 
 
 @pytest.mark.parametrize(
