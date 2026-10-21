@@ -654,6 +654,18 @@ def clear_manual_caches(directory):
             (profile.parent / ("index.sqlite" + suffix)).unlink(missing_ok=True)
 
 
+def test_user_manual_workflow_uses_shell_commands():
+    text = (ROOT / "docs/user-manual.md").read_text()
+    blocks = [
+        block for block in manual_blocks(text) if block.scenario == "user-lifecycle"
+    ]
+    assert len(blocks) == 9
+    assert all(len(block.code.splitlines()) <= 25 for block in blocks)
+    assert all(block.language == "sh" for block in blocks)
+    assert "subprocess" not in text
+    assert shutil.which("jq"), "jq is required for the published shell workflow"
+
+
 def assert_manual_project(root):
     """Independently check durable graph/artifact semantics, not a printed success word."""
     assert root.is_dir()

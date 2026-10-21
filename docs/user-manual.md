@@ -30,12 +30,15 @@ uv pip install --python .venv/bin/python -e . "rpds-py==0.25.1; platform_python_
 ```
 
 Always use the installed `.venv/bin/rg`, or its absolute path: unqualified `rg`
-often means ripgrep. Set `RG` to that absolute path and run the following Python
-parts using `.venv/bin/python` from a new, empty working directory **outside the
-checkout**. Parts share files, not Python globals. Provisioning can download build
+often means ripgrep. Export `RG` with that absolute path (for example,
+`export RG="$PWD/.venv/bin/rg"` from the checkout). Install the `jq` command-line
+JSON processor, then run the following shell blocks in order from the same new,
+empty working directory **outside the checkout**. Parts share files, so they may
+run in separate shells. Provisioning can download build
 and package dependencies; the following workflows require no network. Git identity
 is configured in each demo only, never globally. The assertions and printed JSON
-are expected results, not precomputed IDs.
+are expected results, not precomputed IDs. `jq` extracts generated IDs and checks
+responses; all researchgraph operations run through the installed CLI.
 
 ## Mental model
 
@@ -75,102 +78,179 @@ here is simulated declared identity; an automated successful run is not a claim
 that a person reviewed the science. Inspect the question and hypothesis before
 approving the latter, then inspect the predicted outcome before its approval.
 
+Run all nine steps in order from the same working directory. JSON files retain
+the generated IDs between steps. Each `jq -e` check prints `true` on success and
+stops the example if the expected condition is false.
+
+### 1. Create a project and a small CLI helper
+
+Create a disposable Git repository with a local demo identity. The helper file
+sets the project path and defines `call TIME COMMAND ...`, which invokes the real
+CLI with JSON output and an explicit UTC timestamp. Later blocks load it with
+`. ./user-cli.sh`, so they also work in separate shells.
+
 <!-- rg-example: user-lifecycle; part=1; runnable -->
-```python
-import json
-import os
-import subprocess
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
-
-root = Path("research-demo").resolve()
-root.mkdir()
-for args in (("init",), ("config", "user.name", "Tutorial human"),
-             ("config", "user.email", "human@example.test"),
-             ("config", "commit.gpgsign", "false")):
-    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
-console = os.environ["RG"]
-clock = datetime(2026, 10, 20, tzinfo=UTC)
-
-def call(*args):
-    global clock
-    clock += timedelta(seconds=2)
-    result = subprocess.run([console, "--project", str(root), "--json", "--now",
-                             clock.isoformat(), *args], check=True,
-                            capture_output=True, text=True)
-    return json.loads(result.stdout)
-
-assert call("init")["profile"] == "research"
-question = call("propose", "Question", "Does adding two shift the mean?")
-hypothesis = call("propose", "Hypothesis", "The shift is two")
-call("link", "answers", hypothesis["id"], question["id"])
-assert call("approve", hypothesis["id"])["status"] == "active"
-prediction = call("propose", "Prediction", "Mean difference is two")
-call("link", "tests", prediction["id"], hypothesis["id"], "--fields",
-     json.dumps({"expected": "paired mean difference = 2"}))
-assert call("approve", prediction["id"])["status"] == "active"
-task = call("propose", "Task", "Measure fixed paired data")
-call("link", "addresses", task["id"], prediction["id"])
-assert task["id"] in {item["id"] for item in call("ready")["items"]}
-Path("user-state.json").write_text(json.dumps({"project": str(root),
-    "hypothesis": hypothesis["id"], "task": task["id"], "clock": clock.isoformat()}))
+```sh
+set -eu
+cat > user-cli.sh <<'SH'
+set -eu
+: "${RG:?Export the absolute path to the installed .venv/bin/rg}"
+root="$PWD/research-demo"
+call() {
+    time="$1"; shift
+    "$RG" --project "$root" --json --now "2026-10-20T${time}Z" "$@"
+}
+SH
+. ./user-cli.sh
+mkdir "$root"
+git -C "$root" init
+git -C "$root" config user.name 'Tutorial human'
+git -C "$root" config user.email human@example.test
+git -C "$root" config commit.gpgsign false
+call 00:00:02 init | jq -e '.profile == "research"'
 ```
 
-Now a distinct declared agent claims and completes exactly one Task. Save the
-Result's bytes separately and register them on the Result. Review those bytes and
-the cites relation before approving the Claim. A Claim becomes active, not done;
-the validator verifies a live cites edge, not the truth of its content. Finally
-replace a separate follow-up Task and inspect its preserved history. No scheduler is
-hidden in these steps.
+### 2. Ask a question and approve a hypothesis
+
+Propose the research Question and a possible answer. The `answers` edge points
+from the Hypothesis to the Question. After reviewing both, the declared human
+approves the Hypothesis, changing it from proposed to active.
 
 <!-- rg-example: user-lifecycle; part=2; runnable -->
-```python
-import json
-import os
-import subprocess
-from datetime import datetime, timedelta
-from pathlib import Path
+```sh
+. ./user-cli.sh
+call 00:00:04 propose Question 'Does adding two shift the mean?' > question.json
+question=$(jq -er '.id' question.json)
+call 00:00:06 propose Hypothesis 'The shift is two' > hypothesis.json
+hypothesis=$(jq -er '.id' hypothesis.json)
+call 00:00:08 link answers "$hypothesis" "$question"
+call 00:00:10 approve "$hypothesis" | jq -e '.status == "active"'
+```
 
-state = json.loads(Path("user-state.json").read_text())
-root = Path(state["project"])
-clock = datetime.fromisoformat(state["clock"])
+### 3. State the prediction to test
 
-def call(*args, agent=False):
-    global clock
-    clock += timedelta(seconds=2)
-    prefix = [os.environ["RG"], "--project", str(root), "--json", "--now", clock.isoformat()]
-    if agent:
-        prefix += ["--as-agent", "tutorial-worker"]
-    result = subprocess.run([*prefix, *args], check=True, capture_output=True, text=True)
-    return json.loads(result.stdout)
+Give the hypothesis a concrete expected outcome. The `tests` edge records that
+expectation and connects the Prediction to the Hypothesis. Review the prediction
+before approving it.
 
-task = state["task"]
-assert call("claim", task, agent=True)["status"] == "running"
-relative = "artifacts/" + task + "/paired.json"
-file = root / relative
-file.parent.mkdir(parents=True)
-file.write_text(json.dumps({"baseline": [1, 2, 3], "shifted": [3, 4, 5], "delta": 2}))
-assert call("complete", task, "Paired shift measured", "--artifact", relative,
-            "--usage", '{"tokens": 0}', agent=True)["status"] == "done"
-result = call("propose", "Result", "Measured paired shift", "--fields", '{"runs": 1}')
-call("link", "derived-from", result["id"], task)
-result_relative = "artifacts/" + result["id"] + "/paired.json"
-saved = root / result_relative
-saved.parent.mkdir(parents=True)
-saved.write_bytes(file.read_bytes())
-assert call("attach", result["id"], "--artifact", result_relative)["artifacts"]
-claim = call("propose", "Claim", "This constructed sample has shift two")
-call("link", "cites", claim["id"], result["id"])
-call("link", "supports", claim["id"], state["hypothesis"])
-assert call("approve", claim["id"])["status"] == "active"
-assert any(item["id"] == result["id"] and item["artifacts"]
-           for item in call("evidence", claim["id"])["items"])
-assert call("show", task)["lease"] is None
-followup = call("propose", "Task", "Plan a follow-up")
-replacement = call("supersede", followup["id"], "--title", "Repeat with a larger sample")
-assert replacement["id"] != followup["id"]
-assert call("history", followup["id"])
-print(json.dumps({"project": str(root), "claim": claim["id"], "replacement": replacement["id"]}))
+<!-- rg-example: user-lifecycle; part=3; runnable -->
+```sh
+. ./user-cli.sh
+hypothesis=$(jq -er '.id' hypothesis.json)
+call 00:00:12 propose Prediction 'Mean difference is two' > prediction.json
+prediction=$(jq -er '.id' prediction.json)
+call 00:00:14 link tests "$prediction" "$hypothesis" \
+    --fields '{"expected": "paired mean difference = 2"}'
+call 00:00:16 approve "$prediction" | jq -e '.status == "active"'
+```
+
+### 4. Create a Task and check readiness
+
+Create the work item and link it to the Prediction it addresses. The readiness
+query confirms this Task can be claimed; it does not schedule or execute it.
+
+<!-- rg-example: user-lifecycle; part=4; runnable -->
+```sh
+. ./user-cli.sh
+prediction=$(jq -er '.id' prediction.json)
+call 00:00:18 propose Task 'Measure fixed paired data' > task.json
+task=$(jq -er '.id' task.json)
+call 00:00:20 link addresses "$task" "$prediction"
+call 00:00:22 ready | jq -e --arg task "$task" 'any(.items[]; .id == $task)'
+```
+
+### 5. Claim the Task, save data, and complete it
+
+Switch to a distinct declared agent for the claim and completion. Write a tiny
+constructed dataset under the Task's artifact directory, then register it while
+completing the Task. The shift of two is illustrative, not scientific validation.
+
+<!-- rg-example: user-lifecycle; part=5; runnable -->
+```sh
+. ./user-cli.sh
+task=$(jq -er '.id' task.json)
+call 00:00:24 --as-agent tutorial-worker claim "$task" | jq -e '.status == "running"'
+relative="artifacts/$task/paired.json"
+mkdir -p "$root/artifacts/$task"
+printf '%s\n' '{"baseline": [1, 2, 3], "shifted": [3, 4, 5], "delta": 2}' \
+    > "$root/$relative"
+call 00:00:26 --as-agent tutorial-worker complete "$task" 'Paired shift measured' \
+    --artifact "$relative" --usage '{"tokens": 0}' | jq -e '.status == "done"'
+```
+
+### 6. Record a Result with its own artifact
+
+Return to the declared human identity by omitting `--as-agent`. Create a Result
+derived from the completed Task. Copy the saved data into the Result's own
+directory and attach it there: `attach` records existing bytes, not a file copy.
+
+<!-- rg-example: user-lifecycle; part=6; runnable -->
+```sh
+. ./user-cli.sh
+task=$(jq -er '.id' task.json)
+relative="artifacts/$task/paired.json"
+call 00:00:28 propose Result 'Measured paired shift' --fields '{"runs": 1}' > result.json
+result=$(jq -er '.id' result.json)
+call 00:00:30 link derived-from "$result" "$task"
+result_relative="artifacts/$result/paired.json"
+mkdir -p "$root/artifacts/$result"
+cp "$root/$relative" "$root/$result_relative"
+call 00:00:32 attach "$result" --artifact "$result_relative" \
+    | jq -e '.artifacts | length > 0'
+```
+
+### 7. Cite the Result and approve a Claim
+
+The Claim cites the Result and supports the Hypothesis. Review the Result's saved
+bytes and these relations before approval. Approval makes the Claim active, not
+done; the validator checks provenance links, not the truth of the claim.
+
+<!-- rg-example: user-lifecycle; part=7; runnable -->
+```sh
+. ./user-cli.sh
+result=$(jq -er '.id' result.json)
+hypothesis=$(jq -er '.id' hypothesis.json)
+call 00:00:34 propose Claim 'This constructed sample has shift two' > claim.json
+claim=$(jq -er '.id' claim.json)
+call 00:00:36 link cites "$claim" "$result"
+call 00:00:38 link supports "$claim" "$hypothesis"
+call 00:00:40 approve "$claim" | jq -e '.status == "active"'
+```
+
+### 8. Inspect evidence and the released lease
+
+Confirm the Claim's evidence includes the Result and its artifact. Then check
+that completing the Task cleared its lease. No scheduler is hidden in these steps.
+
+<!-- rg-example: user-lifecycle; part=8; runnable -->
+```sh
+. ./user-cli.sh
+claim=$(jq -er '.id' claim.json)
+result=$(jq -er '.id' result.json)
+task=$(jq -er '.id' task.json)
+call 00:00:42 evidence "$claim" | jq -e --arg result "$result" \
+    'any(.items[]; .id == $result and (.artifacts | length > 0))'
+call 00:00:44 show "$task" | jq -e '.lease == null'
+```
+
+### 9. Replace a follow-up without erasing history
+
+Propose a separate follow-up Task, then supersede it with a better-scoped Task.
+The replacement has a new ID; the original remains available in history. The
+last command prints a compact receipt with the project, Claim, and replacement IDs.
+
+<!-- rg-example: user-lifecycle; part=9; runnable -->
+```sh
+. ./user-cli.sh
+claim=$(jq -er '.id' claim.json)
+call 00:00:46 propose Task 'Plan a follow-up' > followup.json
+followup=$(jq -er '.id' followup.json)
+call 00:00:48 supersede "$followup" --title 'Repeat with a larger sample' > replacement.json
+replacement=$(jq -er '.id' replacement.json)
+test "$replacement" != "$followup"
+call 00:00:50 history "$followup" | jq -e 'length > 0'
+jq -n -c --arg project "$root" --arg claim "$claim" --arg replacement "$replacement" \
+    '{project: $project, claim: $claim, replacement: $replacement}'
 ```
 
 ## Common options
