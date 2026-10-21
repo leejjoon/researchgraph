@@ -24,6 +24,63 @@ PINS = {
 }
 
 
+def test_all_doors_live_latency_and_replay_are_explicit_ci_admissions():
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    scripts = {
+        name: "\n".join(step.get("run", "") for step in job["steps"])
+        for name, job in workflow["jobs"].items()
+    }
+    full = [
+        line
+        for line in scripts["acceptance"].splitlines()
+        if re.search(r"python -m pytest tests --", line)
+    ]
+    assert len(full) == 1
+    assert "--protocol-fixtures all --query-door all" in full[0]
+    for target in (
+        "tests/test_viewer_live.py",
+        "tests/test_agent_session.py",
+        "tests/test_serve_docs.py",
+        "tests/test_event_consumers.py",
+    ):
+        assert target in scripts["scale"], target
+        assert target not in scripts["compatibility"], target
+    for name in ("acceptance", "scale"):
+        assert "curl --version" in scripts[name]
+    performance = (ROOT / "tests/test_performance.py").read_text()
+    assert "installed_graph" in performance
+
+
+@pytest.mark.browser
+def test_required_browser_absence_fails_instead_of_skipping(tmp_path):
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment["PLAYWRIGHT_BROWSERS_PATH"] = str(tmp_path / "missing-browsers")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "tests/test_viewer_graph.py::test_layout_i1_only_invalid_cycle_fallback_and_non_mutation",
+            "--index-mode",
+            "kept",
+            "-q",
+        ],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    assert "Executable doesn't exist" in output
+    assert "1 error" in output and "skipped" not in output
+
+
 def test_notebook_tooling_is_pinned_only_in_test_extra():
     metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
     expected = {"nbclient==0.11.0", "nbformat==5.11.1", "ipykernel==7.4.0"}
