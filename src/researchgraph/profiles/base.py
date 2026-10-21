@@ -313,10 +313,19 @@ class Profile:
                 )
             ):
                 raise RuleViolation("schema", f"Invalid endpoints for {edge.name}")
-            if edge.name in core and set(edge.allowed) != set(core[edge.name].allowed):
-                raise RuleViolation(
-                    "schema", f"Cannot change core endpoints: {edge.name}"
-                )
+            if edge.name in core:
+                original = set(core[edge.name].allowed)
+                supplied = set(edge.allowed)
+                valid = supplied == original
+                if edge.name == "cites":
+                    valid = original <= supplied and all(
+                        source == "Claim" and target != "*"
+                        for source, target in supplied
+                    )
+                if not valid:
+                    raise RuleViolation(
+                        "schema", f"Cannot change core endpoints: {edge.name}"
+                    )
             if edge.inherit not in ("both", "outgoing", "none"):
                 raise RuleViolation("schema", f"Invalid inheritance for {edge.name}")
             core[edge.name] = edge

@@ -709,11 +709,11 @@ class QueryView(View):
         """Return directly cited node dictionaries ranked weakest first for a Claim.
 
         Superseded-input nodes lead, then lower runs (missing means zero), false
-        held_out, and ID. Return [] for non-Claims or missing Claim/Result/Reference
+        held_out, and ID. Return [] for non-Claims or missing Claim
         vocabulary; invalid or absent identifiers raise via require.
         """
         node = self.require(identifier)
-        if not self.vocabulary("Claim", "Result", "Reference") or node.type != "Claim":
+        if not self.vocabulary("Claim") or node.type != "Claim":
             return []
         targets = {e.to for e in self.outgoing[identifier] if e.type == "cites"}
         return [
@@ -722,8 +722,8 @@ class QueryView(View):
                 (self.nodes[i] for i in targets),
                 key=lambda n: (
                     not self.superseded_input(n.id),
-                    n.fields.get("runs") or 0,
-                    n.fields.get("held_out") or False,
+                    n.fields.get("runs", 0),
+                    n.fields.get("held_out", False),
                     n.id,
                 ),
             )

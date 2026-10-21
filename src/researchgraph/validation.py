@@ -247,7 +247,14 @@ def validate_edge_endpoints(profile, edge, nodes):
 
 def validate_graph(profile, nodes, edges):
     """I1, I3–I5 over the complete post-write graph, including restored imports."""
+    citation_targets = {target for _, target in profile.edge_type("cites").allowed}
     for node in nodes.values():
+        if node.type in citation_targets:
+            for name, expected in (("runs", int), ("held_out", bool)):
+                if name in node.fields and type(node.fields[name]) is not expected:
+                    _refuse(
+                        "schema", f"Invalid citation scoring field: {name}", node.id
+                    )
         if (node.status == Status.RUNNING) != (node.lease is not None):
             _refuse("schema", "Lease must exist exactly when running", node.id)
         if node.lease is not None and node.lease.expires_at <= node.lease.acquired_at:

@@ -94,6 +94,24 @@ CONDITIONAL_PROFILE.gates = (
     ]
 )
 
+LITERATURE_PROFILE = Profile(
+    "test-literature",
+    "1.0",
+    [
+        NodeType("Claim", "cl", {}),
+        NodeType("Literature", "li", {"properties": {"runs": {}, "held_out": {}}}),
+    ],
+    [
+        EdgeType(
+            "cites",
+            [("Claim", "Result"), ("Claim", "Reference"), ("Claim", "Literature")],
+        )
+    ],
+    [],
+    [],
+    [],
+)
+
 INVALID_LOCATION_PROFILE = deepcopy(CLI_PROFILE)
 INVALID_LOCATION_PROFILE.name = "test-invalid-location"
 INVALID_LOCATION_PROFILE.node_types[0].schema["allOf"] = [{"default": {}}]
