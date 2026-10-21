@@ -12,7 +12,7 @@ Where an operation records something, the record is the `approvals` entry define
 
 Python uses `Project.<op>(...)`; the pinned profile read is `Project.profile_info()` because `Project.profile` is the loaded profile object. The CLI uses `rg <op>` with `--json`, MCP uses tool `<op>`, and HTTP uses `GET /api/<op>` for reads and `POST /api/<op>` for writes. Structured/repeated HTTP read arguments use JSON-encoded query values; writes use a JSON object. `GET /api/operations` publishes the registry. Import/export retain their operation semantics and filesystem arguments; adapters do not silently replace them with unrelated transport operations. Results are CLI-equivalent JSON; omission and explicit null remain distinct. HTTP maps RuleViolation `{rule, message, ids}` to 422, project-open errors to 503 and authority failures to 403. Adapters call shared operations, never SQL or a second business-validation layer.
 
-The registry contains graph Writes/Reads only: currently 35, becoming exactly 37 (18 writes, 19 reads) when graph and profile are implemented. Streams and Servers are separate categories. Their installed rows and manual references land in their introducing commits; these semantic contracts do not advertise unimplemented commands.
+The registry contains exactly 37 graph Writes/Reads (18 writes, 19 reads), including graph and profile. Streams and Servers are separate categories. Their installed rows and manual references land in their introducing commits; semantic contracts alone do not advertise unimplemented commands.
 
 MCP uses the official optional SDK over stdio. Launch requires `--as-agent NAME[:MODEL[:VERSION]]` or explicit `--as-human`, and fixes actor, role and read-only for the process. Tool arguments cannot override authority or choose another project. Full is default; essential lists exactly show, ready, blocked, queue, digest, where, history, evidence, propose, link, attach, claim, renew, release, complete, fail. Read-only intersects the preset, hides all writes and refuses attempted hidden writes including init/import. Tool descriptions/schemas come from the registry and `readOnlyHint` from kind. Instructions equal profile `agent_guidance`, never core prompts. Results include CLI-equivalent JSON in text and `structuredContent`; RuleViolation uses `isError` with its structured JSON. No stdout logging; close per-request owners and all resources on cancellation/shutdown. Help/core import work without the extra; invoking a missing extra reports an actionable error.
 
@@ -67,6 +67,8 @@ The commit for a write touches only the files that write created or changed. Its
 
 | Query | Returns |
 | --- | --- |
+| `graph` | `{nodes: [...], edges: [...]}` including retired, each sorted by created/id; existing as-of projections apply, no show-only derived fields |
+| `profile` | pinned name/version, installed_version and currently loaded node_types/edge_types/gates/roles/agent_guidance as data in declaration order, including unused types; no callables; as-of does not reconstruct historical profile declarations |
 | `show <id>` | the node or edge; for a node also its non-retired incident edges, the Instruction nodes that `instructs` it, its pins, derived flags `blocked`, `ready`, `stale`, `lease_expired`, `over_budget`, and profile warnings such as `non_discriminating` |
 | `ready` | nodes with `ready(n)` in `ready` order (§6) |
 | `blocked` | nodes with `blocked(n)` and the ids blocking them, in `ready` order |

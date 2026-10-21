@@ -608,6 +608,23 @@ class QueryView(View):
         """Return whether every requested node-type name exists in the profile."""
         return set(names) <= {n.name for n in self.profile.node_types}
 
+    def graph(self):
+        """Return all visible nodes/edges, including retired, in created/ID order.
+
+        Use the same historical projection as show, without show-only incident
+        or derived fields. Each returned record owns its mutable containers.
+        """
+        return {
+            "nodes": [
+                node.to_dict()
+                for node in sorted(self.nodes.values(), key=created_order)
+            ],
+            "edges": [
+                edge.to_dict()
+                for edge in sorted(self.edges.values(), key=created_order)
+            ],
+        }
+
     def ready_items(self, prepared=None):
         """Return eager ready-node dictionaries in priority/creation/ID order.
 

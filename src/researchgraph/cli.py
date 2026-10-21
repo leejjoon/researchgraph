@@ -619,6 +619,31 @@ def _run_read(ctx, local_options, as_of, operation):
         _error(ctx, exc)
 
 
+@main.command("graph")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def graph_command(ctx, as_of, **local_options):
+    """Read all nodes and edges, including retired records."""
+    _run_read(
+        ctx, local_options, as_of, lambda project, context: project.graph(**context)
+    )
+
+
+@main.command("profile")
+@click.option("--as-of", default=None)
+@_common_options
+@click.pass_context
+def profile_command(ctx, as_of, **local_options):
+    """Describe the pinned identity and currently loaded profile as data."""
+    _run_read(
+        ctx,
+        local_options,
+        as_of,
+        lambda project, context: project.profile_info(**context),
+    )
+
+
 @main.command("ready")
 @click.option("--as-of", default=None)
 @_common_options

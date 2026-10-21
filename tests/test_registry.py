@@ -34,7 +34,7 @@ def check_inventory(operations, spec):
 def test_registry_matches_spec_and_actual_command_categories():
     spec = spec_commands((ROOT / "spec/operations.md").read_text())
     check_inventory(OPERATIONS, spec)
-    assert len(OPERATIONS) == 35
+    assert len(OPERATIONS) == 37
     assert set(spec) == {"Writes", "Reads", "Streams", "Servers"}
     assert spec["Streams"] == spec["Servers"] == set()
     assert set(main.commands) == set().union(*spec.values())
@@ -47,7 +47,13 @@ def test_registry_matches_spec_and_actual_command_categories():
     [
         (lambda ops: ops[:-1], "missing/extra"),
         (lambda ops: [*ops, ops[0]], "duplicate registry operation"),
-        (lambda ops: [dict(ops[0], kind="read"), *ops[1:]], "misclassified"),
+        (
+            lambda ops: [
+                dict(ops[0], kind="write" if ops[0]["kind"] == "read" else "read"),
+                *ops[1:],
+            ],
+            "misclassified",
+        ),
         (lambda ops: [dict(ops[0], result=""), *ops[1:]], "result-shape"),
         (
             lambda ops: [

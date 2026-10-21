@@ -10,7 +10,9 @@ import os
 import platform
 import subprocess
 import sys
+import sysconfig
 from datetime import timedelta
+from pathlib import Path
 from time import perf_counter
 
 import pytest
@@ -204,5 +206,45 @@ def test_fresh_twenty_thousand_node_rebuild_budget(tmp_path, record_property):
         print(disclosure)
         assert len(project.get_nodes()) == 20000
         assert rebuild_seconds < 5.0
+        # A timing report, not a new budget: include installed process startup,
+        # source refresh and JSON production, then measure parsing separately.
+        started = perf_counter()
+        result = subprocess.run(
+            [
+                str(Path(sysconfig.get_path("scripts")) / "rg"),
+                "--project",
+                str(root),
+                "--json",
+                "--now",
+                format_timestamp(NOW),
+                "graph",
+            ],
+            env={
+                key: value for key, value in os.environ.items() if key != "PYTHONPATH"
+            },
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        produced = perf_counter() - started
+        started = perf_counter()
+        graph = json.loads(result.stdout)
+        parsed = perf_counter() - started
+        assert len(graph["nodes"]) == 20000 and graph["edges"] == []
+        assert graph["nodes"] == sorted(
+            graph["nodes"], key=lambda node: (node["created"], node["id"])
+        )
+        graph_report = {
+            "phase": "20k_installed_graph_json",
+            "nodes": 20000,
+            "edges": 0,
+            "production_seconds": produced,
+            "parse_seconds": parsed,
+            "json_bytes": len(result.stdout.encode("utf-8")),
+            "index_state": "kept after disclosed fresh rebuild",
+        }
+        for key, value in graph_report.items():
+            record_property("graph_" + key, json.dumps(value, ensure_ascii=False))
+        print(graph_report)
     finally:
         project.close()

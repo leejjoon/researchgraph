@@ -558,8 +558,8 @@ def test_manual_reference_matches_spec_and_real_installed_help(tmp_path):
     installed = help_commands(top)
     spec = spec_commands((ROOT / "spec/operations.md").read_text())
     assert len(spec["Writes"]) == 18
-    assert len(spec["Reads"]) == 17 and "export" in spec["Reads"]
-    assert len(installed) == 35
+    assert len(spec["Reads"]) == 19 and "export" in spec["Reads"]
+    assert len(installed) == 37
     assert installed == spec["Writes"] | spec["Reads"], (
         "spec/help command inventory disagreement"
     )

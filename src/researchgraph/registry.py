@@ -69,6 +69,18 @@ COMMON_OPTIONS = (
 
 OPERATIONS = (
     _op(
+        "graph",
+        "read",
+        [],
+        "Object with nodes and edges including retired records, sorted by created/id.",
+    ),
+    _op(
+        "profile",
+        "read",
+        [],
+        "Pinned name/version and loaded installed_version, node_types, edge_types, gates, roles, agent_guidance; no callables.",
+    ),
+    _op(
         "init",
         "write",
         [

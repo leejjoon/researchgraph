@@ -1089,6 +1089,62 @@ class Project:
         clock = evaluation_time(self, now, as_of)
         return QueryView(self, clock, as_of)
 
+    def graph(self, *, actor, now, role=None, as_of=None):
+        """Return all visible nodes and edges in created/ID order, including retired.
+
+        The mapping has nodes/edges arrays containing ordinary record fields,
+        without show's incident relations or flags. Actor/now/role/as_of use
+        the shared query boundary and partial historical contract. No graph or
+        Git state is changed; deleting the disposable index preserves results.
+        """
+        return self._query_view(actor=actor, now=now, role=role, as_of=as_of).graph()
+
+    def profile_info(self, *, actor, now, role=None, as_of=None):
+        """Return pinned identity and currently loaded, data-only profile metadata.
+
+        Include name/version, installed_version, node_types, edge_types, gates,
+        roles and agent_guidance, retaining declaration order and unused types.
+        Copy schema/condition containers; omit all callable-bearing attributes.
+        Shared actor/clock/as_of validation applies, but even historical reads
+        describe the currently loaded profile, not historical declarations.
+        """
+        profile = self._query_view(actor=actor, now=now, role=role, as_of=as_of).profile
+        return {
+            "name": self.profile_name,
+            "version": self.profile_version,
+            "installed_version": profile.version,
+            "node_types": [
+                {
+                    "name": node.name,
+                    "prefix": node.prefix,
+                    "claimable": node.claimable,
+                    "schema": deepcopy(node.schema),
+                }
+                for node in profile.node_types
+            ],
+            "edge_types": [
+                {
+                    "name": edge.name,
+                    "allowed": [list(pair) for pair in edge.allowed],
+                    "inherit": edge.inherit,
+                    "schema": deepcopy(edge.schema),
+                }
+                for edge in profile.edge_types
+            ],
+            "gates": [
+                {
+                    "transition": gate.transition,
+                    "node_type": gate.node_type,
+                    "roles": list(gate.roles),
+                    "agents_allowed": gate.agents_allowed,
+                    "when_fields": deepcopy(gate.when_fields),
+                }
+                for gate in profile.gates
+            ],
+            "roles": list(profile.roles),
+            "agent_guidance": profile.agent_guidance,
+        }
+
     def ready(self, *, actor, now, role=None, as_of=None):
         """Return ``{'items': [...]}`` of ready nodes, highest priority first.
 

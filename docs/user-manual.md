@@ -424,6 +424,22 @@ error type solely from exit 2. Shared write errors are documented after the refe
 **Effect / result**: Validate before destination creation; restore pinned layout, preserve timestamps, make one import commit; JSON `{path,profile,version}`.
 **Errors**: Shared write rules including `clock_skew`; `not_empty`, `bad_archive`, `profile_too_new`.
 
+### graph
+**Invocation**: `rg graph`.
+**Arguments**: None.
+**Options and defaults**: `--as-of` current; [Common options](#common-options).
+**Permissions / preconditions**: Any actor, including read-only project.
+**Effect / result**: `{nodes: [...], edges: [...]}` including retired records, each ordered by created then id. Uses the same partial historical projection as show, without its incident relations or derived flags. Reads leave graph and Git unchanged and are identical after index deletion.
+**Errors**: Shared read errors; `schema` for invalid clock/as-of selectors.
+
+### profile
+**Invocation**: `rg profile`.
+**Arguments**: None. Python calls `Project.profile_info`, since `Project.profile` is the loaded object.
+**Options and defaults**: `--as-of` current; [Common options](#common-options).
+**Permissions / preconditions**: Any actor, including read-only project.
+**Effect / result**: Pinned `name`/`version`, loaded `installed_version`, ordered `node_types` (name/prefix/claimable/schema), `edge_types` (name/allowed/inherit/schema), `gates` (transition/node_type/roles/agents_allowed/when_fields), `roles`, and `agent_guidance`. Includes unused declarations, excludes validators/hooks/renderers/migrations and all callable-bearing attributes. Under as-of, declarations still describe the currently loaded profile, not historical profile versions.
+**Errors**: Shared read errors; `schema` for invalid clock/as-of selectors.
+
 ### show
 **Invocation**: `rg show ID`.
 **Arguments**: Node or edge ID.
