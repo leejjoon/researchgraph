@@ -67,6 +67,8 @@ jobs:
           }, indent=2))
           assert console.is_file()
           PY
+      - name: Install required Chromium
+        run: python -m playwright install --with-deps chromium
       - name: Lint and Python formatting
         shell: bash
         run: |
@@ -143,6 +145,8 @@ jobs:
           }, indent=2))
           assert console.is_file()
           PY
+      - name: Install required Chromium
+        run: python -m playwright install --with-deps chromium
       - name: Strict 5000-node temporal and fresh 20000-node rebuild gates
         shell: bash
         run: |
@@ -152,7 +156,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/test_packaging.py tests/test_mcp_packaging.py tests/test_serve.py tests/test_serve_artifacts.py tests/test_serve_events.py tests/test_serve_packaging.py tests/test_cli_version.py::test_installed_cli_version tests/test_runner.py tests/test_docs.py tests/test_notebook.py --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/distribution.xml' --basetemp='${{ runner.temp }}/scale/distribution-tmp' | tee '${{ runner.temp }}/scale/distribution.txt'
+          python -m pytest tests/test_packaging.py tests/test_mcp_packaging.py tests/test_serve.py tests/test_serve_artifacts.py tests/test_serve_events.py tests/test_serve_packaging.py tests/test_viewer_graph.py tests/test_cli_version.py::test_installed_cli_version tests/test_runner.py tests/test_docs.py tests/test_notebook.py --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/distribution.xml' --basetemp='${{ runner.temp }}/scale/distribution-tmp' | tee '${{ runner.temp }}/scale/distribution.txt'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

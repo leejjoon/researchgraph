@@ -284,7 +284,15 @@ server invalidates credentials and observed-event cursors. Ctrl-C closes its own
 Current graph reads carry their associated `X-Researchgraph-Cursor`; events replay
 retained successors and reset requires a fresh snapshot. Downloads are only
 registered node-owned regular files, served as inert attachments, not executable
-HTML/SVG. This transport bootstrap is distinct from the later graph viewer.
+HTML/SVG. The authenticated page presents the profile-driven graph: select a card
+with a click or Enter/Space; arrow keys and Home/End move card focus. Type, status,
+author and inclusive UTC creation-date filters do not change dependency ranks.
+Retired nodes are hidden and superseded history collapsed until their controls are
+enabled. Drag blank canvas to pan, use the zoom controls, or reset the viewport.
+Unused profile types, roles, gate conditions and claimability remain visible.
+Each component owns its selection, filters and resources; snapshot refreshes and
+observed-event resets refetch authoritative data without saving layout files.
+This graph component does not yet provide inspector actions or a live dashboard.
 
 ### MCP presets and client registration
 

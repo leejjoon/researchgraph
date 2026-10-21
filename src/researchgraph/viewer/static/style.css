@@ -1,0 +1,69 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+  color: #202c3a;
+  background: #f1f4f7;
+}
+body { margin: 0; }
+main { max-width: 110rem; margin: 1.5rem auto; padding: 0 1.25rem; }
+h1 { font-size: 1.4rem; margin: 0; }
+#connection { color: #43576c; font-size: .875rem; }
+:host {
+  display: block;
+  min-width: 0;
+  color: #202c3a;
+  background: #f1f4f7;
+  font: 14px/1.5 system-ui, sans-serif;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+.graph-shell { padding: 1rem; border: 1px solid #ccd5df; border-radius: 10px; background: #fff; }
+.graph-shell h2 { margin: 0; font-size: 1.3rem; }
+.muted, .connection { color: #43576c; }
+.error { color: #9b2929; background: #fff0ef; padding: .75rem; border: 1px solid #bb5555; }
+.filters, .view-actions, .legend { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin: .75rem 0; }
+.filter { display: flex; flex-direction: column; gap: .2rem; font-size: .8rem; font-weight: 600; }
+.filter:has(input[type="checkbox"]) { flex-direction: row-reverse; align-items: center; margin-top: 1rem; }
+button, input, select { font: inherit; color: inherit; }
+button, input[type="date"], select { min-height: 38px; border: 1px solid #aab8c7; background: #fff; border-radius: 5px; padding: .4rem .6rem; }
+button { cursor: pointer; }
+button:hover { background: #eaf1f7; border-color: #577b9b; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, .viewport:focus-visible {
+  outline: 3px solid #216aab;
+  outline-offset: 3px;
+}
+input[type="checkbox"] { width: 18px; height: 18px; accent-color: #285d85; }
+.metadata { padding: .5rem .75rem; border: 1px solid #d7dfe7; border-radius: 5px; color: #43576c; font-size: .8rem; overflow-wrap: anywhere; }
+.metadata summary { cursor: pointer; font-weight: 600; }
+.metadata p { margin: .5rem 0; }
+.legend { font-size: .75rem; color: #43576c; }
+.legend > span:first-child { flex-basis: 100%; }
+.legend-rank, .legend-other { padding: .15rem .4rem; border-bottom: 2px solid #527a99; }
+.legend-other { border-bottom-style: dashed; }
+.viewport { position: relative; height: 560px; max-height: 65vh; min-height: 280px; overflow: auto; overscroll-behavior: contain; border: 1px solid #b9c7d4; border-radius: 6px; background: #edf2f6; cursor: grab; touch-action: none; }
+.viewport:active { cursor: grabbing; }
+.canvas-sizer { position: relative; }
+.graph-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.column-heading { position: absolute; top: 12px; width: 244px; min-height: 64px; padding: 8px 12px; background: #dce6ef; border-top: 3px solid #557897; border-radius: 4px; }
+.column-heading h3 { margin: 0; font-size: .95rem; }
+.column-heading span { font-size: .75rem; color: #43576c; }
+.node-card { position: absolute; width: 244px; height: 120px; padding: 10px 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; background: #fff; border-left: 4px solid #6583a0; box-shadow: 0 2px 3px #26384a12; }
+.node-id { font: 11px/1.4 ui-monospace, monospace; color: #52657a; }
+.node-title { font-size: 13px; line-height: 1.4; overflow: auto; overflow-wrap: anywhere; max-width: 100%; flex: 1; }
+.node-status { font-size: 11px; font-weight: 600; border-radius: 3px; padding: 0 5px; background: #e8eef4; }
+.node-card[data-status="done"] { border-left-color: #397157; }
+.node-card[data-status="running"], .node-card[data-status="active"] { border-left-color: #216aab; }
+.node-card[data-status="failed"] { border-left-color: #a35127; }
+.node-card[data-status="retired"] { border-style: dashed; color: #526171; background: #f5f6f8; }
+.node-card[aria-pressed="true"] { border-color: #165e98; background: #e4f0fc; box-shadow: 0 0 0 2px #165e98; }
+.graph-edges { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.edge { fill: none; stroke: #527a99; stroke-width: 1.75; }
+.other-edge { stroke: #73748c; stroke-dasharray: 6 4; }
+.retired-edge { stroke: #8894a0; stroke-dasharray: 2 4; }
+.empty-graph { position: absolute; top: 100px; left: 24px; padding: 12px; background: #fff; }
+@media (max-width: 640px) {
+  main { padding: 0 .5rem; }
+  .graph-shell { padding: .65rem; }
+  .filter { flex: 1 1 130px; }
+  .filter:has(input[type="checkbox"]) { flex: 0 1 auto; }
+}

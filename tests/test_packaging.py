@@ -86,6 +86,11 @@ def test_sdist_native_sources_and_real_installed_wheel(tmp_path):
     assert len(wheels) == 1
     with zipfile.ZipFile(wheels[0]) as archive:
         members = archive.namelist()
+    assert {
+        f"researchgraph/viewer/static/{name}"
+        for name in ("index.html", "bootstrap.js", "style.css", "research-graph.js")
+    } <= set(members)
+    assert not any(name.startswith("researchgraph/web/") for name in members)
     native = [name for name in members if name.endswith(".so")]
     assert len(native) == 2
     suffix = sysconfig.get_config_var("EXT_SUFFIX")

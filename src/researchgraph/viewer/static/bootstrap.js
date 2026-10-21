@@ -21,8 +21,12 @@ try {
   if (!response.ok) throw new Error(response.status === 403
     ? "Authentication required. Use the server's launch URL."
     : "Project unavailable.");
-  const profile = await response.json();
-  status.textContent = `Connected to ${profile.name} ${profile.version}.`;
+  await response.json();
+  await import("./research-graph.js");
+  const graph = document.createElement("research-graph");
+  graph.setAttribute("src", "/api");
+  document.querySelector("#viewer").append(graph);
+  status.textContent = "Authenticated.";
 } catch (error) {
   status.textContent = error.message;
 } finally {

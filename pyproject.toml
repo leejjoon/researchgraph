@@ -9,7 +9,7 @@ dependencies = ["pyyaml>=6", "click>=8.1", "jsonschema>=4", "zstandard>=0.22"]
 [project.optional-dependencies]
 mcp = ["mcp>=2.3,<3"]
 viewer = ["starlette>=1.9,<2", "uvicorn>=0.54,<1"]
-test = ["pytest>=8", "hypothesis>=6", "pytest-benchmark", "ruff", "nbclient==0.11.0", "nbformat==5.11.1", "ipykernel==7.4.0", "httpx>=0.28.1,<1", "httpx2>=2.16,<3"]
+test = ["pytest>=8", "hypothesis>=6", "pytest-benchmark", "ruff", "nbclient==0.11.0", "nbformat==5.11.1", "ipykernel==7.4.0", "httpx>=0.28.1,<1", "httpx2>=2.16,<3", 'playwright>=1.59,<2; implementation_name == "cpython"']
 
 [project.scripts]
 rg = "researchgraph.cli:main"
@@ -28,6 +28,7 @@ markers = [
     "cli: acceptance through the resolved installed console script",
     "mcp: acceptance through the optional official SDK transport",
     "http: acceptance through the optional authenticated HTTP transport",
+    "browser: required real Chromium acceptance of the packaged viewer",
     "performance: strict disclosed synthetic-scale budgets",
 ]
 
@@ -36,4 +37,4 @@ target-version = "py311"
 src = ["src"]
 
 [tool.setuptools.package-data]
-researchgraph = ["web/*.html", "web/*.js", "web/*.css"]
+researchgraph = ["viewer/static/*.html", "viewer/static/*.js", "viewer/static/*.css"]

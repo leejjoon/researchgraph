@@ -131,6 +131,19 @@ def project(tmp_path):
         yield value
 
 
+@pytest.fixture(scope="module")
+def chromium_browser():
+    """Require real Chromium only for explicitly collected browser acceptance."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            yield browser
+        finally:
+            browser.close()
+
+
 @pytest.fixture(scope="session")
 def candidate_distribution(tmp_path_factory):
     """Build tracked current bytes once, not an exact committed release clone."""
@@ -185,8 +198,9 @@ def candidate_distribution(tmp_path_factory):
             "researchgraph/mcp.py",
             "researchgraph/interfaces.py",
             "researchgraph/serve.py",
-            "researchgraph/web/index.html",
-            "researchgraph/web/bootstrap.js",
-            "researchgraph/web/style.css",
+            "researchgraph/viewer/static/index.html",
+            "researchgraph/viewer/static/bootstrap.js",
+            "researchgraph/viewer/static/style.css",
+            "researchgraph/viewer/static/research-graph.js",
         } <= set(archive.namelist())
     return source, wheel, environment

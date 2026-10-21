@@ -320,7 +320,7 @@ def create_app(
     async def _root(request):
         return HTMLResponse(
             files("researchgraph")
-            .joinpath("web/index.html")
+            .joinpath("viewer/static/index.html")
             .read_text(encoding="utf-8"),
             headers={
                 "Content-Security-Policy": "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
@@ -336,11 +336,12 @@ def create_app(
 
     async def _asset(request):
         name = request.path_params["name"]
-        if name not in {"bootstrap.js", "style.css"}:
+        if name not in {"bootstrap.js", "style.css", "research-graph.js"}:
             return Response(status_code=404)
         media = "text/javascript" if name.endswith(".js") else "text/css"
         return Response(
-            files("researchgraph").joinpath("web", name).read_bytes(), media_type=media
+            files("researchgraph").joinpath("viewer", "static", name).read_bytes(),
+            media_type=media,
         )
 
     async def _session(request):

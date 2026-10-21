@@ -354,3 +354,41 @@ def test_workflow_contract():
     assert 'assert measurement["elapsed_seconds"] < 2.0' in performance
     assert "range(5000)" in performance and "range(200)" in performance
     assert "project.ready(actor=ALICE, now=NOW, as_of=commit)" in performance
+
+
+def test_required_browser_jobs_install_chromium_and_admit_graph_acceptance():
+    metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert (
+        'playwright>=1.59,<2; implementation_name == "cpython"'
+        in metadata["project"]["optional-dependencies"]["test"]
+    )
+    assert not any(
+        item.startswith("playwright") for item in metadata["project"]["dependencies"]
+    )
+    jobs = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
+    )["jobs"]
+    for name in ("acceptance", "scale"):
+        scripts = [step.get("run", "") for step in jobs[name]["steps"]]
+        installers = [
+            index
+            for index, script in enumerate(scripts)
+            if "python -m playwright install --with-deps chromium" in script
+        ]
+        assert len(installers) == 1
+        assert installers[0] < next(
+            index
+            for index, script in enumerate(scripts)
+            if "python -m pytest" in script
+        )
+        assert all("continue-on-error" not in step for step in jobs[name]["steps"])
+    assert "tests/test_viewer_graph.py" in "\n".join(
+        step.get("run", "") for step in jobs["scale"]["steps"]
+    )
+    compatibility = "\n".join(
+        step.get("run", "") for step in jobs["compatibility"]["steps"]
+    )
+    assert (
+        "playwright install" not in compatibility
+        and "tests/test_viewer_graph.py" not in compatibility
+    )

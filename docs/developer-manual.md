@@ -179,8 +179,22 @@ Decoded and multiply encoded traversal, symlinks and path swaps fail without pat
 disclosure. Directory-relative no-follow descriptor opening holds containment
 through the final open, and response/disconnect cleanup closes the file. Responses
 are octet-stream, attachment with encoded basename, nosniff; hostile HTML/SVG stays
-inert. The wheel contains the static bootstrap assets. Transport authentication
-is not a filesystem sandbox, cryptographic actor identity or unassisted-agent proof.
+inert. The wheel contains the framework-free assets in `viewer/static/`, served
+under `/assets/`. Transport authentication is not a filesystem sandbox,
+cryptographic actor identity or unassisted-agent proof.
+
+After the host completes session exchange, import `/assets/research-graph.js` and
+mount `<research-graph src="/api"></research-graph>`. The API prefix must be
+same-origin without credentials, query or fragment. Each instance fetches profile,
+graph and digest independently, owns its EventSource and abort controllers, and
+releases them on disconnect or source change. `node-select` bubbles across the
+shadow boundary with `{id, node}`; `reload()` requests fresh data. Index events
+refetch snapshots; resets also refresh profile metadata. Failed refreshes are
+explicitly stale/error states, never successful empty graphs. `layoutGraph(graph)`
+returns detached nodes/edges, ranking only non-retired I1 edges with finite Kahn
+placement and deterministic created/id placement for unplaced invalid-cycle nodes.
+History collapse and filters are presentation-only. User data is text, shadow CSS
+is an external packaged stylesheet, and the strict self-only CSP remains in force.
 
 ## Wrapper contracts, errors and durability
 
