@@ -33,6 +33,11 @@ No query credentials. All protected API, SSE and download routes enforce
 the cookie and same-origin Host/Origin checks. No graph in unauthenticated
 bootstrap. No-store/no-referrer responses and credential-free logs are required.
 
+Decision [022](022-http-boundary-execution-and-test-admission.md) retains that
+human default and permits an explicit fixed agent launch for public API parity;
+requests still cannot choose identity. It also records direct optional/test
+dependencies and the graph's associated snapshot-cursor response header.
+
 Only registered existing regular artifacts under the named node's artifact
 root may be downloaded, after decoded-path validation and containment held
 through opening. Never resolve then reopen an unchecked path. Reject encoded,

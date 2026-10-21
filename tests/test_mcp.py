@@ -68,6 +68,19 @@ def data(result):
     return decoded
 
 
+def _protocol_calls(root, calls, door):
+    if door == "mcp":
+        _, _, results = call_memory(root, calls)
+        return [(result.is_error, data(result)) for result in results]
+    from tests.http_helpers import call_http
+
+    results = [
+        call_http(root, name, arguments, actor=ALICE) for name, arguments in calls
+    ]
+    assert all(result.status_code in (200, 422) for result in results)
+    return [(result.status_code != 200, result.json()) for result in results]
+
+
 def test_real_sdk_lists_exact_registry_and_profile_instructions(tmp_path, index_mode):
     with Project.init(
         repository(tmp_path), "research", actor=ALICE, now=NOW
@@ -237,8 +250,9 @@ def test_bootstrap_uses_only_fixed_destination_and_no_core_instructions(tmp_path
 
 
 @pytest.mark.parametrize("existing_history", [False, True])
-def test_mcp_init_files_history_repeat_and_cache(
-    tmp_path, monkeypatch, index_mode, existing_history
+@pytest.mark.parametrize("door", ["mcp", pytest.param("http", marks=pytest.mark.http)])
+def test_protocol_init_files_history_repeat_and_cache(
+    tmp_path, monkeypatch, index_mode, existing_history, door
 ):
     root = tmp_path / "project"
     monkeypatch.setenv("GIT_CONFIG_COUNT", "2")
@@ -257,11 +271,11 @@ def test_mcp_init_files_history_repeat_and_cache(
         earlier = git(root, "rev-parse", "HEAD")
     else:
         root.mkdir()
-    _, _, results = call_memory(
-        root, [("init", {"profile": "research", "now": format_timestamp(NOW)})]
+    results = _protocol_calls(
+        root, [("init", {"profile": "research", "now": format_timestamp(NOW)})], door
     )
-    assert not results[0].is_error
-    assert data(results[0]) == {
+    assert not results[0][0]
+    assert results[0][1] == {
         "path": str(root),
         "profile": "research",
         "version": "1.0",
@@ -281,19 +295,21 @@ def test_mcp_init_files_history_repeat_and_cache(
     before = _state(root)
     with Project.open(root) as project:
         discard_index(project, index_mode)
-    _, _, results = call_memory(
+    results = _protocol_calls(
         root,
         [("ready", {"now": format_timestamp(NOW)}), ("init", {})],
+        door,
     )
-    assert not results[0].is_error and data(results[0]) == {"items": []}
-    assert results[1].is_error and data(results[1])["rule"] == "already_initialised"
+    assert not results[0][0] and results[0][1] == {"items": []}
+    assert results[1][0] and results[1][1]["rule"] == "already_initialised"
     assert _state(root) == before
 
 
-def test_mcp_init_unknown_profile_has_no_project_files(tmp_path):
+@pytest.mark.parametrize("door", ["mcp", pytest.param("http", marks=pytest.mark.http)])
+def test_protocol_init_unknown_profile_has_no_project_files(tmp_path, door):
     root = repository(tmp_path)
-    _, _, results = call_memory(root, [("init", {"profile": "widgets"})])
-    assert results[0].is_error and data(results[0])["rule"] == "unknown_profile"
+    results = _protocol_calls(root, [("init", {"profile": "widgets"})], door)
+    assert results[0][0] and results[0][1]["rule"] == "unknown_profile"
     assert not (root / "graph").exists()
     assert not (root / ".researchgraph").exists()
 
@@ -309,9 +325,14 @@ def test_legacy_negotiation_refuses_instead_of_wrapping_arrays(tmp_path):
 
 @pytest.mark.parametrize("operation", WRITE_NAMES)
 @pytest.mark.parametrize("commit", [True, False])
-def test_all_existing_valid_write_cases_through_real_mcp(
-    tmp_path, index_mode, monkeypatch, operation, commit
+@pytest.mark.parametrize("door", ["mcp", pytest.param("http", marks=pytest.mark.http)])
+def test_all_existing_valid_write_cases_through_real_protocol(
+    tmp_path, index_mode, monkeypatch, operation, commit, door
 ):
+    if door == "http":
+        from tests.http_helpers import invoke_http as protocol_invoke
+    else:
+        protocol_invoke = invoke_mcp
     monkeypatch.setenv("RG_TEST_CLI_INDEX_MODE", index_mode)
     log = tmp_path / "events.jsonl"
     monkeypatch.setenv("RG_TEST_EVENT_LOG", str(log))
@@ -320,7 +341,7 @@ def test_all_existing_valid_write_cases_through_real_mcp(
     events, head = log.read_bytes(), git(root, "rev-parse", "HEAD")
     assert events
     value = succeeds(
-        invoke_mcp(root, *arguments, "--commit" if commit else "--no-commit")
+        protocol_invoke(root, *arguments, "--commit" if commit else "--no-commit")
     )
     with Project.open(root) as project:
         if operation == "link":
@@ -391,14 +412,21 @@ def test_two_real_mcp_clients_have_one_claim_winner(tmp_path, index_mode):
 
 
 @pytest.mark.parametrize("operation", WRITE_NAMES)
-def test_all_existing_missing_id_cases_through_real_mcp(
-    tmp_path, index_mode, monkeypatch, operation
+@pytest.mark.parametrize("door", ["mcp", pytest.param("http", marks=pytest.mark.http)])
+def test_all_existing_missing_id_cases_through_real_protocol(
+    tmp_path, index_mode, monkeypatch, operation, door
 ):
+    if door == "http":
+        from tests.http_helpers import invoke_http as protocol_invoke
+    else:
+        protocol_invoke = invoke_mcp
     monkeypatch.setenv("RG_TEST_CLI_INDEX_MODE", index_mode)
     root = _root(tmp_path / "project")
     existing = _task(root)
     before = _state(root)
-    refused(invoke_mcp(root, *_missing_arguments(operation, existing)), "not_found")
+    refused(
+        protocol_invoke(root, *_missing_arguments(operation, existing)), "not_found"
+    )
     assert _state(root) == before
 
 

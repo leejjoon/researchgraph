@@ -15,14 +15,13 @@ from researchgraph.model import RuleViolation, format_timestamp
 from researchgraph.project import Project
 from researchgraph.registry import OPERATIONS
 from tests.helpers import NOW
-from tests.mcp_helpers import call_memory
 from tests.test_cli import prepare_console
 
 _BY_NAME = {op["name"]: op for op in OPERATIONS}
 
 
-def invoke_mcp(root, *arguments, agent=None, role=None, now=NOW):
-    """Run the actual MCP client with logical values parsed from scenario argv."""
+def cli_arguments(arguments, *, agent=None, role=None, now=NOW, read_only=False):
+    """Encode logical arguments with the existing CLI grammar, without dispatch."""
     name, *tail = arguments
     operation = _BY_NAME[name]
     with main.commands[name].make_context(name, tail) as context:
@@ -50,7 +49,18 @@ def invoke_mcp(root, *arguments, agent=None, role=None, now=NOW):
             payload["commit"] = values["commit"]
         agent = values["as_agent"] if values["as_agent"] is not None else agent
         role = values["role"] if values["role"] is not None else role
-        read_only = bool(values["read_only"])
+        if values["read_only"] is not None:
+            read_only = bool(values["read_only"])
+    return name, payload, agent, role, read_only
+
+
+def invoke_mcp(root, *arguments, agent=None, role=None, now=NOW, read_only=False):
+    """Run the actual MCP client with logical values parsed from scenario argv."""
+    from tests.mcp_helpers import call_memory
+
+    name, payload, agent, role, read_only = cli_arguments(
+        arguments, agent=agent, role=role, now=now, read_only=read_only
+    )
     prepare_console(["--project", str(root)])
     _, _, results = call_memory(
         root,
@@ -72,14 +82,8 @@ def invoke_mcp(root, *arguments, agent=None, role=None, now=NOW):
     )
 
 
-def operation_mcp(project, name, *args, **kwargs):
-    """Call a public-method scenario through the actual SDK and rethrow its error.
-
-    This is explicit test-boundary injection, not a replacement Project. Native
-    getters/bytes/cache oracles still use the original owner. Bind the public
-    signature to preserve legal positional optional parameters, then encode only
-    graph arguments; fixed authority is selected outside the tool payload.
-    """
+def operation_arguments(project, name, args, kwargs):
+    """Bind the public signature, keeping authority outside graph arguments."""
     method = getattr(project, name)
     signature = inspect.signature(method)
     bound = signature.bind(*args, **kwargs)
@@ -107,6 +111,16 @@ def operation_mcp(project, name, *args, **kwargs):
     payload["now"] = format_timestamp(now)
     if commit is not None:
         payload["commit"] = commit
+    return logical_name, payload, actor, role
+
+
+def operation_mcp(project, name, *args, **kwargs):
+    """Call the real SDK; retain the independent native storage assertion owner."""
+    from tests.mcp_helpers import call_memory
+
+    logical_name, payload, actor, role = operation_arguments(
+        project, name, args, kwargs
+    )
     _, _, results = call_memory(
         project.path,
         [(logical_name, payload)],
@@ -128,6 +142,8 @@ def import_mcp(archive, path, *, actor, now, role=None, commit=True, read_only=F
     The returned Project is only the test's source/index oracle, not a fake
     transport object or evidence that the remote call returned a Python owner.
     """
+    from tests.mcp_helpers import call_memory
+
     _, _, results = call_memory(
         path,
         [
@@ -149,6 +165,48 @@ def import_mcp(archive, path, *, actor, now, role=None, commit=True, read_only=F
     assert value == result.structured_content
     if result.is_error:
         raise RuleViolation(value["rule"], value["message"], value["ids"])
+    owner = Project.open(path)
+    assert (
+        str(owner.path) == value["path"]
+        and owner.profile_name == value["profile"]
+        and owner.profile_version == value["version"]
+    )
+    return owner
+
+
+def operation_http(project, name, *args, **kwargs):
+    """Send a bound public-method scenario over authenticated HTTP."""
+    from tests.http_helpers import call_http, operation_value
+
+    logical_name, payload, actor, role = operation_arguments(
+        project, name, args, kwargs
+    )
+    return operation_value(
+        call_http(
+            project.path,
+            logical_name,
+            payload,
+            actor=actor,
+            role=role,
+            read_only=project.read_only,
+        )
+    )
+
+
+def import_http(archive, path, *, actor, now, role=None, commit=True, read_only=False):
+    """Import over HTTP, then open an independent native assertion owner."""
+    from tests.http_helpers import call_http, operation_value
+
+    value = operation_value(
+        call_http(
+            path,
+            "import",
+            {"archive": str(archive), "commit": commit, "now": format_timestamp(now)},
+            actor=actor,
+            role=role,
+            read_only=read_only,
+        )
+    )
     owner = Project.open(path)
     assert (
         str(owner.path) == value["path"]

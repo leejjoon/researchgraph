@@ -1,64 +1,23 @@
 """Task-owned sdist/wheel consumers; a candidate copy is not release-clone proof."""
 
 import json
-import os
 import subprocess
 import sys
-import zipfile
 from functools import partial
 
 import anyio
 
 from researchgraph.model import format_timestamp
 from researchgraph.project import Project
-from tests.helpers import ALICE, NOW, copy_checkout, repository
+from tests.helpers import ALICE, NOW, repository
 from tests.test_agent_session import replay
 from tests.test_packaging import execute
 
 
-def test_core_only_help_and_optional_mcp_from_sdist_built_wheel(tmp_path):
-    environment = {
-        key: value for key, value in os.environ.items() if key != "PYTHONPATH"
-    }
-    source = copy_checkout(tmp_path / "candidate source")
-    distributions = tmp_path / "sdist"
-    execute(
-        [
-            "uv",
-            "build",
-            "--python",
-            sys.executable,
-            "--sdist",
-            "--out-dir",
-            str(distributions),
-        ],
-        cwd=source,
-        environment=environment,
-    )
-    sdists = list(distributions.glob("*.tar.gz"))
-    assert len(sdists) == 1
-    rebuilt = tmp_path / "wheel"
-    execute(
-        [
-            "uv",
-            "build",
-            "--python",
-            sys.executable,
-            "--wheel",
-            "--out-dir",
-            str(rebuilt),
-            str(sdists[0]),
-        ],
-        cwd=tmp_path,
-        environment=environment,
-    )
-    wheels = list(rebuilt.glob("*.whl"))
-    assert len(wheels) == 1
-    wheel = wheels[0]
-    with zipfile.ZipFile(wheel) as archive:
-        assert {"researchgraph/mcp.py", "researchgraph/interfaces.py"} <= set(
-            archive.namelist()
-        )
+def test_core_only_help_and_optional_mcp_from_sdist_built_wheel(
+    tmp_path, candidate_distribution
+):
+    source, wheel, environment = candidate_distribution
     root = repository(tmp_path / "project")
     with Project.init(root, "tasks", actor=ALICE, now=NOW):
         pass
@@ -142,6 +101,8 @@ def test_core_only_help_and_optional_mcp_from_sdist_built_wheel(tmp_path):
                     "tests/test_archives.py::test_export_as_of_selects_current_bytes_and_complete_history",
                     "--protocol-fixtures",
                     "core",
+                    "--query-door",
+                    "cli",
                     "--index-mode",
                     "both",
                     "--hypothesis-seed=20261020",

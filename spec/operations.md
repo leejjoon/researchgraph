@@ -29,7 +29,12 @@ cannot carry those array results and is explicitly refused for tools rather than
 silently wrapping or degrading data. Actual agent-product compatibility is part
 of the required installed/product evidence, not inferred from SDK support.
 
-The optional Starlette/Uvicorn HTTP server binds loopback and fixes writes to the serving human's git identity. Roles are self-declared per request; read-only cannot be disabled by a request. One Project lock serialises requests and polling; it does not turn read-only reads into write-lock operations. Server shutdown/disconnect closes owners and subscriptions. Same-origin embedding only.
+The optional Starlette/Uvicorn HTTP server binds loopback and fixes the actor at launch: the serving human's Git identity by default, or an explicitly declared `--as-agent NAME[:MODEL[:VERSION]]` identity (decision 022). Requests cannot choose an actor or project. Roles are self-declared per request; read-only cannot be disabled by a request. One Project lock serialises requests and polling; it does not turn read-only reads into write-lock operations. Server shutdown/disconnect closes owners and subscriptions. Same-origin embedding only.
+
+Current `GET /api/graph` uses `ChangeSource.snapshot` and returns its associated
+cursor in `X-Researchgraph-Cursor`. It must not attach a later unrelated cursor
+to a separately scanned graph. Historical as-of reads do not advertise a live
+cursor and retain their ordinary limitations.
 
 ### Graph and profile read contracts
 
@@ -115,6 +120,7 @@ The events stream uses `--follow`, `--since CURSOR` and `--poll-interval SECONDS
 | Server | Arguments | Purpose |
 | --- | --- | --- |
 | `mcp` | `--as-agent NAME[:MODEL[:VERSION]]` or `--as-human`, `--role ROLE`, `--read-only` | Official optional SDK stdio server, full graph registry, launch-fixed authority; current discovery negotiation |
+| `serve` | `--host HOST`, `--port PORT`, `--open/--no-open`, `--as-agent NAME[:MODEL[:VERSION]]`, `--role ROLE`, `--read-only` | Optional loopback HTTP/SSE with one-use launch credentials, fixed project/actor/read-only and declared request roles |
 
 MCP and HTTP launchers are added with their implementation, outside graph-operation counts. Launcher help works without optional extras. HTTP SSE uses `GET /api/events`, full cursor in both `id:` and `Last-Event-ID`, and 15-second keepalive comments; one-second polling must observe external CLI claims within three seconds under the required fifty-running-node load. Replay includes only retained successors; reset means refetch. Slow/disconnected clients cannot leak unbounded buffers or resource owners.
 

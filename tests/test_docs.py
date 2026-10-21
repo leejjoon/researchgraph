@@ -559,8 +559,8 @@ def test_manual_reference_matches_spec_and_real_installed_help(tmp_path):
     spec = spec_commands((ROOT / "spec/operations.md").read_text())
     assert len(spec["Writes"]) == 18
     assert len(spec["Reads"]) == 19 and "export" in spec["Reads"]
-    assert len(installed) == 39
-    assert spec["Streams"] == {"events"} and spec["Servers"] == {"mcp"}
+    assert len(installed) == 40
+    assert spec["Streams"] == {"events"} and spec["Servers"] == {"mcp", "serve"}
     assert installed == set().union(*spec.values()), (
         "spec/help command inventory disagreement"
     )

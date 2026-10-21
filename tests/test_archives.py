@@ -47,8 +47,13 @@ INTERVAL_KEYS = (
 def archive_operations(request):
     """Select real archive calls, retaining native assertion owners and inputs."""
     export, import_ = Project.export, Project.import_
-    if request.param == "mcp":
-        from tests.door_helpers import import_mcp, operation_mcp
+    if request.param in {"mcp", "http"}:
+        if request.param == "mcp":
+            from tests.door_helpers import import_mcp as import_
+            from tests.door_helpers import operation_mcp as operation
+        else:
+            from tests.door_helpers import import_http as import_
+            from tests.door_helpers import operation_http as operation
 
         def export(project, path, **kwargs):
             # JSON paths/timestamps are logical tool arguments, not Python objects.
@@ -58,9 +63,8 @@ def archive_operations(request):
                 else value
                 for key, value in kwargs.items()
             }
-            return operation_mcp(project, "export", str(path), **arguments)
+            return operation(project, "export", str(path), **arguments)
 
-        import_ = import_mcp
     return SimpleNamespace(
         export=export, import_=import_, exported=partial(exported, operation=export)
     )

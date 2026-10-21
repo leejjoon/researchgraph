@@ -676,6 +676,43 @@ def mcp_command(ctx, as_human, preset, **local_options):
         _error(ctx, exc)
 
 
+@main.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", type=click.IntRange(0, 65535), default=0, show_default=True)
+@click.option("--open/--no-open", "open_browser", default=True, show_default=True)
+@_server_options
+@click.pass_context
+def serve_command(ctx, host, port, open_browser, **local_options):
+    """Serve optional authenticated HTTP/SSE with launch-fixed project and actor."""
+    options = _options(ctx, local_options)
+    try:
+        if options["now"] is not None or options["commit"] is not None:
+            raise RuleViolation(
+                "schema", "Supply now/commit on requests, not the server launcher"
+            )
+        if any(find_spec(package) is None for package in ("starlette", "uvicorn")):
+            raise RuleViolation(
+                "schema",
+                "HTTP requires its optional extra: install 'researchgraph[viewer]'",
+            )
+        from researchgraph.serve import serve
+
+        root = _project_root(options["project"])
+        serve(
+            root,
+            actor=_actor(root, options["as_agent"]),
+            role=options["role"],
+            read_only=bool(options["read_only"]),
+            host=host,
+            port=port,
+            open_browser=open_browser,
+        )
+    except KeyboardInterrupt:
+        return
+    except RuleViolation as exc:
+        _error(ctx, exc)
+
+
 @main.command("events")
 @click.option("--follow", is_flag=True)
 @click.option("--since", default=None)

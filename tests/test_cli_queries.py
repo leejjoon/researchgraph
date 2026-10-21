@@ -112,16 +112,19 @@ def query_reader(request):
     if request.param == "cli":
         return read_cli
 
-    from tests.door_helpers import invoke_mcp
+    if request.param == "http":
+        from tests.http_helpers import invoke_http as scenario_invoke
+    else:
+        from tests.door_helpers import invoke_mcp as scenario_invoke
 
-    def read_mcp(root, *arguments, deleted=False, **kwargs):
+    def read_protocol(root, *arguments, deleted=False, **kwargs):
         prepare_cache(root, deleted)
         before = source_snapshot(root)
-        result = invoke_mcp(root, *arguments, now=READ_NOW, **kwargs)
+        result = scenario_invoke(root, *arguments, now=READ_NOW, **kwargs)
         assert source_snapshot(root) == before
         return result
 
-    return read_mcp
+    return read_protocol
 
 
 def api(root, name, *args, now=READ_NOW, **kwargs):

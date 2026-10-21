@@ -1,5 +1,6 @@
 """Shared thin transport dispatch with launch-fixed authority and project root."""
 
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -10,15 +11,7 @@ from researchgraph.registry import OPERATIONS
 _BY_NAME = {operation["name"]: operation for operation in OPERATIONS}
 
 
-def execute(root, name, arguments, *, actor, role=None, read_only=False):
-    """Dispatch one registry operation; return its ordinary public JSON data.
-
-    Fix root/actor/role/read_only outside arguments. Check transport argument
-    names and missing parameters only; core methods retain business validation,
-    permission/error precedence and all source/index handling. Each call closes
-    its Project, including failures. Preserve omitted values, except Click's
-    empty repeated collectors, which map to empty arrays.
-    """
+def _prepare(name, arguments, *, actor, role=None, read_only=False):
     operation = _BY_NAME.get(name)
     if operation is None:
         raise RuleViolation("schema", f"Unknown operation: {name}")
@@ -52,6 +45,11 @@ def execute(root, name, arguments, *, actor, role=None, read_only=False):
         if type(commit) is not bool:
             raise RuleViolation("schema", "commit must be a boolean")
         context["commit"] = commit
+    return operation, values, context
+
+
+def _dispatch(root, operation, values, context, *, read_only=False, project=None):
+    name = operation["name"]
     root = Path(root).expanduser().resolve()
     if name in {"init", "import"}:
         destination = values.pop("path", None)
@@ -78,6 +76,24 @@ def execute(root, name, arguments, *, actor, role=None, read_only=False):
                 keyword[arg["name"]] = values[arg["name"]]
             else:
                 positional.append(values[arg["name"]])
-    with Project.open(root, read_only=read_only) as project:
+    with (
+        nullcontext(project)
+        if project is not None
+        else Project.open(root, read_only=read_only)
+    ) as owner:
         method = "profile_info" if name == "profile" else name
-        return getattr(project, method)(*positional, **keyword, **context)
+        return getattr(owner, method)(*positional, **keyword, **context)
+
+
+def execute(root, name, arguments, *, actor, role=None, read_only=False):
+    """Dispatch one registry operation and close its owned Project on every exit.
+
+    Authority stays outside arguments. Only transport names, presence and clock
+    encoding are checked here; public methods retain business validation and SQL.
+    Omission is preserved except Click's empty repeated collectors. HTTP uses the
+    same preparation/dispatch with its serialized lifespan-owned Project.
+    """
+    operation, values, context = _prepare(
+        name, arguments, actor=actor, role=role, read_only=read_only
+    )
+    return _dispatch(root, operation, values, context, read_only=read_only)

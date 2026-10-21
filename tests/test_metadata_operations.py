@@ -91,13 +91,15 @@ def metadata_project(
     return Project.init(repository(path), profile="metadata", **CALL)
 
 
-def test_expand_acceptance_only_one_task_and_no_target_mutation(project, index_mode):
+def test_expand_acceptance_only_one_task_and_no_target_mutation(
+    public_operation, project, index_mode
+):
     h = active_hypothesis(project)
     before_nodes = {n.id: n.to_dict() for n in project.get_nodes()}
     before_edges = project.get_edges()
     targets = [h["id"]]
     cold(project, index_mode)
-    value = project.expand(
+    value = public_operation(project, "expand")(
         targets, "try two-component fit", actor=ALICE, role="owner", now=LATER
     )
     assert value == load_node(project.path / f"graph/nodes/{value['id']}.yaml")
@@ -122,18 +124,22 @@ def test_expand_acceptance_only_one_task_and_no_target_mutation(project, index_m
 
 
 @pytest.mark.parametrize("hint", [None, "", "first line\nsecond line"])
-def test_expand_title_order_truncation_and_optional_hint(project, index_mode, hint):
+def test_expand_title_order_truncation_and_optional_hint(
+    public_operation, project, index_mode, hint
+):
     a = project.propose("Task", "a" * 195, **CALL)
     b = project.propose("Task", "b" * 20, **CALL)
     cold(project, index_mode)
-    value = project.expand([b["id"], a["id"]], hint, **CALL)
+    value = public_operation(project, "expand")([b["id"], a["id"]], hint, **CALL)
     assert value["title"] == ("Expand: " + b["title"] + ", " + a["title"])[:200]
     assert len(value["title"]) == 200
     assert value["body"] == (hint or "")
     assert value["fields"]["targets"] == [b["id"], a["id"]]
 
 
-def test_expand_empty_unknown_reference_and_human_only_are_atomic(project, index_mode):
+def test_expand_empty_unknown_reference_and_human_only_are_atomic(
+    public_operation, project, index_mode
+):
     target = project.propose("Task", "T", **CALL)["id"]
     edge = project.link(
         "part-of", target, project.propose("Task", "parent", **CALL)["id"], **CALL
@@ -146,7 +152,7 @@ def test_expand_empty_unknown_reference_and_human_only_are_atomic(project, index
         ("human_only_approval", [target], BOT),
     ]:
         before = source(project)
-        refusal(rule, project.expand, nodes, actor=actor, now=NOW)
+        refusal(rule, public_operation(project, "expand"), nodes, actor=actor, now=NOW)
         assert source(project) == before
 
 
@@ -172,30 +178,41 @@ def test_expand_empty_unknown_reference_and_human_only_are_atomic(project, index
         (TASK_SCHEMA, False),
     ],
 )
-def test_expand_reserved_vocabulary_refusal(tmp_path, index_mode, schema, declared):
+def test_expand_reserved_vocabulary_refusal(
+    public_operation, tmp_path, index_mode, schema, declared
+):
     with metadata_project(tmp_path, task_schema=schema, task_type=declared) as project:
         target = project.propose("Note", "target", **CALL)["id"]
         cold(project, index_mode)
         before = source(project)
-        refusal("unsupported_by_profile", project.expand, [target], **CALL)
+        refusal(
+            "unsupported_by_profile",
+            public_operation(project, "expand"),
+            [target],
+            **CALL,
+        )
         assert source(project) == before
 
 
 def test_expand_empty_targets_remain_operation_error_with_minimum_items(
-    tmp_path, index_mode
+    public_operation, tmp_path, index_mode
 ):
     schema = deepcopy(TASK_SCHEMA)
     schema["properties"]["targets"]["minItems"] = 1
     with metadata_project(tmp_path, task_schema=schema) as project:
         target = project.propose("Note", "target", **CALL)["id"]
-        assert project.expand([target], **CALL)["fields"]["targets"] == [target]
+        assert public_operation(project, "expand")([target], **CALL)["fields"][
+            "targets"
+        ] == [target]
         cold(project, index_mode)
         before = source(project)
-        refusal("no_targets", project.expand, [], **CALL)
+        refusal("no_targets", public_operation(project, "expand"), [], **CALL)
         assert source(project) == before
 
 
-def test_expand_gate_and_never_calls_expansion_hook(tmp_path, index_mode):
+def test_expand_gate_and_never_calls_expansion_hook(
+    public_operation, tmp_path, index_mode
+):
     calls = []
 
     def forbidden(*args, **kwargs):
@@ -205,13 +222,15 @@ def test_expand_gate_and_never_calls_expansion_hook(tmp_path, index_mode):
     with metadata_project(tmp_path, gated=True, expansion_hook=forbidden) as project:
         target = project.propose("Note", "target", **CALL)["id"]
         cold(project, index_mode)
-        value = project.expand([target], **CALL)
+        value = public_operation(project, "expand")([target], **CALL)
         assert value["status"] == "proposed" and value["body"] == ""
         assert value["id"] not in {n["id"] for n in project.ready(**CALL)["items"]}
         assert calls == []
 
 
-def test_budget_exact_replacement_clearing_events_and_no_alias(project, index_mode):
+def test_budget_exact_replacement_clearing_events_and_no_alias(
+    public_operation, project, index_mode
+):
     h = active_hypothesis(project)
     cold(project, index_mode)
     for seconds, arguments, expected, note in [
@@ -229,7 +248,9 @@ def test_budget_exact_replacement_clearing_events_and_no_alias(project, index_mo
     ]:
         previous = project.get_node(h["id"]).to_dict()
         now = NOW + timedelta(seconds=seconds)
-        value = project.budget(h["id"], actor=ALICE, role="owner", now=now, **arguments)
+        value = public_operation(project, "budget")(
+            h["id"], actor=ALICE, role="owner", now=now, **arguments
+        )
         unchanged(previous, value)
         assert value["budget"] == expected
         assert value["approvals"][:-1] == previous["approvals"]
@@ -260,26 +281,37 @@ def test_budget_exact_replacement_clearing_events_and_no_alias(project, index_mo
         ({}, "schema"),
     ],
 )
-def test_budget_invalid_values_are_atomic(project, index_mode, dimension, value, rule):
+def test_budget_invalid_values_are_atomic(
+    public_operation, project, index_mode, dimension, value, rule
+):
     target = project.propose("Task", "T", **CALL)["id"]
     cold(project, index_mode)
     before = source(project)
-    refusal(rule, project.budget, target, **{dimension: value}, **CALL)
+    refusal(
+        rule, public_operation(project, "budget"), target, **{dimension: value}, **CALL
+    )
     assert source(project) == before
 
 
-def test_budget_human_only(project, index_mode):
+def test_budget_human_only(public_operation, project, index_mode):
     target = project.propose("Task", "T", **CALL)["id"]
     cold(project, index_mode)
     before = source(project)
-    refusal("human_only_approval", project.budget, target, tokens=1, actor=BOT, now=NOW)
+    refusal(
+        "human_only_approval",
+        public_operation(project, "budget"),
+        target,
+        tokens=1,
+        actor=BOT,
+        now=NOW,
+    )
     assert source(project) == before
 
 
 @pytest.mark.parametrize("dimension", ["tokens", "compute_seconds"])
 @pytest.mark.parametrize("limit,spent", [(0, 0), (1000, 1000), (1000, 1200)])
 def test_budget_inclusive_limits_actual_usage_and_ancestor_exclusion(
-    project, index_mode, dimension, limit, spent
+    public_operation, project, index_mode, dimension, limit, spent
 ):
     h, p, t = branch(project)
     sibling = project.propose("Task", "sibling", **CALL)["id"]
@@ -289,21 +321,23 @@ def test_budget_inclusive_limits_actual_usage_and_ancestor_exclusion(
         project.claim(t, actor=BOT, now=NOW)
         project.release(t, usage={dimension: spent}, actor=BOT, now=NOW)
     cold(project, index_mode)
-    project.budget(h, **{dimension: limit}, **CALL)
+    public_operation(project, "budget")(h, **{dimension: limit}, **CALL)
     assert project.show(h, **CALL)["flags"]["over_budget"]
     assert {n["id"] for n in project.where(over_budget=True, **CALL)} == {h}
     ready = {n["id"] for n in project.ready(**CALL)["items"]}
     assert not {t, sibling} & ready and unrelated in ready
     refusal("not_ready", project.claim, t, actor=BOT, now=NOW)
     assert {n["id"] for n in project.subtree(h, **CALL)["nodes"]} == {h, p, t, sibling}
-    project.budget(h, **CALL)
+    public_operation(project, "budget")(h, **CALL)
     assert {t, sibling} <= {n["id"] for n in project.ready(**CALL)["items"]}
 
 
-def test_zero_both_budget_dimensions_stop_unspent_descendants(project, index_mode):
+def test_zero_both_budget_dimensions_stop_unspent_descendants(
+    public_operation, project, index_mode
+):
     h, _, t = branch(project)
     cold(project, index_mode)
-    value = project.budget(h, tokens=0, compute_seconds=0, **CALL)
+    value = public_operation(project, "budget")(h, tokens=0, compute_seconds=0, **CALL)
     assert value["budget"] == {"tokens": 0, "compute_seconds": 0}
     assert value["approvals"][-1]["note"] == "tokens=0 compute_seconds=0"
     assert project.get_node(t).usage is None
@@ -312,13 +346,15 @@ def test_zero_both_budget_dimensions_stop_unspent_descendants(project, index_mod
     refusal("not_ready", project.claim, t, actor=BOT, now=NOW)
 
 
-def test_budget_retired_addresses_usage_survives_supersession(project, index_mode):
+def test_budget_retired_addresses_usage_survives_supersession(
+    public_operation, project, index_mode
+):
     h, p, t = branch(project)
     project.budget(h, tokens=1000, **CALL)
     project.claim(t, actor=BOT, now=NOW)
     project.complete(t, "spent", usage={"tokens": 1200}, actor=BOT, now=NOW)
     cold(project, index_mode)
-    replacement = project.supersede(t, actor=BOT, now=LATER)
+    replacement = public_operation(project, "supersede")(t, actor=BOT, now=LATER)
     call = {"actor": ALICE, "now": LATER}
     assert project.show(h, **call)["flags"]["over_budget"]
     assert not project.show(replacement["id"], **call)["flags"]["ready"]
@@ -333,7 +369,7 @@ def test_budget_retired_addresses_usage_survives_supersession(project, index_mod
     refusal("not_ready", project.claim, replacement["id"], actor=BOT, now=LATER)
 
 
-def test_accounting_diamond_never_double_counts(project, index_mode):
+def test_accounting_diamond_never_double_counts(public_operation, project, index_mode):
     h, p, t = branch(project)
     project.link("part-of", t, h, **CALL)
     project.claim(t, actor=BOT, now=NOW)
@@ -341,21 +377,21 @@ def test_accounting_diamond_never_double_counts(project, index_mode):
         t, "spent", usage={"tokens": 600, "compute_seconds": 3}, actor=BOT, now=NOW
     )
     cold(project, index_mode)
-    project.budget(h, tokens=1000, compute_seconds=6, **CALL)
+    public_operation(project, "budget")(h, tokens=1000, compute_seconds=6, **CALL)
     assert project.subtree(h, **CALL)["usage"] == {"tokens": 600, "compute_seconds": 3}
     assert not project.show(h, **CALL)["flags"]["over_budget"]
     assert {n["id"] for n in project.subtree(p, **CALL)["nodes"]} == {p, t}
 
 
 def test_tag_sorted_unique_where_priority_omitted_null_updated_only(
-    project, index_mode
+    public_operation, project, index_mode
 ):
     a = project.propose("Task", "A", **CALL)
     b = project.propose("Task", "B", **CALL)
     project.claim(b["id"], actor=BOT, now=NOW)
     original = project.release(b["id"], actor=BOT, now=NOW)
     cold(project, index_mode)
-    changed = project.tag(
+    changed = public_operation(project, "tag")(
         b["id"], add=["z", "needs-review", "z", "a"], priority=5, actor=BOT, now=LATER
     )
     assert changed["tags"] == ["a", "needs-review", "z"]
@@ -367,12 +403,14 @@ def test_tag_sorted_unique_where_priority_omitted_null_updated_only(
     call = {"actor": ALICE, "now": LATER}
     assert [n["id"] for n in project.ready(**call)["items"]] == [b["id"], a["id"]]
     assert [n["id"] for n in project.where(tag="needs-review", **call)] == [b["id"]]
-    changed = project.tag(
+    changed = public_operation(project, "tag")(
         b["id"], remove=["needs-review", "absent"], actor=BOT, now=LATER
     )
     assert changed["priority"] == 5 and changed["tags"] == ["a", "z"]
     assert project.where(tag="needs-review", **call) == []
-    changed = project.tag(b["id"], priority=None, actor=ALICE, now=LATER)
+    changed = public_operation(project, "tag")(
+        b["id"], priority=None, actor=ALICE, now=LATER
+    )
     assert changed["priority"] is None
     assert changed["approvals"] == original["approvals"]
     assert [n["id"] for n in project.ready(**call)["items"]] == sorted(
@@ -392,17 +430,19 @@ def test_tag_sorted_unique_where_priority_omitted_null_updated_only(
         {"remove": [None]},
     ],
 )
-def test_tag_invalid_metadata_is_atomic(project, arguments):
+def test_tag_invalid_metadata_is_atomic(public_operation, project, arguments):
     target = project.propose("Task", "T", **CALL)["id"]
     before = source(project)
-    refusal("schema", project.tag, target, **arguments, **CALL)
+    refusal("schema", public_operation(project, "tag"), target, **arguments, **CALL)
     assert source(project) == before
 
 
 @pytest.mark.parametrize(
     "status", ["proposed", "active", "running", "done", "failed", "retired"]
 )
-def test_attach_every_status_except_retired(project, index_mode, status):
+def test_attach_every_status_except_retired(
+    public_operation, project, index_mode, status
+):
     type_ = "Hypothesis" if status == "proposed" else "Task"
     target = project.propose(type_, "target", actor=BOT, now=NOW)["id"]
     if status in {"running", "done", "failed"}:
@@ -421,7 +461,7 @@ def test_attach_every_status_except_retired(project, index_mode, status):
             before = source(project)
             refusal(
                 "terminal_status",
-                project.attach,
+                public_operation(project, "attach"),
                 target,
                 [relative],
                 actor=actor,
@@ -429,7 +469,9 @@ def test_attach_every_status_except_retired(project, index_mode, status):
             )
             assert source(project) == before
     else:
-        value = project.attach(target, [relative], actor=BOT, now=LATER)
+        value = public_operation(project, "attach")(
+            target, [relative], actor=BOT, now=LATER
+        )
         unchanged(previous, value)
         assert value["status"] == status
         assert value["lease"] == previous["lease"]
@@ -437,7 +479,9 @@ def test_attach_every_status_except_retired(project, index_mode, status):
         assert value["artifacts"][-1]["path"] == relative
 
 
-def test_attach_real_bytes_repeated_path_since_and_scoped_commit(project, index_mode):
+def test_attach_real_bytes_repeated_path_since_and_scoped_commit(
+    public_operation, project, index_mode
+):
     target = project.propose("Result", "R1", actor=BOT, now=NOW)["id"]
     data = b"a" * (2 * 1024 * 1024) + b"\x00\xfflast bytes"
     relative = artifact(project, target, "fig2.png", data)
@@ -445,7 +489,9 @@ def test_attach_real_bytes_repeated_path_since_and_scoped_commit(project, index_
     (project.path / "unrelated").write_text("staged", encoding="utf-8")
     git(project.path, "add", "unrelated")
     cold(project, index_mode)
-    first = project.attach(target, [relative], actor=BOT, now=LATER)
+    first = public_operation(project, "attach")(
+        target, [relative], actor=BOT, now=LATER
+    )
     expected = {
         "path": relative,
         "sha256": hashlib.sha256(data).hexdigest(),
@@ -468,7 +514,9 @@ def test_attach_real_bytes_repeated_path_since_and_scoped_commit(project, index_
     assert [n["id"] for n in project.since(NOW, actor=ALICE, now=LATER)] == [target]
     artifact(project, target, "fig2.png", b"replacement")
     now = NOW + timedelta(seconds=2)
-    second = project.attach(target, [relative], actor=ALICE, now=now)
+    second = public_operation(project, "attach")(
+        target, [relative], actor=ALICE, now=now
+    )
     assert second["artifacts"][0] == expected and len(second["artifacts"]) == 2
     assert (
         second["artifacts"][1]["sha256"] == hashlib.sha256(b"replacement").hexdigest()
@@ -479,14 +527,18 @@ def test_attach_real_bytes_repeated_path_since_and_scoped_commit(project, index_
     assert project.get_node(target).to_dict()["artifacts"][0] == expected
 
 
-def test_done_task_accepts_second_artifact_in_addition_order(project, index_mode):
+def test_done_task_accepts_second_artifact_in_addition_order(
+    public_operation, project, index_mode
+):
     target = project.propose("Task", "T", **CALL)["id"]
     first = artifact(project, target, "first", b"one")
     second = artifact(project, target, "second", b"two")
     project.claim(target, actor=BOT, now=NOW)
     project.complete(target, "done", [first], actor=BOT, now=NOW)
     cold(project, index_mode)
-    value = project.attach(target, [second], actor=ALICE, now=LATER)
+    value = public_operation(project, "attach")(
+        target, [second], actor=ALICE, now=LATER
+    )
     assert [a["path"] for a in value["artifacts"]] == [first, second]
     assert value["status"] == "done"
 
@@ -505,7 +557,7 @@ def test_done_task_accepts_second_artifact_in_addition_order(project, index_mode
     ],
 )
 def test_attach_bad_path_precedes_missing_and_multifile_atomicity(
-    project, index_mode, bad
+    public_operation, project, index_mode, bad
 ):
     target = project.propose("Task", "T", **CALL)["id"]
     other = project.propose("Task", "other", **CALL)["id"]
@@ -514,7 +566,7 @@ def test_attach_bad_path_precedes_missing_and_multifile_atomicity(
     before = source(project)
     refusal(
         "artifact_path",
-        project.attach,
+        public_operation(project, "attach"),
         target,
         [good, f"artifacts/{target}/missing", bad.format(id=target, other=other)],
         actor=BOT,
@@ -533,7 +585,7 @@ def test_attach_bad_path_precedes_missing_and_multifile_atomicity(
     ],
 )
 def test_attach_missing_symlink_and_atomic_multi_file_failure(
-    project, index_mode, kind, rule
+    public_operation, project, index_mode, kind, rule
 ):
     target = project.propose("Task", "T", **CALL)["id"]
     good = artifact(project, target, "good")
@@ -549,18 +601,27 @@ def test_attach_missing_symlink_and_atomic_multi_file_failure(
         path.parent.symlink_to(project.path / "graph", target_is_directory=True)
     cold(project, index_mode)
     before = source(project)
-    refusal(rule, project.attach, target, [good, relative], actor=BOT, now=NOW)
+    refusal(
+        rule,
+        public_operation(project, "attach"),
+        target,
+        [good, relative],
+        actor=BOT,
+        now=NOW,
+    )
     assert source(project) == before
     assert (project.path / good).read_bytes() == b"hello"
 
 
-def test_note_about_preserves_target_and_newest_order(project, index_mode):
+def test_note_about_preserves_target_and_newest_order(
+    public_operation, project, index_mode
+):
     h = active_hypothesis(project)
     first = project.propose(
         "Note", "older", edges=[{"type": "about", "to": h["id"]}], actor=BOT, now=NOW
     )
     cold(project, index_mode)
-    second = project.propose(
+    second = public_operation(project, "propose")(
         "Note",
         "looks degenerate with H2",
         edges=[{"type": "about", "to": h["id"]}],
@@ -574,7 +635,9 @@ def test_note_about_preserves_target_and_newest_order(project, index_mode):
     assert project.get_node(h["id"]).to_dict() == h
 
 
-def test_pins_require_recorded_artifact_on_target_result(project, index_mode):
+def test_pins_require_recorded_artifact_on_target_result(
+    public_operation, project, index_mode
+):
     h = active_hypothesis(project)["id"]
     result = project.propose("Result", "R", **CALL)["id"]
     other = project.propose("Result", "other", **CALL)["id"]
@@ -585,18 +648,26 @@ def test_pins_require_recorded_artifact_on_target_result(project, index_mode):
     before = source(project)
     # Existing bytes alone are not a recorded Result artifact.
     refusal(
-        "schema", project.link, "pins", h, result, fields={"artifact": relative}, **CALL
+        "schema",
+        public_operation(project, "link"),
+        "pins",
+        h,
+        result,
+        fields={"artifact": relative},
+        **CALL,
     )
     assert source(project) == before
-    project.attach(result, [relative], **CALL)
-    pin = project.link("pins", h, result, fields={"artifact": relative}, **CALL)
+    public_operation(project, "attach")(result, [relative], **CALL)
+    pin = public_operation(project, "link")(
+        "pins", h, result, fields={"artifact": relative}, **CALL
+    )
     assert pin in project.show(h, **CALL)["pins"]
     for path in [other_path, f"artifacts/{result}/unrecorded"]:
         candidate = project.propose("Hypothesis", "another pin source", **CALL)["id"]
         before = source(project)
         refusal(
             "schema",
-            project.link,
+            public_operation(project, "link"),
             "pins",
             candidate,
             result,
@@ -607,7 +678,7 @@ def test_pins_require_recorded_artifact_on_target_result(project, index_mode):
     before = source(project)
     refusal(
         "schema",
-        project.propose,
+        public_operation(project, "propose"),
         "Hypothesis",
         "bad pin",
         edges=[{"type": "pins", "to": result, "fields": {"artifact": other_path}}],
@@ -616,7 +687,9 @@ def test_pins_require_recorded_artifact_on_target_result(project, index_mode):
     assert source(project) == before
 
 
-def test_part_of_cycles_and_actual_subtree_accounting(project, index_mode):
+def test_part_of_cycles_and_actual_subtree_accounting(
+    public_operation, project, index_mode
+):
     q1 = project.propose("Question", "Q1", **CALL)["id"]
     q2 = project.propose(
         "Question", "Q2", edges=[{"type": "part-of", "to": q1}], **CALL
@@ -631,9 +704,9 @@ def test_part_of_cycles_and_actual_subtree_accounting(project, index_mode):
     assert tree["usage"] == {"tokens": 1200, "compute_seconds": 0}
     assert tree["status_counts"] == {"active": 3, "done": 1, "proposed": 1}
     before = source(project)
-    refusal("cycle", project.link, "part-of", q1, q2, **CALL)
+    refusal("cycle", public_operation(project, "link"), "part-of", q1, q2, **CALL)
     assert source(project) == before
-    project.budget(h, tokens=1000, **CALL)
+    public_operation(project, "budget")(h, tokens=1000, **CALL)
     assert h in {n["id"] for n in project.where(over_budget=True, **CALL)}
     assert not {n["id"] for n in project.subtree(h, **CALL)["nodes"]} & {
         n["id"] for n in project.ready(**CALL)["items"]
@@ -641,7 +714,9 @@ def test_part_of_cycles_and_actual_subtree_accounting(project, index_mode):
 
 
 @pytest.mark.parametrize("operation", ["expand", "budget", "tag", "attach"])
-def test_metadata_shared_preflight_and_read_only_rollback(project, operation):
+def test_metadata_shared_preflight_and_read_only_rollback(
+    public_operation, project, operation
+):
     target = project.propose("Task", "T", **CALL)["id"]
     relative = artifact(project, target)
     args = {
@@ -650,7 +725,7 @@ def test_metadata_shared_preflight_and_read_only_rollback(project, operation):
         "tag": (target,),
         "attach": (target, [relative]),
     }[operation]
-    fn = getattr(project, operation)
+    fn = public_operation(project, operation)
     before = source(project)
     refusal("wrong_role", fn, *args, actor=ALICE, role="unknown", now=NOW)
     project.read_only = True
@@ -662,7 +737,9 @@ def test_metadata_shared_preflight_and_read_only_rollback(project, operation):
 
 @pytest.mark.parametrize("operation", ["expand", "budget", "tag", "attach"])
 @pytest.mark.parametrize("commit", [True, False])
-def test_metadata_callbacks_and_no_commit_contract(tmp_path, operation, commit):
+def test_metadata_callbacks_and_no_commit_contract(
+    public_operation, tmp_path, operation, commit
+):
     events, validations = [], []
     with metadata_project(
         tmp_path,
@@ -681,7 +758,9 @@ def test_metadata_callbacks_and_no_commit_contract(tmp_path, operation, commit):
             "attach": (target, [relative]),
         }[operation]
         kwargs = {"add": ["review"]} if operation == "tag" else {}
-        value = getattr(project, operation)(*args, **kwargs, **CALL, commit=commit)
+        value = public_operation(project, operation)(
+            *args, **kwargs, **CALL, commit=commit
+        )
         assert validations == [operation]
         assert value == load_node(project.path / f"graph/nodes/{value['id']}.yaml")
         if commit:
@@ -694,6 +773,7 @@ def test_metadata_callbacks_and_no_commit_contract(tmp_path, operation, commit):
 def test_metadata_midwrite_failure_rolls_back_without_event(
     project, operation, monkeypatch
 ):
+    """Native-only transaction fault and live-owner hook injection."""
     from researchgraph.store import transaction
 
     target = project.propose("Task", "T", **CALL)["id"]
@@ -736,7 +816,7 @@ def test_metadata_midwrite_failure_rolls_back_without_event(
         max_size=5,
     )
 )
-def test_each_metadata_operation_i1_i2_i7_i8(operation, actions):
+def test_each_metadata_operation_i1_i2_i7_i8(public_operation, operation, actions):
     with (
         TemporaryDirectory() as directory,
         Project.init(repository(Path(directory)), **CALL) as project,
@@ -773,7 +853,7 @@ def test_each_metadata_operation_i1_i2_i7_i8(operation, actions):
             if agent and operation in {"expand", "budget"}:
                 refusal(
                     "human_only_approval",
-                    getattr(project, operation),
+                    public_operation(project, operation),
                     *args,
                     **kwargs,
                     actor=actor,
@@ -782,7 +862,7 @@ def test_each_metadata_operation_i1_i2_i7_i8(operation, actions):
                 )
                 assert source(project) == before
             else:
-                value = getattr(project, operation)(
+                value = public_operation(project, operation)(
                     *args, **kwargs, actor=actor, now=now, commit=commit
                 )
                 assert value["id"] in {n.id for n in project.get_nodes()}
@@ -808,7 +888,7 @@ def test_each_metadata_operation_i1_i2_i7_i8(operation, actions):
             project.read_only = True
             refusal(
                 "read_only",
-                getattr(project, operation),
+                public_operation(project, operation),
                 *args,
                 **kwargs,
                 actor=actor,

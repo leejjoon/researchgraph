@@ -24,6 +24,10 @@ def scenario_invoke(door):
         from tests.door_helpers import invoke_mcp
 
         return invoke_mcp
+    if door == "http":
+        from tests.http_helpers import invoke_http
+
+        return invoke_http
     return invoke
 
 
@@ -95,7 +99,13 @@ def test_type_only_lookup_and_exact_scalar_conjunction():
 
 
 @pytest.mark.parametrize(
-    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+    "door",
+    [
+        "api",
+        pytest.param("cli", marks=pytest.mark.cli),
+        "mcp",
+        pytest.param("http", marks=pytest.mark.http),
+    ],
 )
 def test_all_constructors_defaults_roles_and_claim(
     tmp_path, index_mode, door, monkeypatch, invoke
@@ -247,7 +257,9 @@ def test_random_materialised_gates_and_approval_permission(case, actor_kind, rol
 
 
 @pytest.mark.parametrize("review", [False, True])
-@pytest.mark.parametrize("door", ["api", "mcp"])
+@pytest.mark.parametrize(
+    "door", ["api", "mcp", pytest.param("http", marks=pytest.mark.http)]
+)
 def test_generated_default_matching_and_nonmatching(
     tmp_path, index_mode, review, door, invoke, monkeypatch
 ):
@@ -286,7 +298,9 @@ def test_generated_default_matching_and_nonmatching(
         assert failures[0]["status"] == ("proposed" if review else "active")
 
 
-@pytest.mark.parametrize("door", ["api", "mcp"])
+@pytest.mark.parametrize(
+    "door", ["api", "mcp", pytest.param("http", marks=pytest.mark.http)]
+)
 def test_nonmatching_gates_never_grant_or_remove_agent_authority(
     tmp_path, door, invoke
 ):

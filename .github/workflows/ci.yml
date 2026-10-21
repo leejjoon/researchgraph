@@ -38,7 +38,7 @@ jobs:
           uv venv .venv --python "$(command -v python)"
           source .venv/bin/activate
           echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
-          uv pip install -e '.[test,mcp]' -e tests/testprofiles "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
+          uv pip install -e '.[test,mcp,viewer]' -e tests/testprofiles "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
           uv --version | tee "$evidence/uv.txt"
           uv pip freeze | tee "$evidence/dependencies.txt"
           git --version | tee "$evidence/git.txt"
@@ -82,7 +82,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests -m cli --protocol-fixtures core --index-mode '${{ matrix.index-mode }}' --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli.xml' --basetemp='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli-tmp' | tee '${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli.txt'
+          python -m pytest tests -m cli --protocol-fixtures core --query-door cli --index-mode '${{ matrix.index-mode }}' --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli.xml' --basetemp='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli-tmp' | tee '${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli.txt'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -114,7 +114,7 @@ jobs:
           uv venv .venv --python "$(command -v python)"
           source .venv/bin/activate
           echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
-          uv pip install -e '.[test,mcp]' -e tests/testprofiles "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
+          uv pip install -e '.[test,mcp,viewer]' -e tests/testprofiles "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
           uv --version | tee "$evidence/uv.txt"
           uv pip freeze | tee "$evidence/dependencies.txt"
           git --version | tee "$evidence/git.txt"
@@ -152,7 +152,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/test_packaging.py tests/test_mcp_packaging.py tests/test_cli_version.py::test_installed_cli_version tests/test_runner.py tests/test_docs.py tests/test_notebook.py --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/distribution.xml' --basetemp='${{ runner.temp }}/scale/distribution-tmp' | tee '${{ runner.temp }}/scale/distribution.txt'
+          python -m pytest tests/test_packaging.py tests/test_mcp_packaging.py tests/test_serve.py tests/test_serve_artifacts.py tests/test_serve_events.py tests/test_serve_packaging.py tests/test_cli_version.py::test_installed_cli_version tests/test_runner.py tests/test_docs.py tests/test_notebook.py --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/distribution.xml' --basetemp='${{ runner.temp }}/scale/distribution-tmp' | tee '${{ runner.temp }}/scale/distribution.txt'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -233,7 +233,7 @@ jobs:
             tests/test_archives.py::test_canonical_members_metadata_long_unicode_and_current_artifact_bytes \
             tests/test_archives.py::test_frozen_canonical_pax_header_bytes_without_payload \
             tests/test_archives.py::test_export_as_of_selects_current_bytes_and_complete_history \
-            --protocol-fixtures core --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 \
+            --protocol-fixtures core --query-door cli --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 \
             --junitxml='${{ runner.temp }}/compatibility-${{ matrix.python }}/focused.xml' \
             --basetemp='${{ runner.temp }}/compatibility-${{ matrix.python }}/focused-tmp' \
             | tee '${{ runner.temp }}/compatibility-${{ matrix.python }}/focused.txt'

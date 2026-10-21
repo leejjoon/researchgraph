@@ -5,7 +5,7 @@ and bundled profiles research 1.0 and tasks 1.0. This is descriptive documentati
 not a replacement for the [normative operations](../spec/operations.md). Report
 implementation/specification disagreements rather than editing the spec to satisfy
 these examples. The [user manual](user-manual.md) supplies the complete 37-graph-command
-reference, the events stream, optional MCP server and everyday concepts; the [research tutorial](research-tutorial.ipynb)
+reference, the events stream, optional MCP/HTTP servers and everyday concepts; the [research tutorial](research-tutorial.ipynb)
 is a synthetic experiment with explicitly simulated human approvals.
 
 ## Installation from source or a local wheel
@@ -139,6 +139,48 @@ promise: a cancelled write can still commit. Official stdio stream ownership
 keeps even callback stdout out of protocol framing; diagnostic output belongs
 on stderr. Real installed transport and isolated core/extra wheel consumers are
 tested separately from memory-client domain scenarios.
+
+## Optional HTTP/SSE contract
+
+Install `researchgraph[viewer]` for Starlette/Uvicorn; neither belongs in the core
+dependencies or launcher-help imports. `rg serve` fixes root/actor/read-only at
+launch, human Git identity by default or explicit `--as-agent`. Role is declared
+per request. Loopback only, ephemeral port by default; `--no-open` suppresses the
+browser but still prints the private one-use fragment URL. The static host strips
+that fragment before the JSON session exchange. No query credentials or access logs.
+
+`researchgraph.serve.create_app(root, actor=..., role=None, read_only=False, origin=...)`
+returns the ASGI app; set origin to the actual bound HTTP loopback origin. Its
+lifespan constructs and closes one Project and borrowed ChangeSource in the serving
+thread. Requests and one-second polling share one async serialization condition,
+not a persistent core writer lock. HTTP and MCP use the same registry preparation
+and ordinary public dispatch; no SQL or copied graph validators live here.
+
+POST `/api/session` exchanges the instance's one-use token for a host-only,
+HttpOnly, SameSite Strict cookie. API/SSE/downloads require it and the matching
+Host. Reads may omit Origin; exchange/writes must supply the exact Origin, and
+foreign origins always fail. All responses are no-store/no-referrer. Actor/root/
+read-only cannot come from request arguments. Initializer destinations must equal
+the selected root; read-only write preflight precedes bad clocks or archives.
+
+GET `/api/operations` returns the bare registry. GET `/api/NAME` reads use JSON
+for structured/repeated query values (JSON strings are also accepted); POST writes
+take object bodies. Optional now and write commit preserve ordinary semantics;
+role is request context. Values/envelopes remain those of the public operations.
+RuleViolation is 422 with rule/message/ids, project-open failure 503, authentication/
+authority 403 without disclosure. Current `/api/graph` calls ChangeSource.snapshot
+and advertises exactly its X-Researchgraph-Cursor; as-of reads advertise no live
+cursor. `/api/events` uses the full cursor for id/Last-Event-ID, successor replay,
+reset/refetch and 15-second keepalive comments. No per-client unbounded queue or
+persistent log; a disconnected client catches up or resets against bounded retention.
+
+`/artifacts/NODE/PATH` accepts only that node's registered existing regular files.
+Decoded and multiply encoded traversal, symlinks and path swaps fail without path
+disclosure. Directory-relative no-follow descriptor opening holds containment
+through the final open, and response/disconnect cleanup closes the file. Responses
+are octet-stream, attachment with encoded basename, nosniff; hostile HTML/SVG stays
+inert. The wheel contains the static bootstrap assets. Transport authentication
+is not a filesystem sandbox, cryptographic actor identity or unassisted-agent proof.
 
 ## Wrapper contracts, errors and durability
 

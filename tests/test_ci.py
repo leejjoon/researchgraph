@@ -49,11 +49,55 @@ def test_mcp_is_optional_and_primary_jobs_admit_its_required_tests():
         for name, job in workflow["jobs"].items()
     }
     for name in ("acceptance", "scale"):
-        assert "-e '.[test,mcp]'" in scripts[name]
+        assert "-e '.[test,mcp,viewer]'" in scripts[name]
     compatibility = scripts["compatibility"]
     assert "-e '.[test]'" in compatibility and "mcp]" not in compatibility
     assert "--protocol-fixtures core" in compatibility
     assert "tests/test_mcp_packaging.py" in scripts["scale"]
+
+
+def test_viewer_is_optional_and_primary_jobs_admit_required_http_tests():
+    metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    extras = metadata["project"]["optional-dependencies"]
+    assert extras["viewer"] == ["starlette>=1.9,<2", "uvicorn>=0.54,<1"]
+    assert "httpx>=0.28.1,<1" in extras["test"]
+    assert "httpx2>=2.16,<3" in extras["test"]
+    assert not any(
+        re.split(r"[<>=!~\[]", item)[0]
+        in {"starlette", "uvicorn", "httpx", "httpx2", "mcp"}
+        for item in metadata["project"]["dependencies"]
+    )
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    scripts = {
+        name: "\n".join(step.get("run", "") for step in job["steps"])
+        for name, job in workflow["jobs"].items()
+    }
+    for name in ("acceptance", "scale"):
+        assert "-e '.[test,mcp,viewer]'" in scripts[name]
+        assert "not http" not in scripts[name]
+    assert re.search(r"python -m pytest\s+tests\s", scripts["acceptance"])
+    console_commands = [
+        line
+        for line in scripts["acceptance"].splitlines()
+        if "python -m pytest tests -m cli " in line
+    ]
+    assert len(console_commands) == 1
+    assert "--protocol-fixtures core --query-door cli" in console_commands[0]
+    for target in (
+        "tests/test_serve.py",
+        "tests/test_serve_artifacts.py",
+        "tests/test_serve_events.py",
+        "tests/test_serve_packaging.py",
+    ):
+        assert target in scripts["scale"]
+    compatibility = scripts["compatibility"]
+    assert "-e '.[test]'" in compatibility
+    assert "viewer]" not in compatibility and "mcp]" not in compatibility
+    assert "--protocol-fixtures core" in compatibility
+    assert "--query-door cli" in compatibility
+    assert "tests/test_serve" not in compatibility
 
 
 def test_notebook_ci_execution_targets_are_separate_from_compatibility():
@@ -222,7 +266,7 @@ def test_workflow_contract():
             assert "matrix.python" in upload["with"]["name"]
         script = scripts[name]
         assert "uv venv .venv" in script
-        expected_extra = ".[test]" if name == "compatibility" else ".[test,mcp]"
+        expected_extra = ".[test]" if name == "compatibility" else ".[test,mcp,viewer]"
         assert f"-e '{expected_extra}'" in script
         assert "-e tests/testprofiles" in script
         assert "rpds-py==0.25.1" in script

@@ -4,7 +4,6 @@ import hashlib
 import multiprocessing
 from copy import deepcopy
 from datetime import timedelta
-from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -23,16 +22,6 @@ from tests.helpers import ALICE, NOW, git, refusal, repository
 BOT = Actor("agent", "agent1", model="original", version="1")
 OTHER = Actor("agent", "agent2")
 CALL = {"actor": ALICE, "now": NOW}
-
-
-@pytest.fixture(scope="module")
-def public_operation(request):
-    """Inject only public call boundaries; keep native storage oracles intact."""
-    if request.param == "mcp":
-        from tests.door_helpers import operation_mcp
-
-        return lambda project, name: partial(operation_mcp, project, name)
-    return lambda project, name: getattr(project, name)
 
 
 def snapshot(project):

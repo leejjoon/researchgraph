@@ -267,6 +267,25 @@ compatibility and recordings are separate release evidence, not inferred here.
 No core prompts are supplied: instructions are only profile guidance (empty
 before bootstrapping a selected uninitialized destination).
 
+`rg serve` is the optional loopback HTTP/SSE server, not a graph operation.
+Install `researchgraph[viewer]` (from source, `uv pip install -e '.[viewer]'`).
+It binds an ephemeral loopback port and prints a launch URL; `--no-open` avoids
+opening a browser. The URL fragment is a one-use credential: keep it private.
+The static host removes the fragment and exchanges it for a host-only HttpOnly
+SameSite Strict cookie. Credentials are never query parameters. Unauthenticated
+pages contain no graph; authenticated reads need the cookie and matching Host,
+and writes additionally need the exact Origin. Access logs are disabled.
+
+The launch fixes project, read-only and Git human identity by default; an explicit
+`--as-agent` fixes that less-privileged identity instead. Requests may declare a
+role, never replace the actor or disable read-only. This is declared identity,
+not authentication of a person/model or an OS security sandbox. Restarting the
+server invalidates credentials and observed-event cursors. Ctrl-C closes its owner.
+Current graph reads carry their associated `X-Researchgraph-Cursor`; events replay
+retained successors and reset requires a fresh snapshot. Downloads are only
+registered node-owned regular files, served as inert attachments, not executable
+HTML/SVG. This transport bootstrap is distinct from the later graph viewer.
+
 ### MCP presets and client registration
 
 `--preset full` is the default and exposes every graph-registry operation.
@@ -326,6 +345,9 @@ command; command-local values override group values. `init` and `import` also
 accept destination positional paths and otherwise use project/current directory.
 MCP requires explicit agent or human launch; it does not use the default-human
 assumption. Set evaluation time and commit choice on tool calls, not the launcher.
+HTTP retains the Git-human default; set evaluation time and write commit choice
+on requests, not its launcher. Server output is its protocol or launch URL,
+not the graph commands' JSON/table format.
 
 All commands accept `--help`; top-level `--version` prints the package version.
 Reads additionally accept `--as-of TIME|COMMIT` (default current). Commit means
@@ -497,6 +519,14 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Permissions / preconditions**: Exactly one explicit agent identity or human mode. Install the optional mcp extra; launcher help does not require it. Current MCP discovery negotiation is required.
 **Effect / result**: Official SDK JSON-RPC stdio, never a graph JSON value or human table. One tool per graph registry operation with readOnlyHint; read-only hides and refuses every write including init/import. JSON text and structuredContent preserve the same data, arrays and omission/null semantics; domain errors set isError with rule/message/ids. Tool calls may set now and writes may set commit; neither can override authority. Optional init/import destinations must equal the selected root. Per-request owners close even on cancellation; disconnect shuts down the server. Profile guidance only, no core prompts, runner or scheduler.
 **Errors**: `schema` for missing/conflicting launch identity, missing optional extra, authority/path overrides or unsupported negotiation; shared domain errors for tool calls. Missing/invalid project and profile errors retain the core refusal rather than being masked.
+
+### serve
+**Invocation**: `rg --project PATH serve --no-open`.
+**Arguments**: None; project and declared actor are fixed at launch.
+**Options and defaults**: `--host 127.0.0.1` (loopback only), `--port 0` (ephemeral), `--open/--no-open` (default opens); [Common options](#common-options) for project, identity, role, read-only, JSON errors and help. No launcher evaluation clock or commit control.
+**Permissions / preconditions**: Install optional viewer extra; help remains available without it. Default serving Git human or explicit launch-fixed agent. Cookie and Host protect every API/SSE/download; exact Origin also protects exchange and writes.
+**Effect / result**: Prints one fragment-credential URL and serves HTTP/SSE until shutdown. One-use exchange grants host-only HttpOnly SameSite Strict session cookie. Reads GET `/api/NAME`, writes POST `/api/NAME`, registry GET `/api/operations`. Ordinary graph JSON is unchanged; roles are per request. Live graph cursor header belongs to that snapshot; `/api/events` uses full Last-Event-ID and 15-second keepalive comments, reset means refetch. Only registered node-owned regular artifacts download as inert attachments. No-store/no-referrer responses; no unauthenticated graph, query credentials, cross-origin access or request authority overrides. Shutdown releases its serialized Project and observer.
+**Errors**: `schema` for invalid launch options or missing extra; HTTP 403 for authentication/Host/Origin/authority refusal without disclosure, 422 for rule/message/ids domain errors, 503 for unavailable projects, 404 for unsafe/unregistered downloads. Cancellation is not an automatic transaction rollback or mutation retry.
 
 ### events
 **Invocation**: `rg events` or `rg events --follow`.

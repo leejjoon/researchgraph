@@ -23,6 +23,10 @@ def scenario_invoke(door):
         from tests.door_helpers import invoke_mcp
 
         return invoke_mcp
+    if door == "http":
+        from tests.http_helpers import invoke_http
+
+        return invoke_http
     return invoke
 
 
@@ -84,7 +88,13 @@ def test_additive_exception_does_not_change_other_core_edges():
     ],
 )
 @pytest.mark.parametrize(
-    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+    "door",
+    [
+        "api",
+        pytest.param("cli", marks=pytest.mark.cli),
+        pytest.param("mcp", marks=pytest.mark.mcp),
+        pytest.param("http", marks=pytest.mark.http),
+    ],
 )
 def test_invalid_scoring_fields_refused_atomically(
     tmp_path, index_mode, door, fields, monkeypatch, invoke
@@ -117,7 +127,13 @@ def test_invalid_scoring_fields_refused_atomically(
 
 
 @pytest.mark.parametrize(
-    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+    "door",
+    [
+        "api",
+        pytest.param("cli", marks=pytest.mark.cli),
+        pytest.param("mcp", marks=pytest.mark.mcp),
+        pytest.param("http", marks=pytest.mark.http),
+    ],
 )
 def test_claim_literature_without_result_reference(
     tmp_path, index_mode, door, monkeypatch, invoke

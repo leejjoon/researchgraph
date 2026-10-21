@@ -129,7 +129,9 @@ def discard_index(project, mode):
         (project.path / ".researchgraph/index.sqlite").unlink(missing_ok=True)
 
 
-def test_supersede_hypothesis_acceptance_and_metadata(project, index_mode):
+def test_supersede_hypothesis_acceptance_and_metadata(
+    public_operation, project, index_mode
+):
     q = project.propose("Question", "Q", **CALL)
     h = project.propose(
         "Hypothesis",
@@ -154,7 +156,7 @@ def test_supersede_hypothesis_acceptance_and_metadata(project, index_mode):
     before = project.get_node(h["id"]).to_dict()
     old_edges = project.show(h["id"], **CALL)["edges"]
     discard_index(project, index_mode)
-    replacement = project.supersede(
+    replacement = public_operation(project, "supersede")(
         h["id"], title="H′", actor=ALICE, role="owner", now=NOW + timedelta(seconds=1)
     )
     assert replacement["status"] == "proposed"
@@ -188,7 +190,7 @@ def test_supersede_hypothesis_acceptance_and_metadata(project, index_mode):
     before_source = source(project)
     refusal(
         "terminal_status",
-        project.supersede,
+        public_operation(project, "supersede"),
         h["id"],
         actor=ALICE,
         now=NOW + timedelta(seconds=1),
@@ -202,7 +204,7 @@ def test_supersede_hypothesis_acceptance_and_metadata(project, index_mode):
 @pytest.mark.parametrize("inheritance", ["both", "outgoing", "none"])
 @pytest.mark.parametrize("inherit_edges", [True, False])
 def test_profile_inheritance_incoming_outgoing_self_and_retired(
-    tmp_path, inheritance, inherit_edges
+    public_operation, tmp_path, inheritance, inherit_edges
 ):
     with profile_project(tmp_path, inheritance=inheritance) as project:
         old = project.propose("Task", "old", **CALL)
@@ -215,7 +217,7 @@ def test_profile_inheritance_incoming_outgoing_self_and_retired(
                 (old["id"], old["id"]),
             ]
         ]
-        replacement = project.supersede(
+        replacement = public_operation(project, "supersede")(
             old["id"], inherit_edges=inherit_edges, actor=BOT, now=NOW
         )
         live = project.show(replacement["id"], **CALL)["edges"]
@@ -240,7 +242,9 @@ def test_profile_inheritance_incoming_outgoing_self_and_retired(
                 assert matches[0]["id"] != edge["id"]
 
 
-def test_revision_evidence_stale_chain_supports_notes_and_progress(project, index_mode):
+def test_revision_evidence_stale_chain_supports_notes_and_progress(
+    public_operation, project, index_mode
+):
     q = project.propose("Question", "Q", **CALL)
     hypotheses = [
         project.propose(
@@ -262,8 +266,8 @@ def test_revision_evidence_stale_chain_supports_notes_and_progress(project, inde
     project.approve(c["id"], **CALL)
     n = project.propose("Note", "N", edges=[{"type": "about", "to": h["id"]}], **CALL)
     discard_index(project, index_mode)
-    r1 = project.supersede(r["id"], **CALL)
-    r2 = project.supersede(r1["id"], **CALL)
+    r1 = public_operation(project, "supersede")(r["id"], **CALL)
+    r2 = public_operation(project, "supersede")(r1["id"], **CALL)
     assert {x["id"] for x in project.evidence(c["id"], **CALL)["items"]} == {r["id"]}
     assert project.stale(**CALL)["items"][0]["responsible"] == [r2["id"]]
     assert (
@@ -276,14 +280,14 @@ def test_revision_evidence_stale_chain_supports_notes_and_progress(project, inde
         )
         == 2
     )
-    h1 = project.supersede(h["id"], **CALL)
+    h1 = public_operation(project, "supersede")(h["id"], **CALL)
     assert project.notes(h["id"], **CALL)[0]["id"] == n["id"]
     assert project.notes(h1["id"], **CALL) == []
     assert not any(
         e["type"] == "supports" for e in project.show(h1["id"], **CALL)["edges"]
     )
     assert any(x["id"] == h1["id"] for x in project.alternatives(other["id"], **CALL))
-    c1 = project.supersede(c["id"], **CALL)
+    c1 = public_operation(project, "supersede")(c["id"], **CALL)
     assert any(
         e["type"] == "supports" and e["to"] == h["id"]
         for e in project.show(c1["id"], **CALL)["edges"]
@@ -313,7 +317,9 @@ def test_revision_evidence_stale_chain_supports_notes_and_progress(project, inde
     "status", [Status.PROPOSED, Status.ACTIVE, Status.FAILED, Status.DONE]
 )
 @pytest.mark.parametrize("node_type", ["Task", "Result"])
-def test_supersede_resets_metadata_and_agent_instruction(project, status, node_type):
+def test_supersede_resets_metadata_and_agent_instruction(
+    public_operation, project, status, node_type
+):
     old = restore(
         project,
         node_type,
@@ -323,7 +329,9 @@ def test_supersede_resets_metadata_and_agent_instruction(project, status, node_t
         tags=["tag"],
         priority=9,
     )
-    new = project.supersede(old["id"], instruction="use 0.4 arcsec", actor=BOT, now=NOW)
+    new = public_operation(project, "supersede")(
+        old["id"], instruction="use 0.4 arcsec", actor=BOT, now=NOW
+    )
     assert new["status"] == "active" and new["author"] == BOT.to_dict()
     for key in ["budget", "usage", "priority", "lease"]:
         assert new[key] is None
@@ -346,24 +354,26 @@ def test_supersede_resets_metadata_and_agent_instruction(project, status, node_t
 )
 @pytest.mark.parametrize("node_type", ["Task", "Hypothesis"])
 def test_instruction_computed_titles_and_exact_body(
-    project, index_mode, text, title, node_type
+    public_operation, project, index_mode, text, title, node_type
 ):
     task = project.propose(node_type, "T", **CALL)
     discard_index(project, index_mode)
-    value = project.instruct(task["id"], text, **CALL)
+    value = public_operation(project, "instruct")(task["id"], text, **CALL)
     assert value["title"] == title and value["body"] == text
     assert value["status"] == "active"
     assert project.show(task["id"], **CALL)["instructions"] == [value]
 
 
-def test_instruction_gate_defaults_and_explicit_empty_replacements(tmp_path):
+def test_instruction_gate_defaults_and_explicit_empty_replacements(
+    public_operation, tmp_path
+):
     schema = {"properties": {"data": {"type": "array", "default": [1]}}}
     original = deepcopy(schema)
     with profile_project(
         tmp_path, schema=schema, gates=[Gate(node_type="Instruction")]
     ) as project:
         old = project.propose("Task", "old", body="body", fields={"data": [2]}, **CALL)
-        new = project.supersede(
+        new = public_operation(project, "supersede")(
             old["id"], title="", body="", fields={}, instruction="", **CALL
         )
         assert new["title"] == new["body"] == "" and new["fields"] == {"data": [1]}
@@ -381,14 +391,14 @@ def test_instruction_gate_defaults_and_explicit_empty_replacements(tmp_path):
     "status", [Status.RUNNING, Status.RETIRED, Status.DONE, Status.FAILED]
 )
 def test_revision_state_refusals_and_allowed_failed_retirement(
-    project, operation, status
+    public_operation, project, operation, status
 ):
     old = restore(project, "Task", status)
     args = (old["id"],) if operation == "supersede" else (old["id"], "reason")
     if operation == "supersede" and status in {Status.DONE, Status.FAILED}:
-        assert getattr(project, operation)(*args, **CALL)["status"] == "active"
+        assert public_operation(project, operation)(*args, **CALL)["status"] == "active"
     elif operation == "retire" and status == Status.FAILED:
-        assert project.retire(*args, **CALL)["status"] == "retired"
+        assert public_operation(project, "retire")(*args, **CALL)["status"] == "retired"
     else:
         rule = (
             "already_ran"
@@ -398,12 +408,12 @@ def test_revision_state_refusals_and_allowed_failed_retirement(
             else "terminal_status"
         )
         before = source(project)
-        refusal(rule, getattr(project, operation), *args, **CALL)
+        refusal(rule, public_operation(project, operation), *args, **CALL)
         assert source(project) == before
         assert project.get_node(old["id"]).to_dict() == old
 
 
-def test_retire_all_incident_edges_and_reason(project, index_mode):
+def test_retire_all_incident_edges_and_reason(public_operation, project, index_mode):
     q = project.propose("Question", "Q", **CALL)
     h = project.propose(
         "Hypothesis", "H", edges=[{"type": "answers", "to": q["id"]}], **CALL
@@ -418,30 +428,35 @@ def test_retire_all_incident_edges_and_reason(project, index_mode):
     project.propose("Note", "N", edges=[{"type": "about", "to": h["id"]}], **CALL)
     originals = project.show(h["id"], **CALL)["edges"]
     discard_index(project, index_mode)
-    value = project.retire(h["id"], "abandoned", **CALL)
+    value = public_operation(project, "retire")(h["id"], "abandoned", **CALL)
     assert value["status"] == "retired" and value["approvals"][-1]["what"] == "retire"
     assert value["approvals"][-1]["note"] == "abandoned"
     assert all(stored_edge(project, e["id"]).retired for e in originals)
     assert project.show(h["id"], **CALL)["edges"] == []
 
 
-def test_inherited_explains_is_not_direct_creation(project):
+def test_inherited_explains_is_not_direct_creation(public_operation, project):
     task = project.propose("Task", "T", **CALL)
     failure = project.propose("Failure", "F", fields={"error": "bad"}, **CALL)
     edge = Edge("ed-aaaaaaaa", "explains", failure["id"], task["id"], ALICE, NOW)
     project.apply(Write("import", ALICE, None, NOW, {}, [], [edge]))
-    new = project.supersede(failure["id"], **CALL)
+    new = public_operation(project, "supersede")(failure["id"], **CALL)
     assert stored_edge(project, edge.id).retired
     assert any(
         e["type"] == "explains" and e["to"] == task["id"] and e["fields"] == {}
         for e in project.show(new["id"], **CALL)["edges"]
     )
     refusal(
-        "reserved_edge_type", project.link, "explains", new["id"], task["id"], **CALL
+        "reserved_edge_type",
+        public_operation(project, "link"),
+        "explains",
+        new["id"],
+        task["id"],
+        **CALL,
     )
     refusal(
         "reserved_edge_type",
-        project.propose,
+        public_operation(project, "propose"),
         "Failure",
         "F",
         edges=[{"type": "explains", "to": task["id"]}],
@@ -460,17 +475,23 @@ def test_inherited_explains_is_not_direct_creation(project):
         {"body": 2},
     ],
 )
-def test_invalid_supersede_is_atomic(project, kwargs):
+def test_invalid_supersede_is_atomic(public_operation, project, kwargs):
     old = project.propose("Task", "T", **CALL)
     before = source(project)
-    refusal("schema", project.supersede, old["id"], **kwargs, **CALL)
+    refusal(
+        "schema", public_operation(project, "supersede"), old["id"], **kwargs, **CALL
+    )
     assert source(project) == before
 
 
-def test_permissions_support_and_precedence(project, tmp_path):
+def test_permissions_support_and_precedence(public_operation, project, tmp_path):
     h = project.propose("Hypothesis", "H", **CALL)
     refusal(
-        "agent_cannot_supersede_type", project.supersede, h["id"], actor=BOT, now=NOW
+        "agent_cannot_supersede_type",
+        public_operation(project, "supersede"),
+        h["id"],
+        actor=BOT,
+        now=NOW,
     )
     for operation, args in [
         ("retire", (h["id"], "why")),
@@ -478,20 +499,40 @@ def test_permissions_support_and_precedence(project, tmp_path):
     ]:
         refusal(
             "human_only_approval",
-            getattr(project, operation),
+            public_operation(project, operation),
             *args,
             actor=BOT,
             now=NOW,
         )
     refusal(
-        "wrong_role", project.supersede, h["id"], actor=ALICE, role="unknown", now=NOW
+        "wrong_role",
+        public_operation(project, "supersede"),
+        h["id"],
+        actor=ALICE,
+        role="unknown",
+        now=NOW,
     )
     with profile_project(tmp_path / "unsupported", instruction=False) as p:
         t = p.propose("Task", "T", **CALL)
-        refusal("unsupported_by_profile", p.instruct, t["id"], "text", **CALL)
         refusal(
-            "unsupported_by_profile", p.supersede, t["id"], instruction="text", **CALL
+            "unsupported_by_profile",
+            public_operation(p, "instruct"),
+            t["id"],
+            "text",
+            **CALL,
         )
+        refusal(
+            "unsupported_by_profile",
+            public_operation(p, "supersede"),
+            t["id"],
+            instruction="text",
+            **CALL,
+        )
+
+
+def test_revision_invalid_live_owner_precedence_native(project):
+    """An already-open invalid owner differs from transport project-open failure."""
+    h = project.propose("Hypothesis", "H", **CALL)
     (project.path / ".researchgraph/profile.yaml").write_text(
         'name: research\nversion: "99.0"\n'
     )
@@ -502,7 +543,9 @@ def test_permissions_support_and_precedence(project, tmp_path):
 
 
 @pytest.mark.parametrize("operation", ["supersede", "instruct", "retire"])
-def test_revision_profile_validator_refusal_is_atomic(tmp_path, operation):
+def test_revision_profile_validator_refusal_is_atomic(
+    public_operation, tmp_path, operation
+):
     hooks = []
 
     def validator(project, write):
@@ -518,17 +561,17 @@ def test_revision_profile_validator_refusal_is_atomic(tmp_path, operation):
         before = source(p)
         hooks.clear()
         args = (old["id"],) if operation == "supersede" else (old["id"], "text")
-        refusal("profile_refusal", getattr(p, operation), *args, **CALL)
+        refusal("profile_refusal", public_operation(p, operation), *args, **CALL)
         assert source(p) == before and hooks == []
 
 
-def test_already_retired_edges_stay_untouched(project):
+def test_already_retired_edges_stay_untouched(public_operation, project):
     old = project.propose("Task", "old", **CALL)
     peer = project.propose("Task", "peer", **CALL)
     edge = project.link("relates-to", old["id"], peer["id"], **CALL)
     project.retire(peer["id"], "finished", **CALL)
     retired = stored_edge(project, edge["id"]).to_dict()
-    new = project.supersede(old["id"], **CALL)
+    new = public_operation(project, "supersede")(old["id"], **CALL)
     assert stored_edge(project, edge["id"]).to_dict() == retired
     assert not any(
         e["type"] == "relates-to" for e in project.show(new["id"], **CALL)["edges"]
@@ -536,14 +579,18 @@ def test_already_retired_edges_stay_untouched(project):
 
 
 @pytest.mark.parametrize("operation,args", [("instruct", (4,)), ("retire", (4,))])
-def test_revision_text_arguments_are_strings(project, operation, args):
+def test_revision_text_arguments_are_strings(
+    public_operation, project, operation, args
+):
     old = project.propose("Task", "old", **CALL)
     before = source(project)
-    refusal("schema", getattr(project, operation), old["id"], *args, **CALL)
+    refusal("schema", public_operation(project, operation), old["id"], *args, **CALL)
     assert source(project) == before
 
 
-def test_committed_revision_callbacks_have_canonical_candidates(tmp_path):
+def test_committed_revision_callbacks_have_canonical_candidates(
+    public_operation, tmp_path
+):
     calls, validations = [], []
     with profile_project(
         tmp_path,
@@ -552,9 +599,15 @@ def test_committed_revision_callbacks_have_canonical_candidates(tmp_path):
     ) as p:
         old = p.propose("Task", "old", **CALL)
         calls.clear()
-        instruction = p.instruct(old["id"], "text", role="owner", **CALL)
-        replacement = p.supersede(old["id"], instruction="next", role="owner", **CALL)
-        retired = p.retire(replacement["id"], "abandoned", role="owner", **CALL)
+        instruction = public_operation(p, "instruct")(
+            old["id"], "text", role="owner", **CALL
+        )
+        replacement = public_operation(p, "supersede")(
+            old["id"], instruction="next", role="owner", **CALL
+        )
+        retired = public_operation(p, "retire")(
+            replacement["id"], "abandoned", role="owner", **CALL
+        )
         assert [w.op for w, _ in calls] == ["instruct", "supersede", "retire"]
         assert [w.op for w in validations[-3:]] == ["instruct", "supersede", "retire"]
         assert instruction in [n.to_dict() for n in calls[0][0].nodes]
@@ -564,6 +617,7 @@ def test_committed_revision_callbacks_have_canonical_candidates(tmp_path):
 
 
 def test_revision_single_lock_hooks_no_commit_and_scoped_commit(tmp_path, monkeypatch):
+    """Native-only private-builder lock instrumentation, not transport coverage."""
     import researchgraph.project as module
 
     hooks = []
@@ -613,7 +667,9 @@ def test_revision_single_lock_hooks_no_commit_and_scoped_commit(tmp_path, monkey
         max_size=8,
     )
 )
-def test_revision_sequences_preserve_append_only_graph_and_cache(actions):
+def test_revision_sequences_preserve_append_only_graph_and_cache(
+    public_operation, actions
+):
     with (
         TemporaryDirectory() as directory,
         Project.init(repository(Path(directory)), **CALL) as p,
@@ -624,16 +680,20 @@ def test_revision_sequences_preserve_append_only_graph_and_cache(actions):
             before = source(p)
             if action == "invalid":
                 refusal(
-                    "schema", p.supersede, current["id"], title="bad\ntitle", **CALL
+                    "schema",
+                    public_operation(p, "supersede"),
+                    current["id"],
+                    title="bad\ntitle",
+                    **CALL,
                 )
                 assert source(p) == before
             elif action == "retire":
-                p.retire(current["id"], "reason", **CALL)
+                public_operation(p, "retire")(current["id"], "reason", **CALL)
                 current = p.propose("Task", "next", **CALL)
             elif action == "instruct":
-                p.instruct(current["id"], "instruction", **CALL)
+                public_operation(p, "instruct")(current["id"], "instruction", **CALL)
             else:
-                current = p.supersede(current["id"], **CALL)
+                current = public_operation(p, "supersede")(current["id"], **CALL)
             nodes, edges = p._before_state()
             assert set(before_nodes) <= set(nodes) and set(before_edges) <= set(edges)
             for identifier, old in before_nodes.items():

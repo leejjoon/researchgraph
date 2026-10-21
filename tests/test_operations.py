@@ -5,7 +5,6 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
-from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier
@@ -24,16 +23,6 @@ from tests.helpers import ALICE, NOW, git, refusal, repository
 BOT = Actor("agent", "agent1", model="model", version="1")
 BOB = Actor("human", "bob", "bob@example.test")
 CALL = {"actor": ALICE, "now": NOW}
-
-
-@pytest.fixture(scope="module")
-def public_operation(request):
-    """Inject only public call boundaries; keep native storage oracles intact."""
-    if request.param == "mcp":
-        from tests.door_helpers import operation_mcp
-
-        return lambda project, name: partial(operation_mcp, project, name)
-    return lambda project, name: getattr(project, name)
 
 
 def snapshot(project):

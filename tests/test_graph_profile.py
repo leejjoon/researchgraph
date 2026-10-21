@@ -24,11 +24,21 @@ def scenario_invoke(door):
         from tests.door_helpers import invoke_mcp
 
         return invoke_mcp
+    if door == "http":
+        from tests.http_helpers import invoke_http
+
+        return invoke_http
     return invoke
 
 
 @pytest.mark.parametrize(
-    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+    "door",
+    [
+        "api",
+        pytest.param("cli", marks=pytest.mark.cli),
+        pytest.param("mcp", marks=pytest.mark.mcp),
+        pytest.param("http", marks=pytest.mark.http),
+    ],
 )
 def test_graph_is_sorted_show_projection_including_retired(
     tmp_path, index_mode, door, monkeypatch, invoke
@@ -88,7 +98,13 @@ def test_graph_is_sorted_show_projection_including_retired(
 
 
 @pytest.mark.parametrize(
-    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+    "door",
+    [
+        "api",
+        pytest.param("cli", marks=pytest.mark.cli),
+        pytest.param("mcp", marks=pytest.mark.mcp),
+        pytest.param("http", marks=pytest.mark.http),
+    ],
 )
 def test_profile_read_preserves_unused_declarations_without_callables(
     tmp_path, index_mode, door, monkeypatch, invoke
@@ -143,7 +159,14 @@ def test_profile_read_preserves_unused_declarations_without_callables(
         )
 
 
-@pytest.mark.parametrize("door", ["api", "mcp"])
+@pytest.mark.parametrize(
+    "door",
+    [
+        "api",
+        pytest.param("mcp", marks=pytest.mark.mcp),
+        pytest.param("http", marks=pytest.mark.http),
+    ],
+)
 def test_profile_reports_loaded_version_under_as_of_and_never_calls_hooks(
     tmp_path, monkeypatch, door, invoke
 ):

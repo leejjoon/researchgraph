@@ -36,7 +36,7 @@ def test_registry_matches_spec_and_actual_command_categories():
     check_inventory(OPERATIONS, spec)
     assert len(OPERATIONS) == 37
     assert set(spec) == {"Writes", "Reads", "Streams", "Servers"}
-    assert spec["Streams"] == {"events"} and spec["Servers"] == {"mcp"}
+    assert spec["Streams"] == {"events"} and spec["Servers"] == {"mcp", "serve"}
     assert set(main.commands) == set().union(*spec.values())
     # Ensure the catalogue is data-only, not a source of execution callables.
     assert json.loads(json.dumps(OPERATIONS)) == list(OPERATIONS)
