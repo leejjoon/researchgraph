@@ -336,7 +336,14 @@ def create_app(
 
     async def _asset(request):
         name = request.path_params["name"]
-        if name not in {"bootstrap.js", "style.css", "research-graph.js"}:
+        if name not in {
+            "bootstrap.js",
+            "style.css",
+            "research-graph.js",
+            "inspector.js",
+            "api.js",
+            "dom.js",
+        }:
             return Response(status_code=404)
         media = "text/javascript" if name.endswith(".js") else "text/css"
         return Response(

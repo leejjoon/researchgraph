@@ -1,3 +1,6 @@
+import { apiPrefix, readOperation } from "./api.js";
+import { element } from "./dom.js";
+
 const RANK_TYPES = new Set(["blocks", "derived-from", "supersedes", "cites", "part-of"]);
 const SVG = "http://www.w3.org/2000/svg";
 const compareText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
@@ -35,13 +38,6 @@ export function layoutGraph(graph) {
   // Invalid I1 cycles still have a deterministic, finite presentation.
   placed.push(...nodes.filter(node => !seen.has(node.id)));
   return { nodes: placed, edges };
-}
-
-function element(tag, text, className) {
-  const result = document.createElement(tag);
-  if (text !== undefined) result.textContent = text;
-  if (className) result.className = className;
-  return result;
 }
 
 function svgElement(tag, attributes) {
@@ -114,6 +110,13 @@ export class ResearchGraph extends HTMLElement {
     for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
       this.shadowRoot.addEventListener(type, () => { this.#drag = null; }, options);
     }
+    window.addEventListener("offline", () => {
+      this.#status.textContent = "Browser offline. Displayed snapshot may be stale.";
+      this.#status.classList.add("error");
+    }, options);
+    window.addEventListener("online", () => {
+      if (this.#source && this.isConnected) void this.#refreshSnapshot(this.#source);
+    }, options);
     void this.reload();
   }
 
@@ -126,10 +129,20 @@ export class ResearchGraph extends HTMLElement {
   }
 
   attributeChangedCallback(name, previous, current) {
-    if (previous !== current && this.isConnected) void this.reload();
+    if (previous !== current) {
+      this.#base = null;
+      if (this.isConnected) void this.reload();
+    }
   }
 
   async reload() {
+    let base;
+    try { base = apiPrefix(this.getAttribute("src")); }
+    catch { /* The full load below reports an invalid source and discards its state. */ }
+    if (this.#graph && this.#source && this.#base === base) {
+      this.#profileDirty = true;
+      return this.#refreshSnapshot(this.#source);
+    }
     this.#source?.close();
     this.#source = null;
     this.#request?.abort();
@@ -143,22 +156,9 @@ export class ResearchGraph extends HTMLElement {
     this.#status.textContent = "Loading graph…";
     this.#status.classList.remove("error");
     try {
-      const src = this.getAttribute("src");
-      if (!src || src.includes("?") || src.includes("#")) throw new Error("src must be a same-origin API prefix without credentials, query or fragment.");
-      const prefix = new URL(src, document.baseURI);
-      if (prefix.origin !== location.origin || prefix.username || prefix.password || prefix.search || prefix.hash) {
-        throw new Error("src must be a same-origin API prefix without credentials, query or fragment.");
-      }
-      const base = prefix.href.replace(/\/+$/, "");
+      const base = apiPrefix(this.getAttribute("src"));
       this.#base = base;
-      const read = async name => {
-        const response = await fetch(`${base}/${name}`, {
-          credentials: "same-origin", cache: "no-store", signal: request.signal,
-          redirect: "error", headers: { Accept: "application/json" },
-        });
-        if (!response.ok) throw new Error(`${name} request failed (${response.status}).`);
-        return response.json();
-      };
+      const read = async name => (await readOperation(base, name, {}, { signal: request.signal })).value;
       const [profile, graph, digest] = await Promise.all([read("profile"), read("graph"), read("digest")]);
       if (request.signal.aborted || !this.isConnected) return;
       if (!Array.isArray(profile.node_types) || !Array.isArray(profile.gates) || !Array.isArray(profile.roles) || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges) || !Array.isArray(digest.items)) {
@@ -179,7 +179,7 @@ export class ResearchGraph extends HTMLElement {
       request.abort();
       this.#graph = this.#profile = this.#digest = this.#layout = null;
       this.#content.replaceChildren();
-      this.#status.textContent = `Unable to load graph: ${error.message}`;
+      this.#status.textContent = `Unable to load graph: ${error}`;
       this.#status.classList.add("error");
     }
   }
@@ -213,14 +213,7 @@ export class ResearchGraph extends HTMLElement {
     this.#request = request;
     const refreshProfile = this.#profileDirty;
     this.#status.textContent = "Refreshing snapshot…";
-    const read = async name => {
-      const response = await fetch(`${this.#base}/${name}`, {
-        credentials: "same-origin", cache: "no-store", signal: request.signal,
-        redirect: "error", headers: { Accept: "application/json" },
-      });
-      if (!response.ok) throw new Error(`${name} request failed (${response.status}).`);
-      return response.json();
-    };
+    const read = async name => (await readOperation(this.#base, name, {}, { signal: request.signal })).value;
     try {
       const [graph, digest, profile] = await Promise.all([
         read("graph"), read("digest"), refreshProfile ? read("profile") : this.#profile,
@@ -260,7 +253,7 @@ export class ResearchGraph extends HTMLElement {
     } catch (error) {
       if (request.signal.aborted || this.#source !== source) return;
       request.abort();
-      this.#status.textContent = `Unable to refresh graph: ${error.message} Displayed snapshot may be stale.`;
+      this.#status.textContent = `Unable to refresh graph: ${error} Displayed snapshot may be stale.`;
       this.#status.classList.add("error");
     }
   }

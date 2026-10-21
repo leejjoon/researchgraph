@@ -292,7 +292,23 @@ enabled. Drag blank canvas to pan, use the zoom controls, or reset the viewport.
 Unused profile types, roles, gate conditions and claimability remain visible.
 Each component owns its selection, filters and resources; snapshot refreshes and
 observed-event resets refetch authoritative data without saving layout files.
-This graph component does not yet provide inspector actions or a live dashboard.
+Selecting a card opens its inspector: immutable fields, approvals, registered
+artifact downloads, incident records, instructions, pins, flags and warnings, plus
+history, evidence, weakest inputs, alternatives, predictions, notes and subtree.
+The role selector uses the profile's declared roles; its blank option keeps the
+launch default. Read-only serving hides actions and also refuses direct writes.
+
+Approve can include a note; Reject requires a reason. Instruct adds an Instruction.
+Re-run with instruction makes one `supersede` call, retiring the old node and
+creating a replacement with an optional Instruction. It does not execute a task
+or inherit a runner's budget/lease. Retire, Budget, Tag, Pin link and Expand expose
+their existing graph operations. Expand creates an expansion Task, not running
+work. Optional arguments are omitted until edited or enabled; numeric/array/object
+values use JSON, so omitted priority preserves it while explicit `null` clears it.
+An action error remains visible while the inspector refetches actual persisted
+state. A commit or post-commit hook failure can leave a replacement and Instruction
+on disk: inspect their history before another deliberate action. Writes are never
+automatically retried. A live dashboard is not yet provided.
 
 ### MCP presets and client registration
 

@@ -196,6 +196,21 @@ placement and deterministic created/id placement for unplaced invalid-cycle node
 History collapse and filters are presentation-only. User data is text, shadow CSS
 is an external packaged stylesheet, and the strict self-only CSP remains in force.
 
+`/assets/inspector.js` registers `<research-inspector src="/api">`; `select(id)`
+or its `node-id` attribute loads native `show` and related query results. Its
+`node` and `related` getters are detached values. The host bridges graph
+`node-select` to inspector selection and inspector `mutation-complete` to graph
+refresh. Shared `api.js` preserves logical JSON/omitted arguments and reports
+actual rule/message/ids errors; `dom.js` provides text-only element construction.
+`X-Researchgraph-Read-Only` on authenticated API responses determines whether
+write controls can be shown; unknown metadata fails closed. Profile roles are
+request context, never actor/root/read-only overrides. One deliberate submission
+issues one POST, followed by authoritative readback even on errors. Selection-read
+cancellation is separate from mutation lifetime; cancellation does not promise
+rollback. A retained-byte commit/hook failure remains an error while fresh history
+can reveal its persisted replacement and Instruction. No mutation retry is hidden
+in refresh or component reconnection.
+
 ## Wrapper contracts, errors and durability
 
 For graph operations, --json stdout is one JSON value; events instead emits

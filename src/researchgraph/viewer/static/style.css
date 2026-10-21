@@ -61,6 +61,25 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: #285d85; }
 .other-edge { stroke: #73748c; stroke-dasharray: 6 4; }
 .retired-edge { stroke: #8894a0; stroke-dasharray: 2 4; }
 .empty-graph { position: absolute; top: 100px; left: 24px; padding: 12px; background: #fff; }
+#viewer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+.inspector-shell { padding: 1rem; border: 1px solid #ccd5df; border-radius: 10px; background: #fff; overflow-wrap: anywhere; }
+.inspector-shell h2 { margin: 0 0 .5rem; font-size: 1.2rem; }
+.inspector-shell h3 { font-size: 1rem; margin: .6rem 0; }
+.inspector-shell dl { display: grid; grid-template-columns: minmax(90px, .6fr) minmax(0, 1fr); gap: .4rem .8rem; }
+.inspector-shell dt { color: #43576c; font-weight: 600; }
+.inspector-shell dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.inspector-shell section, .inspector-shell details { margin: .8rem 0; border-top: 1px solid #d7dfe7; padding-top: .65rem; }
+.inspector-shell summary { cursor: pointer; font-weight: 600; }
+.inspector-shell pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, monospace; background: #f3f6f8; border-radius: 5px; padding: .65rem; }
+.inspector-shell label { display: flex; flex-direction: column; gap: .3rem; margin: .6rem 0; font-weight: 600; }
+.inspector-shell input, .inspector-shell textarea, .inspector-shell select { max-width: 100%; font: inherit; }
+.inspector-shell textarea, .inspector-shell input:not([type="checkbox"]) { padding: .5rem; border: 1px solid #aab8c7; border-radius: 5px; background: #fff; }
+.inspector-shell textarea { min-height: 5rem; resize: vertical; }
+.inspector-shell button { margin: .2rem .3rem .2rem 0; }
+.inspector-shell a { color: #165e98; }
+@media (min-width: 1400px) {
+  #viewer { grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr); }
+}
 @media (max-width: 640px) {
   main { padding: 0 .5rem; }
   .graph-shell { padding: .65rem; }

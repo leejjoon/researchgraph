@@ -397,7 +397,18 @@ def test_real_expired_cursor_reset_refetches_profile_and_preserves_selection(
             owner.client.cookies.set(cookie["name"], cookie["value"])
         assert owner.client.get("/api/graph").status_code == 200
         page.context.set_offline(False)
-        component.locator(f'[data-node-id="{new["id"]}"]').wait_for()
+        try:
+            component.locator(f'[data-node-id="{new["id"]}"]').wait_for()
+        except Exception:
+            print(
+                "reset_diagnostics",
+                component.evaluate(
+                    "element => ({status:element.shadowRoot.querySelector('[role=status]').textContent,ids:element.graph?.nodes.map(node=>node.id)})"
+                ),
+                requests,
+                errors,
+            )
+            raise
         assert sum(url.endswith("/api/profile") for url in requests) > profiles
         assert component.evaluate("element => element.selectedId") == replacement["id"]
         assert not errors

@@ -113,7 +113,7 @@ venv,console=map(Path,sys.argv[1:])
 assert Path(researchgraph.__file__).resolve().is_relative_to(venv)
 assert importlib.util.find_spec('mcp') is None
 assert Path(httpx2.__file__).resolve().is_relative_to(venv)
-assets={name:files('researchgraph').joinpath('viewer','static',name).read_bytes() for name in ('index.html','bootstrap.js','style.css','research-graph.js')}
+assets={name:files('researchgraph').joinpath('viewer','static',name).read_bytes() for name in ('index.html','bootstrap.js','style.css','research-graph.js','inspector.js','api.js','dom.js')}
 assert all(assets.values())
 assert b'bootstrap.js' in assets['index.html'] and b'style.css' in assets['index.html']
 root=Path('viewer-project').resolve()
@@ -189,7 +189,7 @@ def event(stream):
 
 with launch() as (client,origin,token,process):
     assert client.get('/').content==assets['index.html']
-    for name in ('bootstrap.js','style.css','research-graph.js'):
+    for name in ('bootstrap.js','style.css','research-graph.js','inspector.js','api.js','dom.js'):
         response=client.get('/assets/'+name)
         assert response.status_code==200 and response.content==assets[name]
     assert client.get('/api/graph').status_code==403

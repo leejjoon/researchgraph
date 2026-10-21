@@ -88,7 +88,15 @@ def test_sdist_native_sources_and_real_installed_wheel(tmp_path):
         members = archive.namelist()
     assert {
         f"researchgraph/viewer/static/{name}"
-        for name in ("index.html", "bootstrap.js", "style.css", "research-graph.js")
+        for name in (
+            "index.html",
+            "bootstrap.js",
+            "style.css",
+            "research-graph.js",
+            "inspector.js",
+            "api.js",
+            "dom.js",
+        )
     } <= set(members)
     assert not any(name.startswith("researchgraph/web/") for name in members)
     native = [name for name in members if name.endswith(".so")]

@@ -23,9 +23,14 @@ try {
     : "Project unavailable.");
   await response.json();
   await import("./research-graph.js");
+  await import("./inspector.js");
   const graph = document.createElement("research-graph");
   graph.setAttribute("src", "/api");
-  document.querySelector("#viewer").append(graph);
+  const inspector = document.createElement("research-inspector");
+  inspector.setAttribute("src", "/api");
+  graph.addEventListener("node-select", event => inspector.select(event.detail.id));
+  inspector.addEventListener("mutation-complete", () => { void graph.reload(); });
+  document.querySelector("#viewer").append(graph, inspector);
   status.textContent = "Authenticated.";
 } catch (error) {
   status.textContent = error.message;
