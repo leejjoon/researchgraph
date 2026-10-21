@@ -236,7 +236,9 @@ def runnable_scenarios(blocks):
 
 
 def spec_commands(text):
-    inventories = {"Writes": set(), "Reads": set()}
+    inventories = {
+        category: set() for category in ("Writes", "Reads", "Streams", "Servers")
+    }
     section = None
     for line in text.splitlines():
         if line.startswith("## "):
@@ -244,7 +246,9 @@ def spec_commands(text):
         match = re.match(r"\| `([a-z][a-z-]*)(?:[ `])", line)
         if section and match:
             command = match[1]
-            assert command not in inventories[section], "duplicate spec command"
+            assert not any(command in names for names in inventories.values()), (
+                "duplicate or ambiguous spec command"
+            )
             inventories[section].add(command)
     assert not inventories["Writes"] & inventories["Reads"], "ambiguous spec command"
     return inventories
@@ -298,7 +302,7 @@ def option_tokens(text):
 
 
 def check_reference(spec, installed, entries, top_options, command_options, common):
-    expected = spec["Writes"] | spec["Reads"]
+    expected = set().union(*spec.values())
     assert expected == installed, "spec/help command inventory disagreement"
     assert set(entries) == expected, "manual command inventory disagreement"
     assert common == top_options | {"--as-of"}, "common option inventory disagreement"
@@ -386,11 +390,28 @@ def test_help_parsers_handle_aliases_pairs_metavariables_and_wrapping():
     }
     assert spec_commands(
         "## Writes\n| `init` | path |\n## Reads\n| `show <id>` | node |\n"
-    ) == {"Writes": {"init"}, "Reads": {"show"}}
+    ) == {"Writes": {"init"}, "Reads": {"show"}, "Streams": set(), "Servers": set()}
     with pytest.raises(AssertionError, match="spec/help"):
         check_reference(
             {"Writes": set(), "Reads": {"ready"}}, {"unknown"}, {}, set(), {}, set()
         )
+
+
+@pytest.mark.parametrize("category", ["Writes", "Reads", "Streams", "Servers"])
+def test_reference_inventory_requires_every_category_entry(category):
+    spec = {name: set() for name in ("Writes", "Reads", "Streams", "Servers")}
+    spec[category].add("ready")
+    with pytest.raises(AssertionError, match="manual command"):
+        check_reference(spec, {"ready"}, {}, set(), {}, set())
+    with pytest.raises(AssertionError, match="spec/help"):
+        check_reference(spec, set(), {}, set(), {}, set())
+
+
+@pytest.mark.parametrize("category", ["Writes", "Reads", "Streams", "Servers"])
+def test_spec_inventory_refuses_duplicate_category_assignments(category):
+    text = f"## {category}\n| `ready` | description |\n## Reads\n| `ready` | description |\n"
+    with pytest.raises(AssertionError, match="duplicate or ambiguous"):
+        spec_commands(text)
 
 
 @pytest.mark.parametrize(
@@ -542,6 +563,11 @@ def test_manual_reference_matches_spec_and_real_installed_help(tmp_path):
     assert installed == spec["Writes"] | spec["Reads"], (
         "spec/help command inventory disagreement"
     )
+    from researchgraph.registry import OPERATIONS
+
+    assert {op["name"] for op in OPERATIONS} == spec["Writes"] | spec["Reads"]
+    for op in OPERATIONS:
+        assert op["name"] in spec["Reads" if op["kind"] == "read" else "Writes"]
     options = {command: help_options(help_for(command)) for command in installed}
     text = (ROOT / MANUALS[0]).read_text()
     assert text.count("\n## Common options\n") == 1
