@@ -8,6 +8,8 @@ body { margin: 0; }
 main { max-width: 110rem; margin: 1.5rem auto; padding: 0 1.25rem; }
 h1 { font-size: 1.4rem; margin: 0; }
 #connection { color: #43576c; font-size: .875rem; }
+nav[aria-label="Viewer navigation"] { display: flex; gap: .6rem; margin: 1rem 0; }
+[data-review-nav-badge] { border-radius: 4px; padding: .1rem .4rem; background: #e4f0fc; }
 :host {
   display: block;
   min-width: 0;
@@ -62,6 +64,15 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: #285d85; }
 .retired-edge { stroke: #8894a0; stroke-dasharray: 2 4; }
 .empty-graph { position: absolute; top: 100px; left: 24px; padding: 12px; background: #fff; }
 #viewer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+#viewer > research-review-queue { grid-column: 1 / -1; }
+.review-shell { padding: 1rem; border: 1px solid #ccd5df; border-radius: 10px; background: #fff; }
+.review-shell h2 { margin-top: 0; }
+.review-shell [data-review-badge] { padding: .15rem .5rem; border-radius: 5px; background: #e4f0fc; }
+.review-card { margin: 1rem 0; padding: 1rem; border: 1px solid #d7dfe7; border-radius: 6px; overflow-wrap: anywhere; }
+.review-card pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f3f6f8; padding: .6rem; }
+.review-shell label { display: flex; flex-direction: column; gap: .3rem; margin: .6rem 0; }
+.review-shell textarea { min-height: 4rem; max-width: 100%; padding: .5rem; font: inherit; border: 1px solid #aab8c7; border-radius: 5px; }
+.review-shell button { margin: .2rem .3rem .2rem 0; }
 .inspector-shell { padding: 1rem; border: 1px solid #ccd5df; border-radius: 10px; background: #fff; overflow-wrap: anywhere; }
 .inspector-shell h2 { margin: 0 0 .5rem; font-size: 1.2rem; }
 .inspector-shell h3 { font-size: 1rem; margin: .6rem 0; }

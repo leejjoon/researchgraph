@@ -211,6 +211,16 @@ rollback. A retained-byte commit/hook failure remains an error while fresh histo
 can reveal its persisted replacement and Instruction. No mutation retry is hidden
 in refresh or component reconnection.
 
+`review-queue.js` registers `research-review-queue`: `items` is a detached native
+queue result, while `reload()` refetches queue, blocked and profile. Applicable
+gate roles come from the server; declared conditions are shown without a second
+client gate evaluator. Cards count blocked records whose authoritative blocking
+array names that node. Approval/rejection is one POST followed by readback even
+after refusal. The host refreshes graph/inspector after reviews and reviews after
+inspector mutations. `node-select` with `section: "evidence"` uses inspector
+`openSection(name)` after selection. Snapshot freshness is explicit; this panel
+does not claim a durable notification log or authenticated reviewer identity.
+
 ## Wrapper contracts, errors and durability
 
 For graph operations, --json stdout is one JSON value; events instead emits

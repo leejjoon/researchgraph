@@ -94,6 +94,7 @@ def test_sdist_native_sources_and_real_installed_wheel(tmp_path):
             "style.css",
             "research-graph.js",
             "inspector.js",
+            "review-queue.js",
             "api.js",
             "dom.js",
         )

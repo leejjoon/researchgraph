@@ -97,6 +97,14 @@ export class ResearchInspector extends HTMLElement {
     return this.#readPromise;
   }
 
+  openSection(name) {
+    const section = [...this.shadowRoot.querySelectorAll("[data-section]")].find(item => item.dataset.section === name);
+    if (!section) return false;
+    for (const details of section.querySelectorAll("details")) details.open = true;
+    section.scrollIntoView({ block: "nearest" });
+    return true;
+  }
+
   async #load() {
     this.#read?.abort();
     const request = new AbortController();

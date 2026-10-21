@@ -341,6 +341,7 @@ def create_app(
             "style.css",
             "research-graph.js",
             "inspector.js",
+            "review-queue.js",
             "api.js",
             "dom.js",
         }:

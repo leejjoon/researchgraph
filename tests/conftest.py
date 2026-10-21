@@ -203,6 +203,7 @@ def candidate_distribution(tmp_path_factory):
             "researchgraph/viewer/static/style.css",
             "researchgraph/viewer/static/research-graph.js",
             "researchgraph/viewer/static/inspector.js",
+            "researchgraph/viewer/static/review-queue.js",
             "researchgraph/viewer/static/api.js",
             "researchgraph/viewer/static/dom.js",
         } <= set(archive.namelist())

@@ -308,7 +308,18 @@ values use JSON, so omitted priority preserves it while explicit `null` clears i
 An action error remains visible while the inspector refetches actual persisted
 state. A commit or post-commit hook failure can leave a replacement and Instruction
 on disk: inspect their history before another deliberate action. Writes are never
-automatically retried. A live dashboard is not yet provided.
+automatically retried.
+
+The review panel lists the native queue in creation order, with a badge equal to
+its length, server gate metadata, declared conditions, approvals, waiting time and
+the number of blocked nodes naming each item. Choose a review role before an
+approval. Partial multigate approvals remain queued; each actor can approve a node
+only once, so changing roles does not substitute for a distinct reviewer. Reject
+with a reason is the send-back operation: it retires the node and its live edges,
+not a new lifecycle. Open node/evidence navigates to the inspector. Wrong-role,
+human-only, concurrent-review and read-only errors display the actual server
+result and refetch the queue without optimistic badge changes or write retries.
+A live dashboard is not yet provided.
 
 ### MCP presets and client registration
 
