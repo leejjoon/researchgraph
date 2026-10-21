@@ -7,6 +7,7 @@
 6. Given two processes in one checkout claiming T1 at once. Then exactly one succeeds and the other gets `lease_held`.
 7. Given any write with `--no-commit`. Then the files change, the index reflects them, `git status` shows them modified, and no event hook fires.
 8. Given a sequence of random valid and invalid writes (hypothesis). Then after each one, deleting the index and rebuilding gives identical results for every query (I8), and I1–I7 hold.
+9. Given a graph snapshot and its associated ChangeSource cursor. When random valid writes are folded from node/edge envelopes and any reset replaces the state with a fresh associated snapshot. Then the folded graph equals a fresh graph at that observation, even after cache deletion, external/no-commit writes, clock-only changes and retained-byte failures; notifications never become a second source of truth (decision 020).
 
 ## Profile schema loading and defaults (T04)
 9. Given a node or edge fields schema with a direct root property `mode` having enum `[fast, safe]` and default `fast`. When writing fields `{}`, `{mode: null}` and `{mode: safe}`. Then the stored values are respectively `{mode: fast}`, `{mode: fast}` and `{mode: safe}`; the complete defaulted fields mapping is validated before any files are written.

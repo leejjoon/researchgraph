@@ -1107,6 +1107,29 @@ class QueryView(View):
             ),
         )
 
+    def _recent_failures(self):
+        cutoff = self.now - timedelta(hours=24)
+        return {
+            interval["node_id"]
+            for interval in self.intervals
+            if interval["status"] == "failed"
+            and cutoff <= parse_timestamp(interval["from_time"]) <= self.now
+            and interval["node_id"] in self.nodes
+        }
+
+    def time_state(self):
+        """Return clock-dependent lease/failure memberships for notifications.
+
+        These change when evaluation time crosses a lease deadline or a digest
+        failure-window boundary, even if all source bytes remain unchanged.
+        """
+        return (
+            frozenset(
+                node.id for node in self.nodes.values() if self.lease_expired(node)
+            ),
+            frozenset(self._recent_failures()),
+        )
+
     def digest(self):
         """Return {items: [{kind, count, nodes}, ...]} for six summary groups.
 
@@ -1117,14 +1140,7 @@ class QueryView(View):
         other groups use creation/ID order. As-of status/events are reconstructed
         while readiness still uses current budget, usage, priority and lease.
         """
-        cutoff = self.now - timedelta(hours=24)
-        failed = {
-            i["node_id"]
-            for i in self.intervals
-            if i["status"] == "failed"
-            and cutoff <= parse_timestamp(i["from_time"]) <= self.now
-            and i["node_id"] in self.nodes
-        }
+        failed = self._recent_failures()
         groups = {
             "running": [
                 n.to_dict()

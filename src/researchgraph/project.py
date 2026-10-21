@@ -112,6 +112,7 @@ class Project:
         self.profile_version = version
         self.read_only = read_only
         self._closed = False
+        self._change_source = None
         self._import_preflight = False
         self._git = Git(path)
         self._pin_bytes = None
@@ -151,6 +152,8 @@ class Project:
             try:
                 self.index.close()
             finally:
+                if self._change_source is not None:
+                    self._change_source.close()
                 self._closed = True
 
     def __enter__(self):
@@ -1098,6 +1101,33 @@ class Project:
         Git state is changed; deleting the disposable index preserves results.
         """
         return self._query_view(actor=actor, now=now, role=role, as_of=as_of).graph()
+
+    def _observed_state(self, *, actor, now, role=None):
+        """Return current graph, scanned fingerprint/HEAD and clock predicates."""
+        view = self._query_view(actor=actor, now=now, role=role)
+        return (
+            view.graph(),
+            self.index._loaded_hash,
+            self.index._scanned_head,
+            view.time_state(),
+        )
+
+    def changes(self, *, actor, now, role=None, since=None):
+        """Return current observation events and latest opaque cursor.
+
+        Lazily own a bounded ChangeSource until this Project closes. Since=None
+        returns this observation only; a retained cursor resumes its successors,
+        while malformed/expired/restarted cursors reset. No historical as_of,
+        persistent event log, writer lock or causal provenance is implied.
+        Actor/now/role follow the read contract; this never modifies graph/Git.
+        """
+        from researchgraph.events import ChangeSource
+
+        if self._closed:
+            raise ValueError("Project is closed")
+        if self._change_source is None:
+            self._change_source = ChangeSource(self)
+        return self._change_source.changes(actor=actor, now=now, role=role, since=since)
 
     def profile_info(self, *, actor, now, role=None, as_of=None):
         """Return pinned identity and currently loaded, data-only profile metadata.

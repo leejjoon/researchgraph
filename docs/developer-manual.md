@@ -77,6 +77,35 @@ serialization; enum status becomes a string and timestamps become UTC strings.
 Absent optional values may be null, lists/maps can be empty. Wire edge keys are
 from/to, not Python's from_. Do not serialize via object __dict__.
 
+## Observed changes and snapshot catch-up
+
+`Project.changes(actor=..., now=..., role=None, since=None)` owns a bounded
+in-memory observer until that Project closes. It returns `events` and the latest
+opaque `cursor`. Without `since`, only this observation's envelopes are returned;
+a retained cursor returns strictly its successors. This is a current-state read,
+not a historical query, durable event log, scheduler or write-success hook.
+
+For a snapshot/subscription boundary, import `ChangeSource` from
+`researchgraph.events`, borrow an open Project with `ChangeSource(project,
+retention=1024)`, and call `source.snapshot(actor=..., now=...)`. Its `graph` and
+`cursor` belong to the same observation. Catch up with
+`source.changes(actor=..., now=..., since=snapshot_cursor)`. Serialize calls to a
+source. Close the source to discard its retained state, and close its borrowed
+Project when the consumer disconnects; source.close does not close that owner.
+
+Fold complete `node` and `edge` records by id; `index` counts include retired
+records. A `reset: true` index requires a fresh associated snapshot and refreshed
+digest/ready/blocked/running/profile reads. Resets cover expired, malformed,
+unknown/future and previous-instance cursors, and disappeared records. Carry the
+entire `v1:<random-generation>:<sequence>` token unchanged. Restart always mints a
+new generation, even when source bytes and sequence numbers overlap.
+
+Observations detect external/no-commit/same-second writes, retained bytes after
+write failures, HEAD/raw-source changes, lease expiry and failure-window changes.
+Clock-only notifications never rewrite stored statuses. Cache rebuilds and fully
+rolled-back/refused writes fabricate no domain events. Polling can coalesce
+intermediate states; envelope time and HEAD describe observation, not causation.
+
 ## Wrapper contracts, errors and durability
 
 With --json, stdout is one JSON value; non-JSON output is a human table, not a

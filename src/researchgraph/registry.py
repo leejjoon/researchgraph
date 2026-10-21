@@ -380,7 +380,7 @@ OPERATIONS = (
         "since",
         "read",
         [_arg("time", required=True)],
-        "Object with nodes and edges changed strictly after time.",
+        "Array of node and edge objects changed strictly after time, ordered by created/id.",
     ),
     _op(
         "where",
@@ -422,6 +422,6 @@ OPERATIONS = (
             _arg("include_artifacts", "boolean", option=True, default=False),
             _arg("since", option=True, default=None, nullable=True),
         ],
-        "Object describing written canonical archive path and selected counts.",
+        "Object with the written canonical archive path.",
     ),
 )
