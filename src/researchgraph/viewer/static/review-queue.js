@@ -86,6 +86,12 @@ export class ResearchReviewQueue extends HTMLElement {
   }
 
   #render() {
+    const drafts = new Map([...this.#shell.querySelectorAll("form[data-review-action]")].map(form => [`${form.closest("[data-review-id]").dataset.reviewId}:${form.dataset.reviewAction}`, form.querySelector("textarea").value]));
+    const focused = this.shadowRoot.activeElement;
+    const focusedForm = focused?.matches("textarea") ? focused.closest("form") : null;
+    const focusKey = focusedForm ? `${focusedForm.closest("[data-review-id]").dataset.reviewId}:${focusedForm.dataset.reviewAction}` : null;
+    const selection = focusKey ? [focused.selectionStart, focused.selectionEnd] : null;
+    let restoreFocus = null;
     const heading = element("h2", "Review queue ");
     const badge = element("span", this.#items === null ? "—" : String(this.#items.length));
     badge.dataset.reviewBadge = "";
@@ -149,6 +155,9 @@ export class ResearchReviewQueue extends HTMLElement {
           const form = element("form");
           form.dataset.reviewAction = operation;
           const field = element("textarea");
+          const key = `${node.id}:${operation}`;
+          field.value = drafts.get(key) ?? "";
+          if (key === focusKey) restoreFocus = field;
           field.setAttribute("aria-label", operation === "approve" ? "Approval note" : "Reject reason");
           field.disabled = this.#busy;
           const fieldLabel = element("label");
@@ -167,6 +176,10 @@ export class ResearchReviewQueue extends HTMLElement {
         }
       }
       this.#shell.append(card);
+    }
+    if (restoreFocus && !restoreFocus.disabled) {
+      restoreFocus.focus({ preventScroll: true });
+      restoreFocus.setSelectionRange(...selection);
     }
   }
 

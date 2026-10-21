@@ -1,5 +1,6 @@
 import { apiPrefix, readOperation } from "./api.js";
 import { element } from "./dom.js";
+import { subscribe } from "./events.js";
 
 const RANK_TYPES = new Set(["blocks", "derived-from", "supersedes", "cites", "part-of"]);
 const SVG = "http://www.w3.org/2000/svg";
@@ -110,13 +111,6 @@ export class ResearchGraph extends HTMLElement {
     for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
       this.shadowRoot.addEventListener(type, () => { this.#drag = null; }, options);
     }
-    window.addEventListener("offline", () => {
-      this.#status.textContent = "Browser offline. Displayed snapshot may be stale.";
-      this.#status.classList.add("error");
-    }, options);
-    window.addEventListener("online", () => {
-      if (this.#source && this.isConnected) void this.#refreshSnapshot(this.#source);
-    }, options);
     void this.reload();
   }
 
@@ -185,26 +179,44 @@ export class ResearchGraph extends HTMLElement {
   }
 
   #subscribe() {
-    const source = new EventSource(`${this.#base}/events`);
-    this.#source = source;
-    const refresh = event => {
-      if (this.#source !== source || !this.isConnected) return;
-      try {
-        const envelope = JSON.parse(event.data);
-        if (event.type === "reset" || envelope.reset === true) this.#profileDirty = true;
-        void this.#refreshSnapshot(source);
-      } catch {
-        this.#status.textContent = "Update notification unreadable. Refresh to retrieve a new snapshot.";
+    let source;
+    source = subscribe(this.#base, {
+      onEvent: (envelope, type) => {
+        if (this.#source !== source || !this.isConnected) return;
+        if (type === "reset" || envelope.reset === true) this.#profileDirty = true;
+        if (envelope.kind === "node" || envelope.kind === "edge") this.#applyDelta(envelope);
+        else if (envelope.kind === "index" || type === "reset") void this.#refreshSnapshot(source);
+      },
+      onState: (state, message) => {
+        if (this.#source !== source || state === "connected") return;
+        this.#status.textContent = `Updates ${state}${message ? `: ${message}` : ""}. Displayed snapshot may be stale.`;
         this.#status.classList.add("error");
-      }
-    };
-    source.addEventListener("index", refresh);
-    source.addEventListener("reset", refresh);
-    source.addEventListener("error", () => {
-      if (this.#source !== source) return;
-      this.#status.textContent = "Updates disconnected. Displayed snapshot may be stale; reconnecting.";
-      this.#status.classList.add("error");
+      },
+      onReconnect: () => {
+        if (this.#source !== source || !this.isConnected) return;
+        this.#profileDirty = true;
+        void this.#refreshSnapshot(source);
+      },
     });
+    this.#source = source;
+  }
+
+  #applyDelta(event) {
+    if (!this.#graph) return;
+    const kind = event.kind === "node" ? "nodes" : "edges";
+    const record = event[event.kind];
+    if (!record || record.id !== event.id) return;
+    this.#request?.abort();
+    const records = this.#graph[kind].filter(item => item.id !== record.id);
+    records.push(record);
+    records.sort((left, right) => left.created.localeCompare(right.created) || left.id.localeCompare(right.id));
+    this.#graph = { ...this.#graph, [kind]: records };
+    this.#layout = layoutGraph(this.#graph);
+    const left = this.#viewport.scrollLeft, top = this.#viewport.scrollTop;
+    const focused = this.shadowRoot.activeElement?.dataset.nodeId;
+    this.#renderCanvas();
+    [...this.#canvas.querySelectorAll("[data-node-id]")].find(card => card.dataset.nodeId === focused)?.focus({ preventScroll: true });
+    this.#viewport.scrollTo(left, top);
   }
 
   async #refreshSnapshot(source) {

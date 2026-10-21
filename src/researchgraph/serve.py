@@ -342,6 +342,8 @@ def create_app(
             "research-graph.js",
             "inspector.js",
             "review-queue.js",
+            "dashboard.js",
+            "events.js",
             "api.js",
             "dom.js",
         }:

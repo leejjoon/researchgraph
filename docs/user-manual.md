@@ -319,7 +319,24 @@ with a reason is the send-back operation: it retires the node and its live edges
 not a new lifecycle. Open node/evidence navigates to the inspector. Wrong-role,
 human-only, concurrent-review and read-only errors display the actual server
 result and refetch the queue without optimistic badge changes or write retries.
-A live dashboard is not yet provided.
+Live monitoring shows the six native digest groups and stale claims. These groups
+overlap: a running node with an expired lease can also be ready for reclamation.
+Hypothesis progress uses native containment subtrees and disjoint precedence
+buckets; the overall total counts distinct members, not the sum of overlapping
+rows. Activity shows recorded lease holder/acquisition/expiry, not synthetic CPU
+or capacity telemetry. The failure feed includes Failure records created in the
+displayed inclusive rolling seven-day window. Claim rows show declared
+supports/contradicts/cites records, including explicit retired markers.
+
+Open detailed panels to inspect these records or the bounded plain-text event
+log (last 100 received envelopes, not a durable audit log). Connection state,
+last index and last server-event timestamps distinguish a fresh readback from a
+possibly stale snapshot. Clock-only lease transitions refresh native counters;
+no write is needed. Node/edge events patch the graph, index events refetch query
+views, and reset/reconnect refetch authoritative data. Failed reads retain visible
+stale/error information rather than reporting successful empty data. Review
+draft text and focus survive background native readbacks. No monitoring component
+executes work, invents telemetry or automatically retries writes.
 
 ### MCP presets and client registration
 

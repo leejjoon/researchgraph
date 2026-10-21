@@ -99,6 +99,9 @@ digest/ready/blocked/running/profile reads. Resets cover expired, malformed,
 unknown/future and previous-instance cursors, and disappeared records. Carry the
 entire `v1:<random-generation>:<sequence>` token unchanged. Restart always mints a
 new generation, even when source bytes and sequence numbers overlap.
+Cursor-recovery resets reuse the current retained index's cursor and observation
+time without appending or evicting other consumers, even at retention one. Actual
+record disappearance still emits a new shared reset (decision 024).
 
 Observations detect external/no-commit/same-second writes, retained bytes after
 write failures, HEAD/raw-source changes, lease expiry and failure-window changes.
@@ -220,6 +223,29 @@ after refusal. The host refreshes graph/inspector after reviews and reviews afte
 inspector mutations. `node-select` with `section: "evidence"` uses inspector
 `openSection(name)` after selection. Snapshot freshness is explicit; this panel
 does not claim a durable notification log or authenticated reviewer identity.
+
+`events.js::subscribe(prefix, {onEvent, onState, onReconnect})` owns one EventSource
+and browser online/offline listeners per caller; its idempotent `close()` releases
+both. It retains full opaque cursors in memory with bounded replay deduplication.
+The graph patches native node/edge records immediately, preserves presentation
+state, and performs authoritative profile/graph/digest readback on reset/index or
+reconnection. An in-flight older snapshot cannot overwrite a newer delta.
+
+`dashboard.js` registers `research-dashboard`. Its detached `snapshot` contains
+native graph/digest/stale results, native subtree membership with disjoint progress
+buckets, an overall distinct-member total, seven-day Failure-creation records and
+Claim relationships. The progress precedence is retired, done, failed, native
+ready, native blocked, running, proposed, other. Summary groups remain the native
+overlapping digest groups, not invented disjoint counts. Activity expiry labels
+explicitly compare recorded lease timestamps with browser wall time. Detailed
+panels retain their open state; the in-memory plain-text event log is bounded to
+100 received envelopes. Only successful readbacks emit `snapshot-updated`; actual
+reset notifications emit `snapshot-reset` to refresh the selected inspector.
+The host refreshes queue/navigation counts after monitoring readbacks. Required
+real Chromium tests include clock-only changes, actual disappearance reset and
+fifty live running nodes plus twenty external installed-CLI claims per cache mode,
+each measured through both SSE and the actual graph/dashboard DOM under three
+seconds, with all samples retained. This is not external usability proof.
 
 ## Wrapper contracts, errors and durability
 

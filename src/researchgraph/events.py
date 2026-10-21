@@ -123,7 +123,8 @@ class ChangeSource:
 
         Without since, return only this observation's envelopes. A retained
         cursor replays strictly its successors. Invalid, expired, future or
-        prior-generation cursors return one index reset, never partial replay.
+        prior-generation cursors return one consumer-local copy of the current
+        retained index with reset, without evicting another consumer's cursor.
         Stored record removals also reset. Returned containers are detached.
         """
         events = self._observe(actor=actor, now=now, role=role)
@@ -137,7 +138,7 @@ class ChangeSource:
             if match and match[1] == self._generation and position is not None:
                 events = retained[position + 1 :]
             elif not (len(events) == 1 and events[0].get("reset")):
-                events = [self._index(now, reset=True)]
+                events = [dict(self._events[-1], reset=True)]
         return {"events": deepcopy(events), "cursor": self._events[-1]["cursor"]}
 
     def snapshot(self, *, actor, now, role=None):

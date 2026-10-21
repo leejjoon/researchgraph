@@ -27,12 +27,23 @@ try {
   await import("./research-graph.js");
   await import("./inspector.js");
   await import("./review-queue.js");
+  await import("./dashboard.js");
   const graph = document.createElement("research-graph");
   graph.setAttribute("src", "/api");
   const inspector = document.createElement("research-inspector");
   inspector.setAttribute("src", "/api");
   const reviews = document.createElement("research-review-queue");
   reviews.setAttribute("src", "/api");
+  const dashboard = document.createElement("research-dashboard");
+  dashboard.setAttribute("src", "/api");
+  const inspectNode = async event => {
+    await inspector.select(event.detail.id);
+    if (event.detail.section) inspector.openSection(event.detail.section);
+    else inspector.scrollIntoView({ block: "start" });
+  };
+  dashboard.addEventListener("node-select", inspectNode);
+  dashboard.addEventListener("snapshot-updated", () => { void reviews.reload(); });
+  dashboard.addEventListener("snapshot-reset", () => { void inspector.reload(); });
   const navigation = element("nav");
   navigation.setAttribute("aria-label", "Viewer navigation");
   const openReviews = element("button", "Review queue ");
@@ -44,14 +55,11 @@ try {
   navigation.append(openReviews);
   document.querySelector("#viewer").before(navigation);
   reviews.addEventListener("queue-updated", event => { reviewCount.textContent = String(event.detail.count); });
-  graph.addEventListener("node-select", event => inspector.select(event.detail.id));
+  graph.addEventListener("node-select", inspectNode);
   inspector.addEventListener("mutation-complete", () => { void graph.reload(); void reviews.reload(); });
-  reviews.addEventListener("node-select", async event => {
-    await inspector.select(event.detail.id);
-    if (event.detail.section) inspector.openSection(event.detail.section);
-  });
+  reviews.addEventListener("node-select", inspectNode);
   reviews.addEventListener("mutation-complete", () => { void graph.reload(); void inspector.reload(); });
-  document.querySelector("#viewer").append(graph, inspector, reviews);
+  document.querySelector("#viewer").append(dashboard, graph, inspector, reviews);
   status.textContent = "Authenticated.";
 } catch (error) {
   status.textContent = error.message;
