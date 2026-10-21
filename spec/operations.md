@@ -1,12 +1,40 @@
 # Operations (normative)
 
-Every operation exists in three doors with the same name and arguments: Python (`Project.<op>(...)`), CLI (`rg <op> ...`, `--json` for machine output), MCP (tool `<op>`, v0.2). Each is marked **read** or **write**. A project opened read-only refuses every write with `RuleViolation(rule="read_only")`.
+Every graph operation has the same logical name and arguments across four doors: Python, installed CLI, MCP and HTTP (the latter two introduced in v0.2). Each is marked **read** or **write**. A project opened read-only refuses every write with `RuleViolation(rule="read_only")`.
 
 Every call carries an `actor` (`data-model.md` §2.1) and an optional declared `role`. The CLI derives a human actor from `git config user.name` and `user.email` unless `--as-agent NAME[:MODEL[:VERSION]]` is given; `--role ROLE` declares a role for the call. Roles are self-declared; the profile only lists which role names exist and which gates they satisfy. Every call also takes `now` (CLI `--now`, default wall clock) which is the timestamp written and the clock for the predicates in `data-model.md` §6.
 
 Errors are `RuleViolation{rule: str, message: str, ids: [str]}`; the CLI prints them as JSON on stderr and exits 2. Nothing is written on a validation error; the only exceptions are `write_failed` after a mid-write or commit failure (`store-layout.md`, Writes). When several rules apply, the shared rules are checked first in the order listed above (`read_only`, `clock_skew`, `not_found`, `profile_too_new`, `human_only_approval`, `wrong_role`, `unsupported_by_profile`), then the row's rules in the order listed, except where a row says otherwise; `artifact_path` precedes `artifact_missing`. Edges may be created to or from retired nodes; no rule forbids it. Every write may raise, in addition to the rules listed per row: `read_only`; `clock_skew` (`store-layout.md`, `--as-of`); `not_found` (an id argument does not exist); `profile_too_new`; `human_only_approval` (an agent calls a write whose *Allowed to* is `human`); `wrong_role` (the declared role is not one the operation or gate accepts); `unsupported_by_profile` (`data-model.md` §8); `write_failed` (`store-layout.md`, Writes).
 
 Where an operation records something, the record is the `approvals` entry defined in `data-model.md` §2.2, and generated nodes are filled per §2.3.
+
+## Doors (decision 017)
+
+Python uses `Project.<op>(...)`; the pinned profile read is `Project.profile_info()` because `Project.profile` is the loaded profile object. The CLI uses `rg <op>` with `--json`, MCP uses tool `<op>`, and HTTP uses `GET /api/<op>` for reads and `POST /api/<op>` for writes. Structured/repeated HTTP read arguments use JSON-encoded query values; writes use a JSON object. `GET /api/operations` publishes the registry. Import/export retain their operation semantics and filesystem arguments; adapters do not silently replace them with unrelated transport operations. Results are CLI-equivalent JSON; omission and explicit null remain distinct. HTTP maps RuleViolation `{rule, message, ids}` to 422, project-open errors to 503 and authority failures to 403. Adapters call shared operations, never SQL or a second business-validation layer.
+
+The registry contains graph Writes/Reads only: currently 35, becoming exactly 37 (18 writes, 19 reads) when graph and profile are implemented. Streams and Servers are separate categories. Their installed rows and manual references land in their introducing commits; these semantic contracts do not advertise unimplemented commands.
+
+MCP uses the official optional SDK over stdio. Launch requires `--as-agent NAME[:MODEL[:VERSION]]` or explicit `--as-human`, and fixes actor, role and read-only for the process. Tool arguments cannot override authority or choose another project. Full is default; essential lists exactly show, ready, blocked, queue, digest, where, history, evidence, propose, link, attach, claim, renew, release, complete, fail. Read-only intersects the preset, hides all writes and refuses attempted hidden writes including init/import. Tool descriptions/schemas come from the registry and `readOnlyHint` from kind. Instructions equal profile `agent_guidance`, never core prompts. Results include CLI-equivalent JSON in text and `structuredContent`; RuleViolation uses `isError` with its structured JSON. No stdout logging; close per-request owners and all resources on cancellation/shutdown. Help/core import work without the extra; invoking a missing extra reports an actionable error.
+
+The optional Starlette/Uvicorn HTTP server binds loopback and fixes writes to the serving human's git identity. Roles are self-declared per request; read-only cannot be disabled by a request. One Project lock serialises requests and polling; it does not turn read-only reads into write-lock operations. Server shutdown/disconnect closes owners and subscriptions. Same-origin embedding only.
+
+### Graph and profile read contracts
+
+Graph returns `{nodes: [...], edges: [...]}` including retired records, each list ordered by `(created, id)`. Node objects match show projections without show-only incident/derived additions. It honours existing as-of limitations, leaves files and Git unchanged, and returns the same state after index deletion. Report production and parse time for 20k-node JSON without inventing a new budget.
+
+Profile returns `{name, version, installed_version, node_types, edge_types, gates, roles, agent_guidance}`. Name/version are pinned; installed_version identifies the loaded package profile version. Node types are `{name, prefix, claimable, schema}`; edges `{name, allowed, inherit, schema}`; gates `{transition, node_type, roles, agents_allowed, when_fields}`. Preserve declaration order and unused declared types, effective core edge definitions and safe schemas. Never serialise validators, hooks, expansion hooks, renderers, migrations or other callables. All four doors use this shared data-only read, including `GET /api/profile`; there is no HTTP-only alternative. Under as-of it reports the currently loaded profile, not reconstructed historical declarations.
+
+### Browser session and artifact authority
+
+The launch URL is `http://127.0.0.1:PORT/#token=…`. The host removes the fragment immediately and exchanges the token once in a JSON `POST /api/session` body for an instance-lifetime, host-only `HttpOnly; SameSite=Strict` cookie. Reuse, a previous-instance token/cookie or query-string token is rejected. Protected API (including operations/profile), SSE and artifact routes require that cookie. Validate Host against the bound origin on every request; reject any foreign Origin, require the matching Origin for session exchange and mutation, and permit absent Origin only for same-host authenticated reads (including direct downloads). No permissive CORS. Foreign Host/Origin and unauthorised requests yield 403. Root/static bootstrap exposes no graph before authentication. Responses carry `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; tokens/cookies never enter logs, DOM attributes, persistent browser storage or referrers.
+
+`GET /artifacts/<node>/<path>` serves only an existing regular file whose project-relative path is registered in that node's artifacts and lies under `artifacts/<node id>/`. Validate percent-decoded paths with Project's safe-path boundary; reject plain/encoded/double-encoded traversal, absolute paths, wrong-node roots, unregistered files, escaping symlinks and path swaps with nondisclosing 404. Hold containment through opening, not resolve-then-reopen. Never list directories. Downloads use `Content-Disposition: attachment` with a safely encoded basename, `Content-Type: application/octet-stream` and `X-Content-Type-Options: nosniff`. HTML/SVG must remain inert attachments, not inline same-origin documents.
+
+### Viewer controls
+
+Show/history/evidence/weakest/alternatives/predictions/notes/subtree populate the inspector; where supplies filters; queue/blocked supply review cards; digest/stale/ready/where supply monitoring. Mutation controls map only to approve(note), reject(reason), instruct, one supersede(instruction) for re-run, retire, budget, tag, link(pins), expand. Expand creates a Task, never executes it. Send back is reject-with-reason, not a new lifecycle. Render text escaped; hide read-only actions but still enforce authority server-side. On mutation errors display the error and refetch persisted state without automatic retry; retained-byte failures can have effects.
+
+Rank using Kahn's algorithm over non-retired I1 edges only: blocks, derived-from, supersedes, cites, part-of. Draw other/retired edges without rank constraints; collapse after ranking. Append unplaced nodes in created/id order so mixed-edge and invalid I1 cycles never lose nodes or hang. Pan/zoom/selection/collapse are presentation-only, no layout files. Runner capacity, instruction acknowledgement, budget/lease inheritance, selective edge transfer, diff, timeline scrubber, budget burn, since-last-look, renderers/notebook previews and standalone app remain deferred.
 
 ## Writes
 
@@ -57,7 +85,21 @@ The commit for a write touches only the files that write created or changed. Its
 | `digest` | counts and lists of: `running`, `ready`, `blocked`, `awaiting` (the `queue`), `failed_24h` (nodes whose status became `failed` within the 24 hours before `now`), `claims` (non-retired Claims) |
 | `export` | `out, include_artifacts?: bool = false, since?` — write a tar.zst containing `graph/`, `.researchgraph/profile.yaml`, `.researchgraph/history.jsonl` (the status intervals), and optionally `artifacts/`. With `since`, only nodes and edges changed after `since` (as `since` defines changed), plus both endpoints of every included edge, then every node reachable from the included set by `supersedes`, `cites` and `derived-from`, together with the edges traversed. With `since`, `history.jsonl` carries only the included nodes' intervals. Under `--as-of`, the as-of time governs selection only (decision 015): the included nodes and edges are those in effect at that time (`store-layout.md`, `--as-of`), and with `since` the changed set is what `since` reports under the same `--as-of` (changes after `since` up to and including the as-of time); endpoints and closure are then added as above. Every archived `graph/` file and artifact file is the working-tree bytes of the selected member, and `history.jsonl` carries the selected nodes' complete status intervals, including intervals after the as-of time. An archive never contains a historical projection; a historical view of an imported project is obtained by querying it with `--as-of`. The archive is POSIX PAX with a member for every directory and file, using the canonical archive encoding in `store-layout.md` (decision 012), compressed with zstd level 3, so the bytes are deterministic across runs and machines. |
 
-Every read accepts `--as-of <time|commit>`; `store-layout.md` says what is reconstructed, and for `export` the as-of time selects members without reconstructing their files (see the `export` row). A commit maps to its committer time.
+Every graph read accepts `--as-of <time|commit>`; `store-layout.md` says what is reconstructed, and for `export` the as-of time selects members without reconstructing their files (see the `export` row). A commit maps to its committer time. Streaming events describe current observations, not historical replay.
+
+## Streams
+
+| Stream | Arguments | Output |
+| --- | --- | --- |
+
+The events stream, when introduced, uses `--follow`, `--since CURSOR` and `--poll-interval SECONDS`. JSON output is one event object per line; human output is one line per event. Follow exits 0 on stdin close or SIGINT. It is read-only and takes no writer lock. Python changes and CLI/SSE use the identical full cursor and reset semantics in `store-layout.md`, Change events.
+
+## Servers
+
+| Server | Arguments | Purpose |
+| --- | --- | --- |
+
+MCP and HTTP launchers are added with their implementation, outside graph-operation counts. Launcher help works without optional extras. HTTP SSE uses `GET /api/events`, full cursor in both `id:` and `Last-Event-ID`, and 15-second keepalive comments; one-second polling must observe external CLI claims within three seconds under the required fifty-running-node load. Replay includes only retained successors; reset means refetch. Slow/disconnected clients cannot leak unbounded buffers or resource owners.
 
 ## CLI conventions
 - `rg --project PATH` or run inside the project.

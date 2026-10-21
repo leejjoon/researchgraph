@@ -1,0 +1,5 @@
+# profile
+1. Given a pinned custom profile with unused types, conditional gates, roles and guidance. When profile is read through Python profile_info, CLI, MCP or HTTP. Then the same data-only object contains pinned name/version, installed_version, ordered node/edge/gate declarations, roles and agent_guidance, including unused types and when_fields.
+2. Given validators, hooks, expansion hook, renderers and migrations containing Python callables. When profile is read. Then none of those attributes or callables is exposed; schemas, allowed pairs, prefixes, claimable and inherit are serialisable data.
+3. Given an older pinned version opened with a supported newer loaded profile. When profile is read under as-of. Then pinned and installed versions are distinct and the declarations are currently loaded ones, not fabricated historical declarations. The limitation is documented.
+4. Given kept/deleted cache, a read-only project and repeated reads. When profile is requested. Then responses are equal and no graph/Git bytes change. All doors use the same shared read, not HTTP-only metadata.

@@ -1,0 +1,5 @@
+# graph
+1. Given a project with nodes, edges, superseded nodes and retired edges. When graph is read. Then `{nodes, edges}` contains every persisted record including retired ones, each list in created/id order, and equals the union of show projections without show-only additions.
+2. Given records before and after an as-of time or commit. When graph is read with as-of. Then node status, edge existence/retirement and approval/artifact filtering obey store-layout's existing inclusive historical contract, while mutable fields retain its documented limitations.
+3. Given either kept or deleted index and any supported door. When graph is read repeatedly. Then JSON state is equal, graph bytes and Git state do not change, and no write lock is acquired in read-only mode.
+4. Given twenty thousand nodes. When installed graph JSON is produced and parsed. Then report production/parse timings and output size; do not impose an unapproved arbitrary graph-read threshold or replace the retained rebuild/scrub budgets.
