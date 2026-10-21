@@ -19,7 +19,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.shared.memory import create_client_server_memory_streams
 
 from researchgraph.mcp import create_server
-from researchgraph.model import Actor, format_timestamp
+from researchgraph.model import Actor, RuleViolation, format_timestamp
 from researchgraph.project import Project
 from researchgraph.registry import OPERATIONS
 from tests.door_helpers import invoke_mcp
@@ -40,6 +40,25 @@ from tests.test_cli_general import (
 from tests.test_operations import discard_index, snapshot
 
 pytestmark = pytest.mark.mcp
+
+_ESSENTIAL = {
+    "show",
+    "ready",
+    "blocked",
+    "queue",
+    "digest",
+    "where",
+    "history",
+    "evidence",
+    "propose",
+    "link",
+    "attach",
+    "claim",
+    "renew",
+    "release",
+    "complete",
+    "fail",
+}
 
 
 def data(result):
@@ -73,6 +92,52 @@ def test_real_sdk_lists_exact_registry_and_profile_instructions(tmp_path, index_
         for arg in op["arguments"]:
             assert properties[arg["name"]] == arg["schema"]
         assert tool.description == op["result"]
+
+
+@pytest.mark.parametrize("preset", ["full", "essential"])
+@pytest.mark.parametrize("read_only", [False, True])
+def test_mcp_presets_exact_subset_and_hidden_refusal(
+    tmp_path, index_mode, preset, read_only
+):
+    with Project.init(repository(tmp_path), "tasks", actor=ALICE, now=NOW) as project:
+        discard_index(project, index_mode)
+    before = _state(tmp_path)
+    selected = {op["name"] for op in OPERATIONS} if preset == "full" else _ESSENTIAL
+    expected = {
+        op["name"]
+        for op in OPERATIONS
+        if op["name"] in selected and (not read_only or op["kind"] == "read")
+    }
+    excluded = [
+        op
+        for op in OPERATIONS
+        if op["name"] not in selected or (read_only and op["kind"] == "write")
+    ]
+    _, listed, results = call_memory(
+        tmp_path,
+        [(op["name"], {"now": "bad"}) for op in excluded],
+        preset=preset,
+        read_only=read_only,
+    )
+    assert {tool.name for tool in listed.tools} == expected
+    for op, result in zip(excluded, results, strict=True):
+        assert result.is_error
+        refused_value = data(result)
+        if read_only and op["kind"] == "write":
+            assert refused_value["rule"] == "read_only"
+        else:
+            assert refused_value["rule"] == "schema"
+            assert "preset" in refused_value["message"]
+    assert _state(tmp_path) == before
+
+
+@pytest.mark.parametrize("preset", ["unexpected", None])
+def test_invalid_mcp_preset_refuses_before_project_creation(tmp_path, preset):
+    root = tmp_path / "absent"
+    with pytest.raises(RuleViolation) as error:
+        create_server(root, actor=ALICE, preset=preset)
+    assert error.value.rule == "schema"
+    assert not root.exists()
 
 
 def test_native_results_preserve_arrays_null_omission_and_domain_errors(
@@ -111,7 +176,7 @@ def test_native_results_preserve_arrays_null_omission_and_domain_errors(
 
 
 @pytest.mark.parametrize(
-    "override", ["actor", "role", "read_only", "project", "as_agent"]
+    "override", ["actor", "role", "read_only", "project", "as_agent", "preset"]
 )
 def test_tool_arguments_cannot_override_fixed_authority(tmp_path, override):
     with Project.init(
@@ -369,7 +434,10 @@ def test_installed_launcher_requires_declared_identity(tmp_path):
     assert "either" in conflict["message"].lower()
 
 
-def test_real_installed_modern_stdio_round_trip_and_shutdown(tmp_path, index_mode):
+@pytest.mark.parametrize("preset", [None, "essential"])
+def test_real_installed_modern_stdio_round_trip_and_shutdown(
+    tmp_path, index_mode, preset
+):
     with Project.init(repository(tmp_path), "tasks", actor=ALICE, now=NOW) as project:
         expected = project.digest(actor=ALICE, now=NOW)
         expected_guidance = project.profile.agent_guidance
@@ -378,7 +446,8 @@ def test_real_installed_modern_stdio_round_trip_and_shutdown(tmp_path, index_mod
     async def session(errors):
         parameters = StdioServerParameters(
             command=str(Path(sysconfig.get_path("scripts")) / "rg"),
-            args=["--project", str(tmp_path), "--as-agent", "stdio-worker", "mcp"],
+            args=["--project", str(tmp_path), "--as-agent", "stdio-worker", "mcp"]
+            + ([] if preset is None else ["--preset", preset]),
             env={
                 key: value for key, value in os.environ.items() if key != "PYTHONPATH"
             },
@@ -389,6 +458,12 @@ def test_real_installed_modern_stdio_round_trip_and_shutdown(tmp_path, index_mod
         ):
             discovered = await client.discover()
             assert discovered.instructions == expected_guidance
+            listed = await client.list_tools()
+            assert {tool.name for tool in listed.tools} == (
+                _ESSENTIAL
+                if preset == "essential"
+                else {op["name"] for op in OPERATIONS}
+            )
             result = await client.call_tool("digest", {"now": format_timestamp(NOW)})
             assert not result.is_error and data(result) == expected
             result = await client.call_tool(

@@ -634,9 +634,15 @@ def _run_read(ctx, local_options, as_of, operation):
 
 @main.command("mcp")
 @click.option("--as-human", is_flag=True)
+@click.option(
+    "--preset",
+    type=click.Choice(("essential", "full")),
+    default="full",
+    show_default=True,
+)
 @_server_options
 @click.pass_context
-def mcp_command(ctx, as_human, **local_options):
+def mcp_command(ctx, as_human, preset, **local_options):
     """Serve the optional official MCP stdio adapter with fixed launch authority."""
     options = _options(ctx, local_options)
     try:
@@ -662,6 +668,7 @@ def mcp_command(ctx, as_human, **local_options):
             actor=_actor(root, options["as_agent"]),
             role=options["role"],
             read_only=bool(options["read_only"]),
+            preset=preset,
         )
     except KeyboardInterrupt:
         return

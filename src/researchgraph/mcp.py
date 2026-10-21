@@ -16,22 +16,51 @@ from researchgraph.model import RuleViolation
 from researchgraph.project import Project
 from researchgraph.registry import OPERATIONS
 
+_ESSENTIAL = frozenset(
+    {
+        "show",
+        "ready",
+        "blocked",
+        "queue",
+        "digest",
+        "where",
+        "history",
+        "evidence",
+        "propose",
+        "link",
+        "attach",
+        "claim",
+        "renew",
+        "release",
+        "complete",
+        "fail",
+    }
+)
 
-def create_server(root, *, actor, role=None, read_only=False):
-    """Build a full-preset server with fixed root and declared actor authority.
+
+def create_server(root, *, actor, role=None, read_only=False, preset="full"):
+    """Build a preset server with fixed root and declared actor authority.
 
     Instructions contain only the existing profile's guidance, or nothing for
     an uninitialized destination. Domain calls go through shared public methods
     in worker threads; cancellation waits for owned resources to close.
     """
     Project._actor(actor)
+    if preset not in ("full", "essential"):
+        raise RuleViolation("schema", "MCP preset must be full or essential")
     root = Path(root).expanduser().resolve()
     guidance = ""
     if (root / ".researchgraph").exists() or (root / "graph").exists():
         with Project.open(root, read_only=True) as project:
             guidance = project.profile.agent_guidance
-    tools = []
+    tools, unavailable = [], set()
     for operation in OPERATIONS:
+        if preset == "essential" and operation["name"] not in _ESSENTIAL:
+            # Known writes still reach shared read-only preflight. Preset
+            # selection must not weaken its permission/error precedence.
+            if not read_only or operation["kind"] != "write":
+                unavailable.add(operation["name"])
+            continue
         if read_only and operation["kind"] == "write":
             continue
         properties = {
@@ -68,6 +97,11 @@ def create_server(root, *, actor, role=None, read_only=False):
                     "schema",
                     f"MCP {types.LATEST_PROTOCOL_VERSION} discovery negotiation is required; legacy structuredContent cannot preserve array results",
                 )
+            if params.name in unavailable:
+                raise RuleViolation(
+                    "schema",
+                    f"Operation is not exposed by MCP preset {preset}: {params.name}",
+                )
             value = await anyio.to_thread.run_sync(
                 partial(
                     execute,
@@ -102,12 +136,18 @@ def create_server(root, *, actor, role=None, read_only=False):
     )
 
 
-async def _stdio(root, *, actor, role, read_only):
-    server = create_server(root, actor=actor, role=role, read_only=read_only)
+async def _stdio(root, *, actor, role, read_only, preset):
+    server = create_server(
+        root, actor=actor, role=role, read_only=read_only, preset=preset
+    )
     async with stdio_server() as (incoming, outgoing):
         await server.run(incoming, outgoing, server.create_initialization_options())
 
 
-def serve(root, *, actor, role=None, read_only=False):
+def serve(root, *, actor, role=None, read_only=False, preset="full"):
     """Run the official stdio transport until disconnect, closing request owners."""
-    anyio.run(partial(_stdio, root, actor=actor, role=role, read_only=read_only))
+    anyio.run(
+        partial(
+            _stdio, root, actor=actor, role=role, read_only=read_only, preset=preset
+        )
+    )

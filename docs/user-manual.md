@@ -267,6 +267,53 @@ compatibility and recordings are separate release evidence, not inferred here.
 No core prompts are supplied: instructions are only profile guidance (empty
 before bootstrapping a selected uninitialized destination).
 
+### MCP presets and client registration
+
+`--preset full` is the default and exposes every graph-registry operation.
+`--preset essential` exposes exactly `show`, `ready`, `blocked`, `queue`,
+`digest`, `where`, `history`, `evidence`, `propose`, `link`, `attach`, `claim`,
+`renew`, `release`, `complete` and `fail`. Read-only intersects either preset;
+an unlisted operation is not a back door to the full set. Seed prerequisites
+as a human before an essential agent session: it does not expose `init` or
+human review operations.
+
+Use absolute paths to the installed console script and the selected project,
+not another executable named `rg`. The following commands change the client's
+configuration; they are operator setup, not a CI session or recorded evaluation.
+Claude's local scope is project-specific; Codex's CLI writes its configuration
+(normally `~/.codex/config.toml`, shared with other Codex surfaces). Use isolated
+evaluation configuration rather than overwriting a shared server registration.
+
+<!-- rg-example: mcp-registration; part=1; fragment -->
+```sh
+claude mcp add --transport stdio --scope local researchgraph -- \
+  /absolute/path/to/venv/bin/rg --project /absolute/path/to/project \
+  --as-agent claude-code mcp --preset essential
+codex mcp add researchgraph -- \
+  /absolute/path/to/venv/bin/rg --project /absolute/path/to/project \
+  --as-agent codex-cli mcp --preset essential
+```
+
+Check the server with each product's `/mcp` view. Configuration or discovery
+success alone does not prove tool calls can negotiate the required protocol.
+The command forms were checked with Claude Code 2.1.306 and Codex CLI 0.155.1
+`mcp add --help`, and the official [Claude Code MCP reference](https://code.claude.com/docs/en/mcp)
+and [Codex MCP reference](https://developers.openai.com/codex/mcp/).
+These are syntax checks, not successful registration, model access, protocol
+compatibility or unassisted recordings. Record actual product/model versions,
+configuration and transcripts separately for Gate 2; the deterministic replay
+does not substitute for either real product session.
+
+The [ten-step prompt](../examples/agent_session/PROMPT.md) includes human seed
+and independent check commands. Run `seed.py PROJECT --manifest MANIFEST.json`
+before the session and `check.py PROJECT --manifest MANIFEST.json` afterward,
+using absolute script paths and an installed package. Keep the trusted manifest
+outside the agent's writable checkout. The checker audits native YAML, committed
+artifact bytes and every managed post-seed Git author, even a human edit later
+restored by an agent; it does not trust the index or agent-returned outcome IDs.
+It proves declared-actor consistency, not authenticated identity or absence of
+physical human assistance. Its success cannot complete Gate 2 by itself.
+
 ## Common options
 
 Every invocation accepts `--project PATH` (default discover project in current
@@ -446,7 +493,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 ### mcp
 **Invocation**: `rg --project PATH --as-agent NAME mcp` or `rg --project PATH mcp --as-human`.
 **Arguments**: None; project selection is fixed at launch.
-**Options and defaults**: `--as-human` false; [Common options](#common-options) for project, declared identity, role, read-only, JSON errors and help. Full registry tools are the default.
+**Options and defaults**: `--as-human` false; `--preset essential|full` (default `full`); [Common options](#common-options) for project, declared identity, role, read-only, JSON errors and help. Full registry tools are the default.
 **Permissions / preconditions**: Exactly one explicit agent identity or human mode. Install the optional mcp extra; launcher help does not require it. Current MCP discovery negotiation is required.
 **Effect / result**: Official SDK JSON-RPC stdio, never a graph JSON value or human table. One tool per graph registry operation with readOnlyHint; read-only hides and refuses every write including init/import. JSON text and structuredContent preserve the same data, arrays and omission/null semantics; domain errors set isError with rule/message/ids. Tool calls may set now and writes may set commit; neither can override authority. Optional init/import destinations must equal the selected root. Per-request owners close even on cancellation; disconnect shuts down the server. Profile guidance only, no core prompts, runner or scheduler.
 **Errors**: `schema` for missing/conflicting launch identity, missing optional extra, authority/path overrides or unsupported negotiation; shared domain errors for tool calls. Missing/invalid project and profile errors retain the core refusal rather than being masked.

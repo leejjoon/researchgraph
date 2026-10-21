@@ -5,9 +5,14 @@ import os
 import subprocess
 import sys
 import zipfile
+from functools import partial
 
+import anyio
+
+from researchgraph.model import format_timestamp
 from researchgraph.project import Project
 from tests.helpers import ALICE, NOW, copy_checkout, repository
+from tests.test_agent_session import replay
 from tests.test_packaging import execute
 
 
@@ -153,6 +158,57 @@ def test_core_only_help_and_optional_mcp_from_sdist_built_wheel(tmp_path):
                     "mcp_installed": False,
                 }
             )
+            seeded_root = repository(tmp_path / "core-seeded")
+            manifest_path = tmp_path / "trusted-seed.json"
+            seeded = execute(
+                [
+                    str(python),
+                    str(source / "examples/agent_session/seed.py"),
+                    str(seeded_root),
+                    "--manifest",
+                    str(manifest_path),
+                    "--now",
+                    format_timestamp(NOW),
+                ],
+                cwd=tmp_path,
+                environment=environment,
+            )
+            manifest = json.loads(seeded.stdout)
+            assert json.loads(manifest_path.read_text()) == manifest
+            # A real SDK replay writes the graph; a different, SDK-free wheel
+            # interpreter then audits it from outside the source checkout.
+            ids = anyio.run(
+                partial(
+                    replay,
+                    seeded_root,
+                    manifest,
+                    preset="essential",
+                    index_mode="deleted",
+                )
+            )
+            checker = [
+                str(python),
+                "-O",
+                str(source / "examples/agent_session/check.py"),
+                str(seeded_root),
+                "--manifest",
+                str(manifest_path),
+            ]
+            checked = execute(checker, cwd=tmp_path, environment=environment)
+            assert json.loads(checked.stdout)["ok"] is True
+            (seeded_root / ids["result_artifact"]).write_bytes(b"corrupted evidence\n")
+            rejected = subprocess.run(
+                checker,
+                cwd=tmp_path,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            assert rejected.returncode == 1 and rejected.stderr == ""
+            assert json.loads(rejected.stdout)["ok"] is False
+            print({"core_only_seed_replay_checker": "passed, including -O rejection"})
         else:
             script = """
 import anyio,json,sys

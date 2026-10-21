@@ -115,12 +115,15 @@ current discovery negotiation (decision 021). Legacy initialize-only tool calls
 are explicitly refused: their wire cannot carry the required bare array results.
 SDK/memory success is not proof of actual agent-product compatibility.
 
-`researchgraph.mcp.create_server(root, actor=..., role=None, read_only=False)`
+`researchgraph.mcp.create_server(root, actor=..., role=None, read_only=False, preset="full")`
 returns the official low-level Server for an existing SDK transport;
 `serve` runs its stdio transport. Full tools equal the graph registry, not streams
 or launchers; readOnlyHint follows kind. Read-only hides and refuses every write,
 including init/import. Instructions are profile guidance only, empty before an
 uninitialized selected destination bootstraps. Invalid projects are not masked.
+Essential is the sixteen-tool subset in `spec/operations.md`; excluded operations
+refuse rather than silently reaching the full dispatcher. Read-only write
+refusals retain the shared permission preflight even outside that subset.
 
 Input schemas contain registry arguments plus optional now and write commit.
 Authority/output options are never tool arguments; initializer paths cannot
