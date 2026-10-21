@@ -17,6 +17,15 @@ from tests.test_cli import invoke, refused, succeeds
 from tests.test_operations import discard_index, snapshot
 
 
+@pytest.fixture(name="invoke")
+def scenario_invoke(door):
+    if door == "mcp":
+        from tests.door_helpers import invoke_mcp
+
+        return invoke_mcp
+    return invoke
+
+
 def citation_profile(target="Literature"):
     return Profile(
         "citations-" + target.lower(),
@@ -74,9 +83,11 @@ def test_additive_exception_does_not_change_other_core_edges():
         {"held_out": "false"},
     ],
 )
-@pytest.mark.parametrize("door", ["api", pytest.param("cli", marks=pytest.mark.cli)])
+@pytest.mark.parametrize(
+    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+)
 def test_invalid_scoring_fields_refused_atomically(
-    tmp_path, index_mode, door, fields, monkeypatch
+    tmp_path, index_mode, door, fields, monkeypatch, invoke
 ):
     import json
 
@@ -105,9 +116,11 @@ def test_invalid_scoring_fields_refused_atomically(
         assert snapshot(project) == before
 
 
-@pytest.mark.parametrize("door", ["api", pytest.param("cli", marks=pytest.mark.cli)])
+@pytest.mark.parametrize(
+    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+)
 def test_claim_literature_without_result_reference(
-    tmp_path, index_mode, door, monkeypatch
+    tmp_path, index_mode, door, monkeypatch, invoke
 ):
     import json
 

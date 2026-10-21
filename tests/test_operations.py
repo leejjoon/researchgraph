@@ -5,6 +5,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier
@@ -23,6 +24,16 @@ from tests.helpers import ALICE, NOW, git, refusal, repository
 BOT = Actor("agent", "agent1", model="model", version="1")
 BOB = Actor("human", "bob", "bob@example.test")
 CALL = {"actor": ALICE, "now": NOW}
+
+
+@pytest.fixture(scope="module")
+def public_operation(request):
+    """Inject only public call boundaries; keep native storage oracles intact."""
+    if request.param == "mcp":
+        from tests.door_helpers import operation_mcp
+
+        return lambda project, name: partial(operation_mcp, project, name)
+    return lambda project, name: getattr(project, name)
 
 
 def snapshot(project):
@@ -57,9 +68,9 @@ def custom(tmp_path, *, gates=(), validators=(), hooks=(), schema=None):
     return Project.init(tmp_path, profile="lifecycle", **CALL)
 
 
-def test_propose_metadata_canonical_and_defaults(project, index_mode):
+def test_propose_metadata_canonical_and_defaults(public_operation, project, index_mode):
     discard_index(project, index_mode)
-    value = project.propose(
+    value = public_operation(project, "propose")(
         "Hypothesis", "H1", body="a body\n", fields={}, role="owner", **CALL
     )
     assert value["status"] == "proposed"
@@ -77,16 +88,22 @@ def test_propose_metadata_canonical_and_defaults(project, index_mode):
     assert load_node(path) == value
     assert dump_node(load_node(path)).encode() == path.read_bytes()
     assert git(project.path, "log", "-1", "--format=%s") == f"rg: propose {value['id']}"
-    task = project.propose("Task", "T1", actor=BOT, now=NOW)
+    task = public_operation(project, "propose")("Task", "T1", actor=BOT, now=NOW)
     assert task["status"] == "active"
     assert task["author"] == BOT.to_dict()
-    assert [n["id"] for n in project.ready(**CALL)["items"]] == [task["id"]]
-    question = project.propose("Question", "Q", fields={"closed": None}, **CALL)
+    assert [n["id"] for n in public_operation(project, "ready")(**CALL)["items"]] == [
+        task["id"]
+    ]
+    question = public_operation(project, "propose")(
+        "Question", "Q", fields={"closed": None}, **CALL
+    )
     assert question["fields"] == {"closed": False}
 
 
-def test_propose_edges_direction_defaults_and_inputs(project, index_mode):
-    h = project.propose("Hypothesis", "H", **CALL)
+def test_propose_edges_direction_defaults_and_inputs(
+    public_operation, project, index_mode
+):
+    h = public_operation(project, "propose")("Hypothesis", "H", **CALL)
     specs = [
         {
             "type": "tests",
@@ -96,16 +113,18 @@ def test_propose_edges_direction_defaults_and_inputs(project, index_mode):
     ]
     original = deepcopy(specs)
     discard_index(project, index_mode)
-    p = project.propose("Prediction", "P", edges=specs, actor=BOT, now=NOW)
+    p = public_operation(project, "propose")(
+        "Prediction", "P", edges=specs, actor=BOT, now=NOW
+    )
     assert specs == original
-    edge = project.show(p["id"], **CALL)["edges"][0]
+    edge = public_operation(project, "show")(p["id"], **CALL)["edges"][0]
     assert edge["from"] == p["id"] and edge["to"] == h["id"]
     assert edge["fields"] == {"expected": "weak absorbed", "discriminating": True}
     assert load_edge(project.path / f"graph/edges/{edge['id']}.yaml") == edge
-    task = project.propose(
+    task = public_operation(project, "propose")(
         "Task", "T", edges=[{"type": "blocks", "from": p["id"]}], **CALL
     )
-    assert project.show(task["id"], **CALL)["flags"]["blocked"]
+    assert public_operation(project, "show")(task["id"], **CALL)["flags"]["blocked"]
 
 
 @pytest.mark.parametrize(
@@ -131,38 +150,56 @@ def test_propose_edges_direction_defaults_and_inputs(project, index_mode):
         ("Note", {}, [{"type": "supersedes", "to": "TARGET"}], "reserved_edge_type"),
     ],
 )
-def test_invalid_proposals_are_atomic(project, type_, fields, edges, rule):
-    target = project.propose("Question", "Q", **CALL)
+def test_invalid_proposals_are_atomic(
+    public_operation, project, type_, fields, edges, rule
+):
+    target = public_operation(project, "propose")("Question", "Q", **CALL)
     if isinstance(edges, list):
         edges = [
             {k: target["id"] if v == "TARGET" else v for k, v in e.items()}
             for e in edges
         ]
     before = snapshot(project)
-    refusal(rule, project.propose, type_, "title", fields=fields, edges=edges, **CALL)
-    assert snapshot(project) == before
-
-
-@pytest.mark.parametrize("kind", ["supersedes", "explains", "instructs"])
-def test_reserved_link_precedes_endpoints_and_fields(project, kind):
-    a = project.propose("Task", "A", **CALL)
-    b = project.propose("Question", "B", **CALL)
-    before = snapshot(project)
     refusal(
-        "reserved_edge_type", project.link, kind, a["id"], b["id"], {"bad": 1}, **CALL
+        rule,
+        public_operation(project, "propose"),
+        type_,
+        "title",
+        fields=fields,
+        edges=edges,
+        **CALL,
     )
     assert snapshot(project) == before
 
 
-def test_link_metadata_rules_and_evidence(project, index_mode):
-    a = project.propose("Task", "A", **CALL)
-    b = project.propose("Task", "B", **CALL)
+@pytest.mark.parametrize("kind", ["supersedes", "explains", "instructs"])
+def test_reserved_link_precedes_endpoints_and_fields(public_operation, project, kind):
+    a = public_operation(project, "propose")("Task", "A", **CALL)
+    b = public_operation(project, "propose")("Question", "B", **CALL)
+    before = snapshot(project)
+    refusal(
+        "reserved_edge_type",
+        public_operation(project, "link"),
+        kind,
+        a["id"],
+        b["id"],
+        {"bad": 1},
+        **CALL,
+    )
+    assert snapshot(project) == before
+
+
+def test_link_metadata_rules_and_evidence(public_operation, project, index_mode):
+    a = public_operation(project, "propose")("Task", "A", **CALL)
+    b = public_operation(project, "propose")("Task", "B", **CALL)
     discard_index(project, index_mode)
-    edge = project.link("blocks", a["id"], b["id"], actor=BOT, now=NOW, role="reviewer")
+    edge = public_operation(project, "link")(
+        "blocks", a["id"], b["id"], actor=BOT, now=NOW, role="reviewer"
+    )
     assert edge["author"] == BOT.to_dict()
     assert load_edge(project.path / f"graph/edges/{edge['id']}.yaml") == edge
     assert git(project.path, "log", "-1", "--format=%s") == f"rg: link {edge['id']}"
-    assert project.show(b["id"], **CALL)["flags"]["blocked"]
+    assert public_operation(project, "show")(b["id"], **CALL)["flags"]["blocked"]
     before = snapshot(project)
     for kind, source, target, fields, rule in [
         ("blocks", b["id"], a["id"], {}, "cycle"),
@@ -171,23 +208,49 @@ def test_link_metadata_rules_and_evidence(project, index_mode):
         ("answers", a["id"], b["id"], {"x": 1}, "edge_endpoints"),
         ("blocks", a["id"], b["id"], [], "schema"),
     ]:
-        refusal(rule, project.link, kind, source, target, fields, **CALL)
+        refusal(
+            rule,
+            public_operation(project, "link"),
+            kind,
+            source,
+            target,
+            fields,
+            **CALL,
+        )
         assert snapshot(project) == before
-    claim = project.propose("Claim", "C", **CALL)
-    refusal("claim_needs_evidence", project.approve, claim["id"], **CALL)
-    result = project.propose("Result", "R", **CALL)
-    project.link("cites", claim["id"], result["id"], **CALL)
-    assert project.evidence(claim["id"], **CALL)["items"][0]["id"] == result["id"]
-    assert project.approve(claim["id"], **CALL)["status"] == "active"
+    claim = public_operation(project, "propose")("Claim", "C", **CALL)
+    refusal(
+        "claim_needs_evidence",
+        public_operation(project, "approve"),
+        claim["id"],
+        **CALL,
+    )
+    result = public_operation(project, "propose")("Result", "R", **CALL)
+    public_operation(project, "link")("cites", claim["id"], result["id"], **CALL)
+    assert (
+        public_operation(project, "evidence")(claim["id"], **CALL)["items"][0]["id"]
+        == result["id"]
+    )
+    assert (
+        public_operation(project, "approve")(claim["id"], **CALL)["status"] == "active"
+    )
 
 
-def test_approve_and_reject(project, index_mode):
-    h = project.propose("Hypothesis", "H", **CALL)
+def test_approve_and_reject(public_operation, project, index_mode):
+    h = public_operation(project, "propose")("Hypothesis", "H", **CALL)
     discard_index(project, index_mode)
-    refusal("human_only_approval", project.approve, h["id"], actor=BOT, now=NOW)
-    refusal("unknown_what", project.approve, h["id"], "run", **CALL)
+    refusal(
+        "human_only_approval",
+        public_operation(project, "approve"),
+        h["id"],
+        actor=BOT,
+        now=NOW,
+    )
+    refusal(
+        "unknown_what", public_operation(project, "approve"), h["id"], "run", **CALL
+    )
     later = NOW + timedelta(seconds=1)
-    approved = project.approve(
+    approved = public_operation(project, "approve")(
         h["id"], note="reviewed", actor=ALICE, role="owner", now=later
     )
     assert approved["status"] == "active" and approved["updated"] != h["updated"]
@@ -201,46 +264,69 @@ def test_approve_and_reject(project, index_mode):
         }
     ]
     assert load_node(project.path / f"graph/nodes/{h['id']}.yaml") == approved
-    refusal("not_proposed", project.approve, h["id"], actor=BOT, now=later)
-    refusal("not_proposed", project.reject, h["id"], "no", actor=ALICE, now=later)
-    p = project.propose("Prediction", "P", actor=ALICE, now=later)
-    task = project.propose("Task", "T", actor=ALICE, now=later)
-    edge = project.link("blocks", p["id"], task["id"], actor=ALICE, now=later)
-    refusal("human_only_approval", project.reject, p["id"], "no", actor=BOT, now=later)
-    retired = project.reject(
+    refusal(
+        "not_proposed",
+        public_operation(project, "approve"),
+        h["id"],
+        actor=BOT,
+        now=later,
+    )
+    refusal(
+        "not_proposed",
+        public_operation(project, "reject"),
+        h["id"],
+        "no",
+        actor=ALICE,
+        now=later,
+    )
+    p = public_operation(project, "propose")("Prediction", "P", actor=ALICE, now=later)
+    task = public_operation(project, "propose")("Task", "T", actor=ALICE, now=later)
+    edge = public_operation(project, "link")(
+        "blocks", p["id"], task["id"], actor=ALICE, now=later
+    )
+    refusal(
+        "human_only_approval",
+        public_operation(project, "reject"),
+        p["id"],
+        "no",
+        actor=BOT,
+        now=later,
+    )
+    retired = public_operation(project, "reject")(
         p["id"], "duplicate", actor=ALICE, role="reviewer", now=later
     )
     assert retired["status"] == "retired"
     assert retired["approvals"][-1]["what"] == "reject"
     assert retired["approvals"][-1]["note"] == "duplicate"
-    stored = project.show(edge["id"], actor=ALICE, now=later)
+    stored = public_operation(project, "show")(edge["id"], actor=ALICE, now=later)
     assert stored["retired"] and stored["retired_at"] == retired["updated"]
     assert task["id"] in [
-        n["id"] for n in project.ready(actor=ALICE, now=later)["items"]
+        n["id"]
+        for n in public_operation(project, "ready")(actor=ALICE, now=later)["items"]
     ]
     # Linking retired endpoints remains legal.
     assert (
-        project.link("relates-to", p["id"], task["id"], actor=ALICE, now=later)[
-            "retired"
-        ]
+        public_operation(project, "link")(
+            "relates-to", p["id"], task["id"], actor=ALICE, now=later
+        )["retired"]
         is False
     )
 
 
-def test_reject_removes_alternatives_and_all_incident_edges(project):
-    q = project.propose("Question", "Q", **CALL)
-    a = project.propose(
+def test_reject_removes_alternatives_and_all_incident_edges(public_operation, project):
+    q = public_operation(project, "propose")("Question", "Q", **CALL)
+    a = public_operation(project, "propose")(
         "Hypothesis", "A", edges=[{"type": "answers", "to": q["id"]}], **CALL
     )
-    b = project.propose(
+    b = public_operation(project, "propose")(
         "Hypothesis", "B", edges=[{"type": "answers", "to": q["id"]}], **CALL
     )
-    note = project.propose(
+    note = public_operation(project, "propose")(
         "Note", "N", edges=[{"type": "about", "to": a["id"]}], **CALL
     )
-    project.reject(a["id"], "no", **CALL)
-    assert project.alternatives(b["id"], **CALL) == []
-    assert project.show(note["id"], **CALL)["edges"] == []
+    public_operation(project, "reject")(a["id"], "no", **CALL)
+    assert public_operation(project, "alternatives")(b["id"], **CALL) == []
+    assert public_operation(project, "show")(note["id"], **CALL)["edges"] == []
 
 
 def test_multiple_gates_identity_metadata_and_callbacks(tmp_path):
@@ -275,22 +361,24 @@ def test_multiple_gates_identity_metadata_and_callbacks(tmp_path):
         assert calls[-1].role == "reviewer"
 
 
-def test_agent_gate_and_wrong_role(tmp_path):
+def test_agent_gate_and_wrong_role(public_operation, tmp_path):
     with custom(
         tmp_path,
         gates=[Gate(node_type="Task", roles=["human", "agent"], agents_allowed=True)],
     ) as project:
-        value = project.propose("Task", "T", **CALL)
-        result = project.approve(value["id"], actor=BOT, role="agent", now=NOW)
+        value = public_operation(project, "propose")("Task", "T", **CALL)
+        result = public_operation(project, "approve")(
+            value["id"], actor=BOT, role="agent", now=NOW
+        )
         assert result["status"] == "active"
         assert result["approvals"][0]["actor"] == BOT.to_dict()
     with custom(
         tmp_path / "other", gates=[Gate(node_type="Task", roles=["owner"])]
     ) as project:
-        value = project.propose("Task", "T", **CALL)
+        value = public_operation(project, "propose")("Task", "T", **CALL)
         refusal(
             "wrong_role",
-            project.approve,
+            public_operation(project, "approve"),
             value["id"],
             actor=BOB,
             role="reviewer",
@@ -300,9 +388,9 @@ def test_agent_gate_and_wrong_role(tmp_path):
 
 @pytest.mark.parametrize("profile", ["research", "tasks"])
 @pytest.mark.parametrize("actor", [ALICE, BOT])
-def test_bundled_profile_creation_defaults(tmp_path, profile, actor):
+def test_bundled_profile_creation_defaults(public_operation, tmp_path, profile, actor):
     with Project.init(repository(tmp_path), profile=profile, **CALL) as project:
-        value = project.propose("Task", "T", actor=actor, now=NOW)
+        value = public_operation(project, "propose")("Task", "T", actor=actor, now=NOW)
         assert value["status"] == "active" and value["fields"] == {}
         assert value["author"] == actor.to_dict()
         assert value["approvals"] == []
@@ -409,14 +497,14 @@ def test_role_and_operation_precedence_with_existing_targets(project):
     )
 
 
-def test_public_builder_proposal_and_link_row_precedence(project):
-    a = project.propose("Task", "A", **CALL)
-    b = project.propose("Question", "Q", **CALL)
+def test_public_builder_proposal_and_link_row_precedence(public_operation, project):
+    a = public_operation(project, "propose")("Task", "A", **CALL)
+    b = public_operation(project, "propose")("Question", "Q", **CALL)
     before = snapshot(project)
     # Type lookup must beat both reserved and malformed specifications.
     refusal(
         "unknown_type",
-        project.propose,
+        public_operation(project, "propose"),
         "Widget",
         "bad\ntitle",
         fields=[],
@@ -426,7 +514,7 @@ def test_public_builder_proposal_and_link_row_precedence(project):
     # Reserved edges beat schema errors on nodes and on *any* edge spec.
     refusal(
         "reserved_edge_type",
-        project.propose,
+        public_operation(project, "propose"),
         "Task",
         "bad\ntitle",
         fields=[],
@@ -439,7 +527,7 @@ def test_public_builder_proposal_and_link_row_precedence(project):
     # Proposal schema precedes endpoint-type checks, unlike link.
     refusal(
         "schema",
-        project.propose,
+        public_operation(project, "propose"),
         "Task",
         "T",
         fields={"bad": 1},
@@ -448,7 +536,7 @@ def test_public_builder_proposal_and_link_row_precedence(project):
     )
     refusal(
         "schema",
-        project.propose,
+        public_operation(project, "propose"),
         "Task",
         "T",
         edges=[{"type": "answers", "to": b["id"], "fields": {"bad": 1}}],
@@ -456,17 +544,39 @@ def test_public_builder_proposal_and_link_row_precedence(project):
     )
     refusal(
         "edge_endpoints",
-        project.propose,
+        public_operation(project, "propose"),
         "Task",
         "T",
         edges=[{"type": "answers", "to": b["id"]}],
         **CALL,
     )
     refusal(
-        "reserved_edge_type", project.link, "supersedes", a["id"], b["id"], [], **CALL
+        "reserved_edge_type",
+        public_operation(project, "link"),
+        "supersedes",
+        a["id"],
+        b["id"],
+        [],
+        **CALL,
     )
-    refusal("edge_endpoints", project.link, "answers", a["id"], b["id"], [], **CALL)
-    refusal("schema", project.link, "blocks", a["id"], b["id"], [], **CALL)
+    refusal(
+        "edge_endpoints",
+        public_operation(project, "link"),
+        "answers",
+        a["id"],
+        b["id"],
+        [],
+        **CALL,
+    )
+    refusal(
+        "schema",
+        public_operation(project, "link"),
+        "blocks",
+        a["id"],
+        b["id"],
+        [],
+        **CALL,
+    )
     assert snapshot(project) == before
 
 
@@ -610,11 +720,11 @@ def test_shared_error_precedence(project, operation):
     "value,expected",
     [({}, "fast"), ({"mode": None}, "fast"), ({"mode": "safe"}, "safe")],
 )
-def test_stored_direct_defaults(tmp_path, value, expected):
+def test_stored_direct_defaults(public_operation, tmp_path, value, expected):
     schema = {"properties": {"mode": {"enum": ["fast", "safe"], "default": "fast"}}}
     original = deepcopy(schema)
     with custom(tmp_path, schema=schema) as project:
-        result = project.propose("Task", "T", fields=value, **CALL)
+        result = public_operation(project, "propose")("Task", "T", fields=value, **CALL)
         assert result["fields"] == {"mode": expected}
         assert load_node(tmp_path / f"graph/nodes/{result['id']}.yaml") == result
     assert schema == original
@@ -688,22 +798,24 @@ def test_competing_approvals_are_built_under_one_lock(tmp_path, monkeypatch):
         st.sampled_from(["blocks", "derived-from", "part-of"]), min_size=2, max_size=5
     )
 )
-def test_public_mixed_cycles_duplicates_and_rebuild_invariants(kinds):
+def test_public_mixed_cycles_duplicates_and_rebuild_invariants(public_operation, kinds):
     with TemporaryDirectory() as directory:
         path = repository(Path(directory))
         with Project.init(path, **CALL) as project:
             nodes = [
-                project.propose("Task", str(i), commit=False, **CALL)
+                public_operation(project, "propose")(
+                    "Task", str(i), commit=False, **CALL
+                )
                 for i in range(len(kinds))
             ]
             for i, kind in enumerate(kinds[:-1]):
-                project.link(
+                public_operation(project, "link")(
                     kind, nodes[i]["id"], nodes[i + 1]["id"], commit=False, **CALL
                 )
             before = snapshot(project)
             refusal(
                 "cycle",
-                project.link,
+                public_operation(project, "link"),
                 kinds[-1],
                 nodes[-1]["id"],
                 nodes[0]["id"],
@@ -713,7 +825,7 @@ def test_public_mixed_cycles_duplicates_and_rebuild_invariants(kinds):
             assert snapshot(project) == before
             refusal(
                 "duplicate_edge",
-                project.link,
+                public_operation(project, "link"),
                 kinds[0],
                 nodes[0]["id"],
                 nodes[1]["id"],
@@ -724,7 +836,7 @@ def test_public_mixed_cycles_duplicates_and_rebuild_invariants(kinds):
             # A proposed new node would close the same mixed-relation cycle.
             refusal(
                 "cycle",
-                project.propose,
+                public_operation(project, "propose"),
                 "Task",
                 "cycle",
                 edges=[
@@ -738,7 +850,7 @@ def test_public_mixed_cycles_duplicates_and_rebuild_invariants(kinds):
             # Cycle wins even when the candidate also contains a duplicate.
             refusal(
                 "cycle",
-                project.propose,
+                public_operation(project, "propose"),
                 "Task",
                 "cycle and duplicate",
                 edges=[
@@ -752,7 +864,7 @@ def test_public_mixed_cycles_duplicates_and_rebuild_invariants(kinds):
             assert snapshot(project) == before
             refusal(
                 "duplicate_edge",
-                project.propose,
+                public_operation(project, "propose"),
                 "Task",
                 "duplicate",
                 edges=[
@@ -768,9 +880,9 @@ def test_public_mixed_cycles_duplicates_and_rebuild_invariants(kinds):
                 {n.id: n for n in project.get_nodes()},
                 {e.id: e for e in project.get_edges()},
             )
-            kept = project.digest(**CALL)
+            kept = public_operation(project, "digest")(**CALL)
             discard_index(project, "deleted")
-            assert project.digest(**CALL) == kept
+            assert public_operation(project, "digest")(**CALL) == kept
 
 
 def query_snapshot(project, ids):
@@ -804,7 +916,7 @@ def query_snapshot(project, ids):
     profile_name=st.sampled_from(["research", "test-conditional"]),
 )
 def test_random_public_lifecycle_sequences_preserve_invariants_and_all_queries(
-    actions, profile_name
+    public_operation, actions, profile_name
 ):
     with (
         TemporaryDirectory() as directory,
@@ -812,19 +924,19 @@ def test_random_public_lifecycle_sequences_preserve_invariants_and_all_queries(
             repository(Path(directory)), profile=profile_name, **CALL
         ) as project,
     ):
-        q = project.propose("Question", "Q", commit=False, **CALL)
-        h = project.propose(
+        q = public_operation(project, "propose")("Question", "Q", commit=False, **CALL)
+        h = public_operation(project, "propose")(
             "Hypothesis",
             "H",
             edges=[{"type": "answers", "to": q["id"]}],
             commit=False,
             **CALL,
         )
-        r = project.propose("Result", "R", commit=False, **CALL)
-        c = project.propose(
+        r = public_operation(project, "propose")("Result", "R", commit=False, **CALL)
+        c = public_operation(project, "propose")(
             "Claim", "C", edges=[{"type": "cites", "to": r["id"]}], commit=False, **CALL
         )
-        task = project.propose("Task", "T", commit=False, **CALL)
+        task = public_operation(project, "propose")("Task", "T", commit=False, **CALL)
         ids = {"q": q["id"], "h": h["id"], "r": r["id"], "c": c["id"], "t": task["id"]}
         for action in actions:
             old_nodes = {n.id: n.to_dict() for n in project.get_nodes()}
@@ -832,17 +944,25 @@ def test_random_public_lifecycle_sequences_preserve_invariants_and_all_queries(
             before = snapshot(project)
             try:
                 if action == "approve":
-                    project.approve(h["id"], commit=False, **CALL)
+                    public_operation(project, "approve")(h["id"], commit=False, **CALL)
                 elif action == "reject":
-                    project.reject(h["id"], "discard", commit=False, **CALL)
+                    public_operation(project, "reject")(
+                        h["id"], "discard", commit=False, **CALL
+                    )
                 elif action == "agent":
-                    project.approve(h["id"], actor=BOT, now=NOW, commit=False)
+                    public_operation(project, "approve")(
+                        h["id"], actor=BOT, now=NOW, commit=False
+                    )
                 elif action == "link":
-                    project.link("blocks", h["id"], task["id"], commit=False, **CALL)
+                    public_operation(project, "link")(
+                        "blocks", h["id"], task["id"], commit=False, **CALL
+                    )
                 elif action == "invalid":
-                    project.link("blocks", "ta-zzzzzzzz", h["id"], commit=False, **CALL)
+                    public_operation(project, "link")(
+                        "blocks", "ta-zzzzzzzz", h["id"], commit=False, **CALL
+                    )
                 else:
-                    project.propose(
+                    public_operation(project, "propose")(
                         "Note",
                         "N",
                         edges=[{"type": "about", "to": h["id"]}],

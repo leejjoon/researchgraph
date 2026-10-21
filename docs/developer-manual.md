@@ -5,7 +5,7 @@ and bundled profiles research 1.0 and tasks 1.0. This is descriptive documentati
 not a replacement for the [normative operations](../spec/operations.md). Report
 implementation/specification disagreements rather than editing the spec to satisfy
 these examples. The [user manual](user-manual.md) supplies the complete 37-graph-command
-reference, the events stream and everyday concepts; the [research tutorial](research-tutorial.ipynb)
+reference, the events stream, optional MCP server and everyday concepts; the [research tutorial](research-tutorial.ipynb)
 is a synthetic experiment with explicitly simulated human approvals.
 
 ## Installation from source or a local wheel
@@ -105,6 +105,37 @@ write failures, HEAD/raw-source changes, lease expiry and failure-window changes
 Clock-only notifications never rewrite stored statuses. Cache rebuilds and fully
 rolled-back/refused writes fabricate no domain events. Polling can coalesce
 intermediate states; envelope time and HEAD describe observation, not causation.
+
+## Optional MCP contract
+
+Install the `mcp` extra for the official SDK; core import and launcher help do
+not import it. `rg mcp` requires explicit agent or human mode, fixes project,
+actor, role and read-only, and runs only SDK stdio framing. Initialization uses
+current discovery negotiation (decision 021). Legacy initialize-only tool calls
+are explicitly refused: their wire cannot carry the required bare array results.
+SDK/memory success is not proof of actual agent-product compatibility.
+
+`researchgraph.mcp.create_server(root, actor=..., role=None, read_only=False)`
+returns the official low-level Server for an existing SDK transport;
+`serve` runs its stdio transport. Full tools equal the graph registry, not streams
+or launchers; readOnlyHint follows kind. Read-only hides and refuses every write,
+including init/import. Instructions are profile guidance only, empty before an
+uninitialized selected destination bootstraps. Invalid projects are not masked.
+
+Input schemas contain registry arguments plus optional now and write commit.
+Authority/output options are never tool arguments; initializer paths cannot
+change the selected destination. Omitted scalar/object values stay omitted;
+empty repeated collectors become empty arrays as in Click. The shared interface
+dispatcher calls public Project methods without SQL or duplicate business rules.
+JSON text and structuredContent contain the identical value, including arrays;
+RuleViolation sets isError and rule/message/ids. No result envelope is invented.
+
+Each call owns and closes its Project in a worker thread. Cancellation waits for
+that work's cleanup rather than abandoning the owner. It is not a rollback
+promise: a cancelled write can still commit. Official stdio stream ownership
+keeps even callback stdout out of protocol framing; diagnostic output belongs
+on stderr. Real installed transport and isolated core/extra wheel consumers are
+tested separately from memory-client domain scenarios.
 
 ## Wrapper contracts, errors and durability
 

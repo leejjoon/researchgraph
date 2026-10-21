@@ -18,6 +18,15 @@ from tests.test_cli import invoke, refused, succeeds
 from tests.test_operations import discard_index, snapshot
 
 
+@pytest.fixture(name="invoke")
+def scenario_invoke(door):
+    if door == "mcp":
+        from tests.door_helpers import invoke_mcp
+
+        return invoke_mcp
+    return invoke
+
+
 def declaration(*gates):
     return Profile(
         "gate-test",
@@ -85,9 +94,11 @@ def test_type_only_lookup_and_exact_scalar_conjunction():
     refusal("unknown_type", profile.gates_for, "Missing", {})
 
 
-@pytest.mark.parametrize("door", ["api", pytest.param("cli", marks=pytest.mark.cli)])
+@pytest.mark.parametrize(
+    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+)
 def test_all_constructors_defaults_roles_and_claim(
-    tmp_path, index_mode, door, monkeypatch
+    tmp_path, index_mode, door, monkeypatch, invoke
 ):
     monkeypatch.setenv("RG_TEST_CLI_INDEX_MODE", index_mode)
     root = repository(tmp_path / "project")
@@ -236,7 +247,11 @@ def test_random_materialised_gates_and_approval_permission(case, actor_kind, rol
 
 
 @pytest.mark.parametrize("review", [False, True])
-def test_generated_default_matching_and_nonmatching(tmp_path, index_mode, review):
+@pytest.mark.parametrize("door", ["api", "mcp"])
+def test_generated_default_matching_and_nonmatching(
+    tmp_path, index_mode, review, door, invoke, monkeypatch
+):
+    monkeypatch.setenv("RG_TEST_CLI_INDEX_MODE", index_mode)
     value = Profile.load("test-conditional")
     value.name = "generated-default-gates"
     for type_ in value.node_types:
@@ -254,15 +269,27 @@ def test_generated_default_matching_and_nonmatching(tmp_path, index_mode, review
             "Task", "input", fields={"review": False}, actor=ALICE, now=NOW
         )
         discard_index(project, index_mode)
-        instruction = project.instruct(task["id"], "do this", actor=ALICE, now=NOW)
+        instruction = (
+            project.instruct(task["id"], "do this", actor=ALICE, now=NOW)
+            if door == "api"
+            else succeeds(invoke(project.path, "instruct", task["id"], "do this"))
+        )
         assert instruction["status"] == ("proposed" if review else "active")
-        project.claim(task["id"], actor=ALICE, now=NOW)
-        project.fail(task["id"], "failed", actor=ALICE, now=NOW)
-        failures = project.where(type="Failure", actor=ALICE, now=NOW)
+        if door == "api":
+            project.claim(task["id"], actor=ALICE, now=NOW)
+            project.fail(task["id"], "failed", actor=ALICE, now=NOW)
+            failures = project.where(type="Failure", actor=ALICE, now=NOW)
+        else:
+            succeeds(invoke(project.path, "claim", task["id"]))
+            succeeds(invoke(project.path, "fail", task["id"], "failed"))
+            failures = succeeds(invoke(project.path, "where", "--type", "Failure"))
         assert failures[0]["status"] == ("proposed" if review else "active")
 
 
-def test_nonmatching_gates_never_grant_or_remove_agent_authority(tmp_path):
+@pytest.mark.parametrize("door", ["api", "mcp"])
+def test_nonmatching_gates_never_grant_or_remove_agent_authority(
+    tmp_path, door, invoke
+):
     value = declaration(
         Gate(node_type="Task", roles=["owner"], when_fields={"review": True}),
         Gate(
@@ -283,15 +310,34 @@ def test_nonmatching_gates_never_grant_or_remove_agent_authority(tmp_path):
             "Task", "agent", fields={"review": False}, actor=ALICE, now=NOW
         )
         bot = Actor("agent", "reviewer")
-        refusal(
-            "human_only_approval",
-            project.approve,
-            human_only["id"],
-            actor=bot,
-            role="owner",
-            now=NOW,
-        )
-        assert (
-            project.approve(agent_ok["id"], actor=bot, role="owner", now=NOW)["status"]
-            == "active"
-        )
+        if door == "api":
+            refusal(
+                "human_only_approval",
+                project.approve,
+                human_only["id"],
+                actor=bot,
+                role="owner",
+                now=NOW,
+            )
+            approved = project.approve(agent_ok["id"], actor=bot, role="owner", now=NOW)
+        else:
+            refused(
+                invoke(
+                    project.path,
+                    "approve",
+                    human_only["id"],
+                    agent="reviewer",
+                    role="owner",
+                ),
+                "human_only_approval",
+            )
+            approved = succeeds(
+                invoke(
+                    project.path,
+                    "approve",
+                    agent_ok["id"],
+                    agent="reviewer",
+                    role="owner",
+                )
+            )
+        assert approved["status"] == "active"

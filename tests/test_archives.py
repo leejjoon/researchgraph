@@ -5,10 +5,12 @@ import json
 import os
 import tarfile
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
+from functools import partial
 from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 import zstandard
@@ -39,6 +41,29 @@ INTERVAL_KEYS = (
     "to_commit",
     "to_time",
 )
+
+
+@pytest.fixture(scope="module")
+def archive_operations(request):
+    """Select real archive calls, retaining native assertion owners and inputs."""
+    export, import_ = Project.export, Project.import_
+    if request.param == "mcp":
+        from tests.door_helpers import import_mcp, operation_mcp
+
+        def export(project, path, **kwargs):
+            # JSON paths/timestamps are logical tool arguments, not Python objects.
+            arguments = {
+                key: format_timestamp(value)
+                if key in {"since", "as_of"} and isinstance(value, datetime)
+                else value
+                for key, value in kwargs.items()
+            }
+            return operation_mcp(project, "export", str(path), **arguments)
+
+        import_ = import_mcp
+    return SimpleNamespace(
+        export=export, import_=import_, exported=partial(exported, operation=export)
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -144,8 +169,8 @@ def unpack(path):
     return raw, infos, members
 
 
-def exported(project, path, **kwargs):
-    assert project.export(path, actor=ALICE, now=FUTURE, **kwargs) == {
+def exported(project, path, *, operation=Project.export, **kwargs):
+    assert operation(project, path, actor=ALICE, now=FUTURE, **kwargs) == {
         "path": str(path.resolve())
     }
     return path
@@ -253,7 +278,7 @@ def populated(project, count=50):
 
 @pytest.mark.parametrize("historical", [False, True])
 def test_fifty_node_history_every_query_roundtrip(
-    project, tmp_path, index_mode, historical
+    archive_operations, project, tmp_path, index_mode, historical
 ):
     ids = populated(project)
     boundary = NOW + timedelta(seconds=14) if historical else None
@@ -274,7 +299,7 @@ def test_fifty_node_history_every_query_roundtrip(
         if Path(path).stem in selected_nodes | selected_edges
     }
     before = source(project)
-    archive = exported(
+    archive = archive_operations.exported(
         project,
         tmp_path.parent / (tmp_path.name + "-full.tar.zst"),
         include_artifacts=True,
@@ -289,7 +314,7 @@ def test_fifty_node_history_every_query_roundtrip(
     ]
     assert members[".researchgraph/history.jsonl"] == history_bytes(rows)
     assert all(tuple(row) == INTERVAL_KEYS for row in rows)
-    with Project.import_(
+    with archive_operations.import_(
         archive, tmp_path / "imported", actor=ALICE, now=FUTURE
     ) as imported:
         assert graph_bytes(imported) == expected_graph
@@ -335,7 +360,7 @@ def test_fifty_node_history_every_query_roundtrip(
 
 @pytest.mark.parametrize("pending_then_tag", [False, True])
 def test_history_supersedes_provenance_is_not_silently_lost(
-    project, tmp_path, pending_then_tag
+    archive_operations, project, tmp_path, pending_then_tag
 ):
     original = project.propose("Task", "old", **CALL)
     replacement = project.supersede(
@@ -360,8 +385,8 @@ def test_history_supersedes_provenance_is_not_silently_lost(
             for row in events
             if row["kind"] == "interval" and row["node"] == replacement["id"]
         )["commit"] == git(project.path, "rev-parse", "HEAD")
-    archive = exported(project, tmp_path / "supersedes.tar.zst")
-    with Project.import_(
+    archive = archive_operations.exported(project, tmp_path / "supersedes.tar.zst")
+    with archive_operations.import_(
         archive, tmp_path / "restored", actor=ALICE, now=FUTURE
     ) as imported:
         expected = project.history(replacement["id"], actor=ALICE, now=FUTURE)
@@ -378,20 +403,21 @@ def test_history_supersedes_provenance_is_not_silently_lost(
 
 @pytest.mark.parametrize("include_artifacts", [False, True])
 def test_export_read_only_deterministic_and_does_not_rewrite_source(
-    project, tmp_path, include_artifacts
+    archive_operations, project, tmp_path, include_artifacts
 ):
     value = project.propose("Task", "T", **CALL)
     path = artifact(project, value["id"])
     project.attach(value["id"], [path], **CALL)
     before = source(project)
     with Project.open(project.path, read_only=True) as readonly:
-        first = exported(
+        first = archive_operations.exported(
             readonly,
             tmp_path.parent / (tmp_path.name + "-one.tar.zst"),
             include_artifacts=include_artifacts,
         )
         second = tmp_path.parent / (tmp_path.name + "-two.tar.zst")
-        assert readonly.export(
+        assert archive_operations.export(
+            readonly,
             second,
             include_artifacts=include_artifacts,
             actor=BOB,
@@ -404,7 +430,7 @@ def test_export_read_only_deterministic_and_does_not_rewrite_source(
     _, _, members = unpack(first)
     assert (path in members) == include_artifacts
     # Missing payload is legitimate when only its historical record is exported.
-    with Project.import_(
+    with archive_operations.import_(
         first, tmp_path / "restored", actor=ALICE, now=FUTURE
     ) as imported:
         assert (
@@ -414,11 +440,13 @@ def test_export_read_only_deterministic_and_does_not_rewrite_source(
         assert (imported.path / path).exists() == include_artifacts
 
 
-def test_reexport_imported_project_never_rewrites_source_history(tmp_path):
+def test_reexport_imported_project_never_rewrites_source_history(
+    archive_operations, tmp_path
+):
     archive = pack(tmp_path / "input.tar.zst", raw_members())
-    with Project.import_(archive, tmp_path / "project", **CALL) as project:
+    with archive_operations.import_(archive, tmp_path / "project", **CALL) as project:
         before = source(project)
-        exported(project, tmp_path / "again.tar.zst")
+        archive_operations.exported(project, tmp_path / "again.tar.zst")
         assert source(project) == before
         assert (
             project.path / ".researchgraph/history.jsonl"
@@ -426,7 +454,7 @@ def test_reexport_imported_project_never_rewrites_source_history(tmp_path):
 
 
 def test_canonical_members_metadata_long_unicode_and_current_artifact_bytes(
-    project, tmp_path
+    archive_operations, project, tmp_path
 ):
     value = project.propose("Task", "T", **CALL)
     names = ["x" * 101, "관측.png", "/".join(["segment" * 20] * 10) + "/out"]
@@ -438,7 +466,9 @@ def test_canonical_members_metadata_long_unicode_and_current_artifact_bytes(
         (project.path / path).write_bytes(b"new bytes")
     project.attach(value["id"], paths, actor=ALICE, now=NOW + timedelta(seconds=1))
     records = load_node(project.path / f"graph/nodes/{value['id']}.yaml")["artifacts"]
-    first = exported(project, tmp_path / "one.tar.zst", include_artifacts=True)
+    first = archive_operations.exported(
+        project, tmp_path / "one.tar.zst", include_artifacts=True
+    )
     for path in [project.path / p for p in paths] + list(
         (project.path / "graph").rglob("*.yaml")
     ):
@@ -447,7 +477,9 @@ def test_canonical_members_metadata_long_unicode_and_current_artifact_bytes(
     for path in [project.path / "graph", project.path / "artifacts"]:
         path.chmod(0o700)
         os.utime(path, (123456789, 123456789))
-    second = exported(project, tmp_path / "two.tar.zst", include_artifacts=True)
+    second = archive_operations.exported(
+        project, tmp_path / "two.tar.zst", include_artifacts=True
+    )
     assert first.read_bytes() == second.read_bytes()
     clone = tmp_path.parent / (tmp_path.name + "-clone")
     git(project.path, "clone", str(project.path), str(clone))
@@ -459,7 +491,9 @@ def test_canonical_members_metadata_long_unicode_and_current_artifact_bytes(
             os.utime(path, (987654321, 987654321))
             if os.geteuid() == 0:
                 os.chown(path, 12345, 12345)
-        third = exported(checkout, tmp_path / "three.tar.zst", include_artifacts=True)
+        third = archive_operations.exported(
+            checkout, tmp_path / "three.tar.zst", include_artifacts=True
+        )
         assert third.read_bytes() == first.read_bytes()
     raw, infos, members = unpack(first)
     assert first.read_bytes() == zstandard.ZstdCompressor(level=3).compress(raw)
@@ -510,7 +544,7 @@ def test_canonical_members_metadata_long_unicode_and_current_artifact_bytes(
         assert info.mode == (0o755 if info.isdir() else 0o644)
         assert info.size == (0 if info.isdir() else len(members[info.name]))
         assert set(info.pax_headers) <= {"path", "size"}
-    with Project.import_(
+    with archive_operations.import_(
         first, tmp_path / "restored", actor=ALICE, now=FUTURE
     ) as imported:
         assert (
@@ -577,7 +611,7 @@ def test_frozen_canonical_pax_header_bytes_without_payload(name, size, digest):
 
 
 def test_since_changed_edge_both_endpoints_diamond_retired_closure_and_history(
-    project, tmp_path
+    archive_operations, project, tmp_path
 ):
     # Diamond: Claim -> Result A/B -> shared Reference, plus a retired evidence
     # relation and a supersedes relation. All closure directions are outgoing.
@@ -610,7 +644,9 @@ def test_since_changed_edge_both_endpoints_diamond_retired_closure_and_history(
     # Changed-by-artifact and changed-by-approval both seed the same closure.
     path = artifact(project, left)
     project.attach(left, [path], actor=ALICE, now=changed_at)
-    archived = exported(project, tmp_path / "since.tar.zst", since=cutoff)
+    archived = archive_operations.exported(
+        project, tmp_path / "since.tar.zst", since=cutoff
+    )
     _, _, members = unpack(archived)
     expected_nodes = {
         claim,
@@ -644,23 +680,27 @@ def test_since_changed_edge_both_endpoints_diamond_retired_closure_and_history(
         for line in members[".researchgraph/history.jsonl"].splitlines()
     ]
     assert {row["node_id"] for row in rows} == expected_nodes
-    with Project.import_(
+    with archive_operations.import_(
         archived, tmp_path / "restored", actor=ALICE, now=FUTURE
     ) as imported:
         valid_graph(imported)
         assert {n.id for n in imported.get_nodes()} == expected_nodes
 
 
-def test_since_boundary_is_strict_and_no_change_archive_is_valid(project, tmp_path):
+def test_since_boundary_is_strict_and_no_change_archive_is_valid(
+    archive_operations, project, tmp_path
+):
     project.propose("Task", "at boundary", **CALL)
-    archive = exported(project, tmp_path / "empty.tar.zst", since=NOW)
+    archive = archive_operations.exported(
+        project, tmp_path / "empty.tar.zst", since=NOW
+    )
     _, _, members = unpack(archive)
     assert set(members) == {
         ".researchgraph/profile.yaml",
         ".researchgraph/history.jsonl",
     }
     assert members[".researchgraph/history.jsonl"] == b""
-    with Project.import_(
+    with archive_operations.import_(
         archive, tmp_path / "restored", actor=ALICE, now=NOW - timedelta(days=1)
     ) as imported:
         assert imported.get_nodes() == []
@@ -668,7 +708,7 @@ def test_since_boundary_is_strict_and_no_change_archive_is_valid(project, tmp_pa
 
 @pytest.mark.parametrize("exists", [False, True])
 def test_import_empty_or_absent_destination_preserves_raw_bytes_and_one_commit(
-    tmp_path, exists
+    archive_operations, tmp_path, exists
 ):
     members = raw_members()
     # Older valid YAML must be restored, not passed through a canonical writer.
@@ -678,7 +718,7 @@ def test_import_empty_or_absent_destination_preserves_raw_bytes_and_one_commit(
     )
     archive = pack(tmp_path / "input.tar.zst", members)
     target = destination(tmp_path, exists)
-    with Project.import_(archive, target, **CALL) as imported:
+    with archive_operations.import_(archive, target, **CALL) as imported:
         assert isinstance(imported, Project)
         assert imported.path == target.resolve()
         assert git(target, "log", "--format=%s") == "rg: import"
@@ -691,9 +731,9 @@ def test_import_empty_or_absent_destination_preserves_raw_bytes_and_one_commit(
 
 
 @pytest.mark.parametrize("commit", [False, True])
-def test_import_no_commit_obeys_write_contract(tmp_path, commit):
+def test_import_no_commit_obeys_write_contract(archive_operations, tmp_path, commit):
     archive = pack(tmp_path / "input.tar.zst", raw_members())
-    with Project.import_(
+    with archive_operations.import_(
         archive, tmp_path / "restored", commit=commit, **CALL
     ) as imported:
         assert imported.get_node("ta-aaaaaaaa").status.value == "active"
@@ -721,7 +761,7 @@ def test_import_no_commit_obeys_write_contract(tmp_path, commit):
     ],
 )
 def test_import_all_ten_clock_floor_positions_before_and_equal(
-    tmp_path, exists, position
+    archive_operations, tmp_path, exists, position
 ):
     first, second = node().to_dict(), node("ta-bbbbbbbb").to_dict()
     edge = Edge(
@@ -791,7 +831,7 @@ def test_import_all_ten_clock_floor_positions_before_and_equal(
     target = destination(tmp_path, exists)
     refusal(
         "clock_skew",
-        Project.import_,
+        archive_operations.import_,
         archive,
         target,
         actor=ALICE,
@@ -799,7 +839,9 @@ def test_import_all_ten_clock_floor_positions_before_and_equal(
     )
     untouched(target, exists)
     floor = FUTURE + timedelta(seconds=1) if position == "lease_acquired" else FUTURE
-    with Project.import_(archive, target, actor=ALICE, now=floor) as imported:
+    with archive_operations.import_(
+        archive, target, actor=ALICE, now=floor
+    ) as imported:
         for name, content in members.items():
             assert (imported.path / name).read_bytes() == content
 
@@ -823,7 +865,7 @@ def test_import_all_ten_clock_floor_positions_before_and_equal(
     "invalid", ["not-a-time", "2026-10-20", "2026-10-20T00:00:00+00:00", 123]
 )
 def test_invalid_timestamp_encoding_is_bad_archive_not_clock_skew(
-    tmp_path, position, invalid
+    archive_operations, tmp_path, position, invalid
 ):
     first, second = node().to_dict(), node("ta-bbbbbbbb").to_dict()
     edge = Edge(
@@ -867,7 +909,14 @@ def test_invalid_timestamp_encoding_is_bad_archive_not_clock_skew(
             rows[0]["to_commit"] = "b" * 40
     archive = pack(tmp_path / "bad.tar.zst", raw_members([first, second], [edge], rows))
     target = tmp_path / "absent"
-    refusal("bad_archive", Project.import_, archive, target, actor=ALICE, now=FUTURE)
+    refusal(
+        "bad_archive",
+        archive_operations.import_,
+        archive,
+        target,
+        actor=ALICE,
+        now=FUTURE,
+    )
     untouched(target, False)
 
 
@@ -894,7 +943,7 @@ def test_invalid_timestamp_encoding_is_bad_archive_not_clock_skew(
     ],
 )
 def test_malformed_archive_preflight_has_no_destination_effects(
-    tmp_path, exists, problem
+    archive_operations, tmp_path, exists, problem
 ):
     members = raw_members()
     expected = "bad_archive"
@@ -950,7 +999,9 @@ def test_malformed_archive_preflight_has_no_destination_effects(
     elif problem == "tar":
         archive.write_bytes(zstandard.ZstdCompressor().compress(b"not tar"))
     target = destination(tmp_path, exists)
-    refusal(expected, Project.import_, archive, target, actor=ALICE, now=FUTURE)
+    refusal(
+        expected, archive_operations.import_, archive, target, actor=ALICE, now=FUTURE
+    )
     untouched(target, exists)
 
 
@@ -972,7 +1023,9 @@ def test_malformed_archive_preflight_has_no_destination_effects(
         "duplicate_directory",
     ],
 )
-def test_unsafe_members_rejected_without_outside_writes(tmp_path, kind):
+def test_unsafe_members_rejected_without_outside_writes(
+    archive_operations, tmp_path, kind
+):
     members = raw_members()
     outside = tmp_path / "outside"
     outside.write_bytes(b"keep")
@@ -1004,13 +1057,20 @@ def test_unsafe_members_rejected_without_outside_writes(tmp_path, kind):
         info.size = len(content)
     archive = pack(tmp_path / "unsafe.tar.zst", members, [(info, content)])
     target = tmp_path / "destination"
-    refusal("bad_archive", Project.import_, archive, target, actor=ALICE, now=FUTURE)
+    refusal(
+        "bad_archive",
+        archive_operations.import_,
+        archive,
+        target,
+        actor=ALICE,
+        now=FUTURE,
+    )
     untouched(target, False)
     assert outside.read_bytes() == b"keep"
     assert set(tmp_path.iterdir()) == {archive, outside}
 
 
-def test_import_permissions_and_nonempty_are_atomic(tmp_path):
+def test_import_permissions_and_nonempty_are_atomic(archive_operations, tmp_path):
     archive = pack(tmp_path / "input.tar.zst", raw_members())
     target = tmp_path / "absent"
     for kwargs, rule in [
@@ -1018,12 +1078,12 @@ def test_import_permissions_and_nonempty_are_atomic(tmp_path):
         ({"actor": ALICE, "read_only": True}, "read_only"),
         ({"actor": ALICE, "role": "nonexistent"}, "wrong_role"),
     ]:
-        refusal(rule, Project.import_, archive, target, now=NOW, **kwargs)
+        refusal(rule, archive_operations.import_, archive, target, now=NOW, **kwargs)
         untouched(target, False)
     target.mkdir()
     marker = target / "keep"
     marker.write_bytes(b"not empty")
-    refusal("not_empty", Project.import_, archive, target, **CALL)
+    refusal("not_empty", archive_operations.import_, archive, target, **CALL)
     assert list(target.iterdir()) == [marker]
     assert marker.read_bytes() == b"not empty"
 
@@ -1031,10 +1091,10 @@ def test_import_permissions_and_nonempty_are_atomic(tmp_path):
 @pytest.mark.parametrize("commit", [False, True])
 @pytest.mark.parametrize("repeat_pending", [False, True])
 def test_imported_open_interval_closed_by_committed_and_repeated_pending_claims(
-    tmp_path, index_mode, commit, repeat_pending
+    archive_operations, tmp_path, index_mode, commit, repeat_pending
 ):
     archive = pack(tmp_path / "input.tar.zst", raw_members())
-    with Project.import_(archive, tmp_path / "project", **CALL) as imported:
+    with archive_operations.import_(archive, tmp_path / "project", **CALL) as imported:
         identifier = "ta-aaaaaaaa"
         first_time = NOW + timedelta(seconds=1)
         cold(imported, index_mode)
@@ -1082,7 +1142,9 @@ def test_imported_open_interval_closed_by_committed_and_repeated_pending_claims(
         )
 
 
-def test_import_validates_restored_fields_without_materializing_new_defaults(tmp_path):
+def test_import_validates_restored_fields_without_materializing_new_defaults(
+    archive_operations, tmp_path
+):
     from researchgraph.profiles import NodeType, Profile
 
     Profile.register(
@@ -1106,7 +1168,7 @@ def test_import_validates_restored_fields_without_materializing_new_defaults(tmp
     members = raw_members()
     members[".researchgraph/profile.yaml"] = b'name: archive_defaults\nversion: "1.0"\n'
     archive = pack(tmp_path / "input.tar.zst", members)
-    with Project.import_(archive, tmp_path / "restored", **CALL) as imported:
+    with archive_operations.import_(archive, tmp_path / "restored", **CALL) as imported:
         assert (imported.path / "graph/nodes/ta-aaaaaaaa.yaml").read_bytes() == members[
             "graph/nodes/ta-aaaaaaaa.yaml"
         ]
@@ -1161,7 +1223,7 @@ def test_profile_callbacks_observe_import_and_hook_only_after_commit(tmp_path):
 
 @pytest.mark.parametrize("complete", [False, True])
 def test_export_as_of_selects_current_bytes_and_complete_history(
-    project, tmp_path, complete
+    archive_operations, project, tmp_path, complete
 ):
     value = project.propose("Task", "T", **CALL)
     other = project.propose("Result", "R", **CALL)
@@ -1183,11 +1245,11 @@ def test_export_as_of_selects_current_bytes_and_complete_history(
         "cites", claim["id"], other["id"], actor=ALICE, now=NOW + timedelta(seconds=4)
     )
     boundary = at if complete else NOW
-    archive = exported(
+    archive = archive_operations.exported(
         project, tmp_path / "past.tar.zst", as_of=boundary, include_artifacts=True
     )
     cold(project, "deleted")
-    repeated = exported(
+    repeated = archive_operations.exported(
         project,
         tmp_path / "past-rebuilt.tar.zst",
         as_of=boundary,
@@ -1206,7 +1268,7 @@ def test_export_as_of_selects_current_bytes_and_complete_history(
         row for row in restored_rows(project) if row["node_id"] != future["id"]
     ]
     assert members[".researchgraph/history.jsonl"] == history_bytes(expected_rows)
-    with Project.import_(
+    with archive_operations.import_(
         archive, tmp_path / "restored", actor=ALICE, now=FUTURE
     ) as imported:
         assert restored_rows(imported) == expected_rows
@@ -1225,7 +1287,7 @@ def test_export_as_of_selects_current_bytes_and_complete_history(
 
 @pytest.mark.parametrize("include_artifacts", [False, True])
 def test_since_as_of_selection_closure_current_payloads_and_rebuilt_bytes(
-    project, tmp_path, include_artifacts
+    archive_operations, project, tmp_path, include_artifacts
 ):
     claim = project.propose("Claim", "C", **CALL)["id"]
     result = project.propose("Result", "R", **CALL)["id"]
@@ -1259,9 +1321,11 @@ def test_since_as_of_selection_closure_current_payloads_and_rebuilt_bytes(
         "as_of": boundary,
         "include_artifacts": include_artifacts,
     }
-    first = exported(project, tmp_path / "kept.tar.zst", **options)
+    first = archive_operations.exported(project, tmp_path / "kept.tar.zst", **options)
     cold(project, "deleted")
-    second = exported(project, tmp_path / "rebuilt.tar.zst", **options)
+    second = archive_operations.exported(
+        project, tmp_path / "rebuilt.tar.zst", **options
+    )
     assert first.read_bytes() == second.read_bytes()
     _, _, members = unpack(first)
     assert {
@@ -1270,7 +1334,7 @@ def test_since_as_of_selection_closure_current_payloads_and_rebuilt_bytes(
     assert (payload in members) == include_artifacts
     if include_artifacts:
         assert members[payload] == (project.path / payload).read_bytes()
-    with Project.import_(
+    with archive_operations.import_(
         first, tmp_path / "restored", actor=ALICE, now=FUTURE
     ) as imported:
         valid_graph(imported)
@@ -1359,7 +1423,7 @@ def test_cli_export_read_only_and_import_refusals(project, tmp_path):
     ),
 )
 def test_hypothesis_append_only_dag_permissions_and_file_index_roundtrips(
-    actions, topology
+    archive_operations, actions, topology
 ):
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -1453,10 +1517,10 @@ def test_hypothesis_append_only_dag_permissions_and_file_index_roundtrips(
                     }
                     assert not old["retired"] or new["retired"]
                 valid_graph(project)
-                archive = exported(
+                archive = archive_operations.exported(
                     project, root / f"roundtrip-{index}.tar.zst", include_artifacts=True
                 )
-                with Project.import_(
+                with archive_operations.import_(
                     archive, root / f"restored-{index}", actor=ALICE, now=FUTURE
                 ) as imported:
                     commit = git(imported.path, "rev-parse", "HEAD")
@@ -1473,7 +1537,9 @@ def test_hypothesis_append_only_dag_permissions_and_file_index_roundtrips(
                         valid_graph(imported)
 
 
-def test_import_nested_in_unrelated_git_worktree_creates_own_root(tmp_path):
+def test_import_nested_in_unrelated_git_worktree_creates_own_root(
+    archive_operations, tmp_path
+):
     # Parent HEAD is deliberately later than import now: it is not this new
     # project's clock floor, history, staging area, or repository identity.
     root = repository(tmp_path / "outer")
@@ -1489,7 +1555,7 @@ def test_import_nested_in_unrelated_git_worktree_creates_own_root(tmp_path):
         archive = pack(tmp_path / "input.tar.zst", raw_members())
         target = root / "nested" / "restored"
         target.mkdir(parents=True)
-        with Project.import_(archive, target, **CALL) as imported:
+        with archive_operations.import_(archive, target, **CALL) as imported:
             assert (target / ".git").is_dir()
             assert git(target, "rev-parse", "--show-toplevel") == str(target.resolve())
             assert git(target, "log", "--format=%s") == "rg: import"
@@ -1522,7 +1588,9 @@ def test_unexpected_archive_decoder_bug_is_not_hidden_as_bad_archive(
     "target",
     ["node", "profile", "history", "cache", "ignore", "git", "artifact", "alias"],
 )
-def test_read_only_export_cannot_overwrite_managed_source(project, tmp_path, target):
+def test_read_only_export_cannot_overwrite_managed_source(
+    archive_operations, project, tmp_path, target
+):
     value = project.propose("Task", "source", **CALL)
     payload = artifact(project, value["id"], content=b"original artifact")
     project.attach(value["id"], [payload], **CALL)
@@ -1543,18 +1611,20 @@ def test_read_only_export_cannot_overwrite_managed_source(project, tmp_path, tar
     before = source(project)
     original = out.read_bytes() if out.exists() else None
     with Project.open(project.path, read_only=True) as reader:
-        refusal("schema", reader.export, out, **CALL)
+        refusal("schema", partial(archive_operations.export, reader), out, **CALL)
     assert source(project) == before
     assert (out.read_bytes() if out.exists() else None) == original
 
 
-def test_export_replaces_external_hardlink_without_modifying_source(project, tmp_path):
+def test_export_replaces_external_hardlink_without_modifying_source(
+    archive_operations, project, tmp_path
+):
     value = project.propose("Task", "source", **CALL)
     record = project.path / f"graph/nodes/{value['id']}.yaml"
     original = record.read_bytes()
     out = tmp_path.parent / (tmp_path.name + "-hardlink.tar.zst")
     os.link(record, out)
-    project.export(out, **CALL)
+    archive_operations.export(project, out, **CALL)
     assert record.read_bytes() == original
     assert out.read_bytes() != original
 
@@ -1566,11 +1636,13 @@ def test_export_replaces_external_hardlink_without_modifying_source(project, tmp
         zstandard.ZstdCompressor(level=3).compress(b"another frame"),
     ],
 )
-def test_import_rejects_unconsumed_compressed_archive_suffix(tmp_path, suffix):
+def test_import_rejects_unconsumed_compressed_archive_suffix(
+    archive_operations, tmp_path, suffix
+):
     archive = pack(tmp_path / "input.tar.zst", raw_members())
     archive.write_bytes(archive.read_bytes() + suffix)
     target = tmp_path / "destination"
-    refusal("bad_archive", Project.import_, archive, target, **CALL)
+    refusal("bad_archive", archive_operations.import_, archive, target, **CALL)
     untouched(target, False)
 
 
@@ -1627,7 +1699,9 @@ def test_import_preflight_closes_schema_cursor_before_profile_validation(
 
 
 @pytest.mark.parametrize("layout", ["worktree", "separate"])
-def test_export_protects_external_git_metadata(project, tmp_path, layout):
+def test_export_protects_external_git_metadata(
+    archive_operations, project, tmp_path, layout
+):
     if layout == "worktree":
         root = tmp_path.parent / (tmp_path.name + "-worktree")
         project._git.run("worktree", "add", "--detach", str(root))
@@ -1640,7 +1714,7 @@ def test_export_protects_external_git_metadata(project, tmp_path, layout):
     config = metadata / "config"
     original = config.read_bytes()
     with Project.open(root, read_only=True) as reader:
-        refusal("schema", reader.export, config, **CALL)
+        refusal("schema", partial(archive_operations.export, reader), config, **CALL)
     assert config.read_bytes() == original
 
 
@@ -1685,7 +1759,9 @@ def test_import_preflight_reads_recheck_live_destination_before_empty_answers(
 
 
 @pytest.mark.parametrize("kind", ["ignore", "artifacts"])
-def test_export_cannot_overwrite_outward_managed_alias(project, tmp_path, kind):
+def test_export_cannot_overwrite_outward_managed_alias(
+    archive_operations, project, tmp_path, kind
+):
     external = tmp_path.parent / (tmp_path.name + "-external")
     external.mkdir()
     target = external / "original"
@@ -1701,7 +1777,7 @@ def test_export_cannot_overwrite_outward_managed_alias(project, tmp_path, kind):
         managed.symlink_to(external, target_is_directory=True)
         out = managed / target.name
     with Project.open(project.path, read_only=True) as reader:
-        refusal("schema", reader.export, out, **CALL)
+        refusal("schema", partial(archive_operations.export, reader), out, **CALL)
     assert target.read_bytes() == b"preserve external source"
     assert managed.is_symlink()
 
@@ -1736,7 +1812,9 @@ def test_query_parity_helper_rejects_missing_visible_edges(project, monkeypatch,
         "closed_equivalent",
     ],
 )
-def test_import_rejects_inconsistent_node_status_history(tmp_path, problem):
+def test_import_rejects_inconsistent_node_status_history(
+    archive_operations, tmp_path, problem
+):
     if problem == "missing":
         rows = []
     elif problem == "closed_only":
@@ -1762,22 +1840,28 @@ def test_import_rejects_inconsistent_node_status_history(tmp_path, problem):
     target = tmp_path / "destination"
     with (
         pytest.raises(RuleViolation) as raised,
-        Project.import_(archive, target, actor=ALICE, now=FUTURE),
+        archive_operations.import_(archive, target, actor=ALICE, now=FUTURE),
     ):
         pass
     assert raised.value.rule == "bad_archive"
     untouched(target, False)
 
 
-def test_import_collapses_identical_open_interval_duplicates(tmp_path):
+def test_import_collapses_identical_open_interval_duplicates(
+    archive_operations, tmp_path
+):
     archive = pack(
         tmp_path / "input.tar.zst", raw_members(rows=[interval(), interval()])
     )
-    with Project.import_(archive, tmp_path / "destination", **CALL) as imported:
+    with archive_operations.import_(
+        archive, tmp_path / "destination", **CALL
+    ) as imported:
         assert restored_rows(imported) == [interval()]
 
 
-def test_import_preserves_stable_same_time_status_walk_order(tmp_path):
+def test_import_preserves_stable_same_time_status_walk_order(
+    archive_operations, tmp_path
+):
     rows = [
         interval(status="running", to_time=STAMP, to_commit="b" * 40),
         interval(from_commit="b" * 40),
@@ -1786,21 +1870,25 @@ def test_import_preserves_stable_same_time_status_walk_order(tmp_path):
         rows, key=lambda row: (row["node_id"], row["from_time"], row["status"])
     )
     archive = pack(tmp_path / "input.tar.zst", raw_members(rows=rows))
-    with Project.import_(archive, tmp_path / "destination", **CALL) as imported:
+    with archive_operations.import_(
+        archive, tmp_path / "destination", **CALL
+    ) as imported:
         assert restored_rows(imported) == expected
         assert imported.show("ta-aaaaaaaa", **CALL, as_of=STAMP)["status"] == "active"
         cold(imported, "deleted")
         assert restored_rows(imported) == expected
 
 
-def test_export_roundtrip_preserves_same_second_status_walk_order(project, tmp_path):
+def test_export_roundtrip_preserves_same_second_status_walk_order(
+    archive_operations, project, tmp_path
+):
     identifier = project.propose("Task", title="Same second", **CALL)["id"]
     project.claim(identifier, lease_seconds=60, actor=BOT, now=NOW)
     project.release(identifier, actor=BOT, now=NOW)
     assert project.show(identifier, **CALL, as_of=STAMP)["status"] == "active"
     rows = restored_rows(project)
-    archive = exported(project, tmp_path / "snapshot.tar.zst")
-    with Project.import_(
+    archive = archive_operations.exported(project, tmp_path / "snapshot.tar.zst")
+    with archive_operations.import_(
         archive, tmp_path / "restored", actor=ALICE, now=FUTURE
     ) as imported:
         assert imported.show(identifier, **CALL, as_of=STAMP)["status"] == "active"
@@ -1810,9 +1898,13 @@ def test_export_roundtrip_preserves_same_second_status_walk_order(project, tmp_p
         assert restored_rows(imported) == rows
 
 
-def test_same_second_local_transitions_close_archive_at_first_commit(tmp_path):
+def test_same_second_local_transitions_close_archive_at_first_commit(
+    archive_operations, tmp_path
+):
     archive = pack(tmp_path / "input.tar.zst", raw_members())
-    with Project.import_(archive, tmp_path / "destination", **CALL) as imported:
+    with archive_operations.import_(
+        archive, tmp_path / "destination", **CALL
+    ) as imported:
         imported.claim("ta-aaaaaaaa", lease_seconds=60, actor=BOT, now=NOW)
         claim_commit = git(imported.path, "rev-parse", "HEAD")
         imported.release("ta-aaaaaaaa", actor=BOT, now=NOW)
@@ -1824,8 +1916,8 @@ def test_same_second_local_transitions_close_archive_at_first_commit(tmp_path):
         assert imported.show("ta-aaaaaaaa", **CALL, as_of=STAMP)["status"] == "active"
         cold(imported, "deleted")
         assert restored_rows(imported) == rows
-        exported(imported, tmp_path / "second.tar.zst")
-    with Project.import_(
+        archive_operations.exported(imported, tmp_path / "second.tar.zst")
+    with archive_operations.import_(
         tmp_path / "second.tar.zst", tmp_path / "restored", actor=ALICE, now=FUTURE
     ) as restored:
         assert restored_rows(restored) == rows

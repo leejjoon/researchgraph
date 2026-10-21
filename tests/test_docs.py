@@ -559,8 +559,8 @@ def test_manual_reference_matches_spec_and_real_installed_help(tmp_path):
     spec = spec_commands((ROOT / "spec/operations.md").read_text())
     assert len(spec["Writes"]) == 18
     assert len(spec["Reads"]) == 19 and "export" in spec["Reads"]
-    assert len(installed) == 38
-    assert spec["Streams"] == {"events"} and spec["Servers"] == set()
+    assert len(installed) == 39
+    assert spec["Streams"] == {"events"} and spec["Servers"] == {"mcp"}
     assert installed == set().union(*spec.values()), (
         "spec/help command inventory disagreement"
     )
@@ -571,6 +571,9 @@ def test_manual_reference_matches_spec_and_real_installed_help(tmp_path):
         assert op["name"] in spec["Reads" if op["kind"] == "read" else "Writes"]
     options = {command: help_options(help_for(command)) for command in installed}
     text = (ROOT / MANUALS[0]).read_text()
+    assert text.count("\n## Servers\n") == 1
+    servers = text.split("\n## Servers\n", 1)[1].split("\n## ", 1)[0]
+    assert all(f"`rg {name}`" in servers for name in spec["Servers"])
     assert text.count("\n## Common options\n") == 1
     shared = text.split("\n## Common options\n", 1)[1].split("\n## ", 1)[0]
     check_reference(

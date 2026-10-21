@@ -18,9 +18,20 @@ from tests.test_cli import invoke, succeeds
 from tests.test_operations import discard_index, snapshot
 
 
-@pytest.mark.parametrize("door", ["api", pytest.param("cli", marks=pytest.mark.cli)])
+@pytest.fixture(name="invoke")
+def scenario_invoke(door):
+    if door == "mcp":
+        from tests.door_helpers import invoke_mcp
+
+        return invoke_mcp
+    return invoke
+
+
+@pytest.mark.parametrize(
+    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+)
 def test_graph_is_sorted_show_projection_including_retired(
-    tmp_path, index_mode, door, monkeypatch
+    tmp_path, index_mode, door, monkeypatch, invoke
 ):
     monkeypatch.setenv("RG_TEST_CLI_INDEX_MODE", index_mode)
     with Project.init(repository(tmp_path), "tasks", actor=ALICE, now=NOW) as project:
@@ -76,9 +87,11 @@ def test_graph_is_sorted_show_projection_including_retired(
         assert git(tmp_path, "status", "--porcelain") == ""
 
 
-@pytest.mark.parametrize("door", ["api", pytest.param("cli", marks=pytest.mark.cli)])
+@pytest.mark.parametrize(
+    "door", ["api", pytest.param("cli", marks=pytest.mark.cli), "mcp"]
+)
 def test_profile_read_preserves_unused_declarations_without_callables(
-    tmp_path, index_mode, door, monkeypatch
+    tmp_path, index_mode, door, monkeypatch, invoke
 ):
     monkeypatch.setenv("RG_TEST_CLI_INDEX_MODE", index_mode)
     with Project.init(
@@ -130,8 +143,9 @@ def test_profile_read_preserves_unused_declarations_without_callables(
         )
 
 
+@pytest.mark.parametrize("door", ["api", "mcp"])
 def test_profile_reports_loaded_version_under_as_of_and_never_calls_hooks(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, door, invoke
 ):
     value = Profile.load("tasks")
     value.name = "safe-metadata"
@@ -153,7 +167,13 @@ def test_profile_reports_loaded_version_under_as_of_and_never_calls_hooks(
     Profile.register(value)
     with Project.open(root, read_only=True) as project:
         monkeypatch.setattr("researchgraph.project.write_lock", forbidden)
-        info = project.profile_info(actor=ALICE, now=NOW, as_of=NOW)
+        info = (
+            project.profile_info(actor=ALICE, now=NOW, as_of=NOW)
+            if door == "api"
+            else succeeds(
+                invoke(root, "profile", "--as-of", NOW.isoformat(), "--read-only")
+            )
+        )
         assert (info["name"], info["version"], info["installed_version"]) == (
             "safe-metadata",
             "1.0",
@@ -170,7 +190,12 @@ def test_profile_reports_loaded_version_under_as_of_and_never_calls_hooks(
             }
             & info.keys()
         )
-        assert project.graph(actor=ALICE, now=NOW) == {"nodes": [], "edges": []}
+        graph = (
+            project.graph(actor=ALICE, now=NOW)
+            if door == "api"
+            else succeeds(invoke(root, "graph", "--read-only"))
+        )
+        assert graph == {"nodes": [], "edges": []}
 
 
 @settings(max_examples=12, deadline=None)

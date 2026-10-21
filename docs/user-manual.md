@@ -253,15 +253,32 @@ jq -n -c --arg project "$root" --arg claim "$claim" --arg replacement "$replacem
     '{project: $project, claim: $claim, replacement: $replacement}'
 ```
 
+## Servers
+
+`rg mcp` is an optional stdio server, outside the graph-operation inventory.
+Install the source extra with `uv pip install -e '.[mcp]'`; a core-only install
+still supports launcher help and reports this remedy on invocation. Select the
+project and launch either as an explicit agent or with explicit human mode.
+Actor, role and read-only are fixed for that process; no tool can override them.
+Use MCP 2026-07-28 discovery negotiation. Older initialize-only clients cannot
+carry the required arbitrary-JSON structured results and receive an explicit
+protocol refusal, not wrapped or partial results. Actual Claude Code/Codex
+compatibility and recordings are separate release evidence, not inferred here.
+No core prompts are supplied: instructions are only profile guidance (empty
+before bootstrapping a selected uninitialized destination).
+
 ## Common options
 
 Every invocation accepts `--project PATH` (default discover project in current
 or ancestor directory), `--json` (default human table), `--read-only` (default
 false), `--as-agent NAME[:MODEL[:VERSION]]` (default Git human), `--role ROLE`
-(default none), `--now TIMESTAMP` (default current UTC rounded to whole seconds),
-and `--commit` / `--no-commit` (default commit). They work before or after the
+(default none). Graph operations and streams additionally accept `--now TIMESTAMP`
+(default current UTC rounded to whole seconds), and `--commit` / `--no-commit`
+(default commit). They work before or after the
 command; command-local values override group values. `init` and `import` also
 accept destination positional paths and otherwise use project/current directory.
+MCP requires explicit agent or human launch; it does not use the default-human
+assumption. Set evaluation time and commit choice on tool calls, not the launcher.
 
 All commands accept `--help`; top-level `--version` prints the package version.
 Reads additionally accept `--as-of TIME|COMMIT` (default current). Commit means
@@ -273,10 +290,12 @@ accumulate. Optional strings default absent unless stated otherwise. Optional
 lists default empty. Invocation descriptions below are fragments, not complete
 scripts: use your installed console, real IDs and appropriate common options.
 
-Exit 0 means success. Domain exit 2 emits one JSON object on stderr with `rule`,
+For one-shot operations, exit 0 means success. Domain exit 2 emits one JSON object on stderr with `rule`,
 `message`, and array `ids`; stdout is empty. Click usage exit 2 emits plain-text
 Usage/Error on stderr, not JSON. Missing/invalid project exits 3. Do not infer an
 error type solely from exit 2. Shared write errors are documented after the reference.
+Server tool errors instead stay in the protocol and do not terminate the process;
+an ongoing stream may already have emitted valid lines before a later error.
 
 ## CLI reference
 
@@ -423,6 +442,14 @@ error type solely from exit 2. Shared write errors are documented after the refe
 **Permissions / preconditions**: Human; empty/nonexistent destination; now at least all restored timestamps, including future lease expiry and history.
 **Effect / result**: Validate before destination creation; restore pinned layout, preserve timestamps, make one import commit; JSON `{path,profile,version}`.
 **Errors**: Shared write rules including `clock_skew`; `not_empty`, `bad_archive`, `profile_too_new`.
+
+### mcp
+**Invocation**: `rg --project PATH --as-agent NAME mcp` or `rg --project PATH mcp --as-human`.
+**Arguments**: None; project selection is fixed at launch.
+**Options and defaults**: `--as-human` false; [Common options](#common-options) for project, declared identity, role, read-only, JSON errors and help. Full registry tools are the default.
+**Permissions / preconditions**: Exactly one explicit agent identity or human mode. Install the optional mcp extra; launcher help does not require it. Current MCP discovery negotiation is required.
+**Effect / result**: Official SDK JSON-RPC stdio, never a graph JSON value or human table. One tool per graph registry operation with readOnlyHint; read-only hides and refuses every write including init/import. JSON text and structuredContent preserve the same data, arrays and omission/null semantics; domain errors set isError with rule/message/ids. Tool calls may set now and writes may set commit; neither can override authority. Optional init/import destinations must equal the selected root. Per-request owners close even on cancellation; disconnect shuts down the server. Profile guidance only, no core prompts, runner or scheduler.
+**Errors**: `schema` for missing/conflicting launch identity, missing optional extra, authority/path overrides or unsupported negotiation; shared domain errors for tool calls. Missing/invalid project and profile errors retain the core refusal rather than being masked.
 
 ### events
 **Invocation**: `rg events` or `rg events --follow`.

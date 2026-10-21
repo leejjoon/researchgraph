@@ -13,6 +13,12 @@ from tests.helpers import ALICE, NOW, repository
 
 def pytest_addoption(parser):
     parser.addoption(
+        "--protocol-fixtures",
+        choices=("core", "mcp", "all"),
+        default="all",
+        help="Select shared protocol scenario fixtures; unrelated native checks are unchanged",
+    )
+    parser.addoption(
         "--index-mode",
         choices=("both", "kept", "deleted"),
         default="both",
@@ -21,6 +27,28 @@ def pytest_addoption(parser):
 
 
 def pytest_generate_tests(metafunc):
+    selection = metafunc.config.getoption("--protocol-fixtures")
+    for name, native in (
+        ("read_cli", "cli"),
+        ("public_operation", "api"),
+        ("archive_operations", "api"),
+    ):
+        if name in metafunc.fixturenames:
+            doors = (
+                [native, "mcp"]
+                if selection == "all"
+                else [native if selection == "core" else "mcp"]
+            )
+            parameters = [
+                pytest.param(door, marks=pytest.mark.mcp) if door == "mcp" else door
+                for door in doors
+            ]
+            metafunc.parametrize(
+                name,
+                parameters,
+                indirect=True,
+                scope="function" if name == "read_cli" else "module",
+            )
     if "index_mode" in metafunc.fixturenames:
         selected = metafunc.config.getoption("--index-mode")
         modes = ["kept", "deleted"] if selected == "both" else [selected]

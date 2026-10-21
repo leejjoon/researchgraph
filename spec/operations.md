@@ -16,6 +16,19 @@ The registry contains exactly 37 graph Writes/Reads (18 writes, 19 reads), inclu
 
 MCP uses the official optional SDK over stdio. Launch requires `--as-agent NAME[:MODEL[:VERSION]]` or explicit `--as-human`, and fixes actor, role and read-only for the process. Tool arguments cannot override authority or choose another project. Full is default; essential lists exactly show, ready, blocked, queue, digest, where, history, evidence, propose, link, attach, claim, renew, release, complete, fail. Read-only intersects the preset, hides all writes and refuses attempted hidden writes including init/import. Tool descriptions/schemas come from the registry and `readOnlyHint` from kind. Instructions equal profile `agent_guidance`, never core prompts. Results include CLI-equivalent JSON in text and `structuredContent`; RuleViolation uses `isError` with its structured JSON. No stdout logging; close per-request owners and all resources on cancellation/shutdown. Help/core import work without the extra; invoking a missing extra reports an actionable error.
 
+MCP tool schemas include operation arguments plus optional `now` and, for writes,
+`commit` (default true); authority/output CLI options are not tool arguments.
+Omitted values remain omitted, including priority's preserve-versus-null-clear
+distinction. Any init/import destination must equal the launch-selected root.
+An uninitialized destination may bootstrap; initialization instructions are empty
+until a profile exists. The supported official SDK carries arbitrary JSON in
+structuredContent, including the same arrays/scalars as text, without an invented
+object envelope. Refused domain calls use structured rule/message/ids and isError.
+Use current 2026-07-28 MCP discovery negotiation: the legacy initialize-only wire
+cannot carry those array results and is explicitly refused for tools rather than
+silently wrapping or degrading data. Actual agent-product compatibility is part
+of the required installed/product evidence, not inferred from SDK support.
+
 The optional Starlette/Uvicorn HTTP server binds loopback and fixes writes to the serving human's git identity. Roles are self-declared per request; read-only cannot be disabled by a request. One Project lock serialises requests and polling; it does not turn read-only reads into write-lock operations. Server shutdown/disconnect closes owners and subscriptions. Same-origin embedding only.
 
 ### Graph and profile read contracts
@@ -101,6 +114,7 @@ The events stream uses `--follow`, `--since CURSOR` and `--poll-interval SECONDS
 
 | Server | Arguments | Purpose |
 | --- | --- | --- |
+| `mcp` | `--as-agent NAME[:MODEL[:VERSION]]` or `--as-human`, `--role ROLE`, `--read-only` | Official optional SDK stdio server, full graph registry, launch-fixed authority; current discovery negotiation |
 
 MCP and HTTP launchers are added with their implementation, outside graph-operation counts. Launcher help works without optional extras. HTTP SSE uses `GET /api/events`, full cursor in both `id:` and `Last-Event-ID`, and 15-second keepalive comments; one-second polling must observe external CLI claims within three seconds under the required fifty-running-node load. Replay includes only retained successors; reset means refetch. Slow/disconnected clients cannot leak unbounded buffers or resource owners.
 

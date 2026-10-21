@@ -34,6 +34,28 @@ def test_notebook_tooling_is_pinned_only_in_test_extra():
     )
 
 
+def test_mcp_is_optional_and_primary_jobs_admit_its_required_tests():
+    metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert metadata["project"]["optional-dependencies"]["mcp"] == ["mcp>=2.3,<3"]
+    assert not any(
+        item.split(">=")[0] in {"mcp", "anyio", "starlette", "uvicorn"}
+        for item in metadata["project"]["dependencies"]
+    )
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    scripts = {
+        name: "\n".join(step.get("run", "") for step in job["steps"])
+        for name, job in workflow["jobs"].items()
+    }
+    for name in ("acceptance", "scale"):
+        assert "-e '.[test,mcp]'" in scripts[name]
+    compatibility = scripts["compatibility"]
+    assert "-e '.[test]'" in compatibility and "mcp]" not in compatibility
+    assert "--protocol-fixtures core" in compatibility
+    assert "tests/test_mcp_packaging.py" in scripts["scale"]
+
+
 def test_notebook_ci_execution_targets_are_separate_from_compatibility():
     workflow = yaml.load(
         (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
@@ -200,7 +222,8 @@ def test_workflow_contract():
             assert "matrix.python" in upload["with"]["name"]
         script = scripts[name]
         assert "uv venv .venv" in script
-        assert "-e '.[test]'" in script
+        expected_extra = ".[test]" if name == "compatibility" else ".[test,mcp]"
+        assert f"-e '{expected_extra}'" in script
         assert "-e tests/testprofiles" in script
         assert "rpds-py==0.25.1" in script
         assert "platform_python_implementation" in script and "PyPy" in script

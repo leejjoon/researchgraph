@@ -6,6 +6,7 @@ import os
 import select
 import sys
 from datetime import UTC, datetime
+from importlib.util import find_spec
 from pathlib import Path
 
 import click
@@ -16,20 +17,28 @@ from researchgraph.project import Project
 from researchgraph.store.git import Git
 
 
-def _common_options(function):
-    for option in reversed(
-        [
-            click.option("--project", type=click.Path(path_type=Path), default=None),
-            click.option("--json", "json_output", is_flag=True, default=None),
-            click.option("--read-only", is_flag=True, default=None),
-            click.option("--as-agent", default=None),
-            click.option("--role", default=None),
-            click.option("--now", default=None),
-            click.option("--commit/--no-commit", default=None),
-        ]
-    ):
+def _common_options(function, *, operation=True):
+    options = [
+        click.option("--project", type=click.Path(path_type=Path), default=None),
+        click.option("--json", "json_output", is_flag=True, default=None),
+        click.option("--read-only", is_flag=True, default=None),
+        click.option("--as-agent", default=None),
+        click.option("--role", default=None),
+    ]
+    if operation:
+        options.extend(
+            [
+                click.option("--now", default=None),
+                click.option("--commit/--no-commit", default=None),
+            ]
+        )
+    for option in reversed(options):
         function = option(function)
     return function
+
+
+def _server_options(function):
+    return _common_options(function, operation=False)
 
 
 @click.group()
@@ -43,7 +52,7 @@ def main(ctx, **options):
 
 def _options(ctx, local_options):
     return {
-        key: local_options[key] if local_options[key] is not None else value
+        key: local_options.get(key) if local_options.get(key) is not None else value
         for key, value in ctx.obj.items()
     }
 
@@ -619,6 +628,43 @@ def _run_read(ctx, local_options, as_of, operation):
                 },
             )
         _read_result(result, options["json_output"])
+    except RuleViolation as exc:
+        _error(ctx, exc)
+
+
+@main.command("mcp")
+@click.option("--as-human", is_flag=True)
+@_server_options
+@click.pass_context
+def mcp_command(ctx, as_human, **local_options):
+    """Serve the optional official MCP stdio adapter with fixed launch authority."""
+    options = _options(ctx, local_options)
+    try:
+        if as_human == (options["as_agent"] is not None):
+            raise RuleViolation(
+                "schema",
+                "Choose either --as-agent NAME[:MODEL[:VERSION]] or explicit --as-human",
+            )
+        if options["now"] is not None or options["commit"] is not None:
+            raise RuleViolation(
+                "schema", "Supply now/commit on tool calls, not the server launcher"
+            )
+        if find_spec("mcp") is None:
+            raise RuleViolation(
+                "schema",
+                "MCP requires its optional extra: install 'researchgraph[mcp]'",
+            )
+        from researchgraph.mcp import serve
+
+        root = _project_root(options["project"])
+        serve(
+            root,
+            actor=_actor(root, options["as_agent"]),
+            role=options["role"],
+            read_only=bool(options["read_only"]),
+        )
+    except KeyboardInterrupt:
+        return
     except RuleViolation as exc:
         _error(ctx, exc)
 

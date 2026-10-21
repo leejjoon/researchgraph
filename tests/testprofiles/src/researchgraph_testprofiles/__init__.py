@@ -2,12 +2,14 @@
 
 import json
 import os
+import time
 from copy import deepcopy
 from pathlib import Path
 
 from researchgraph.model import RuleViolation
 from researchgraph.profiles.base import EdgeType, Gate, NodeType, Profile
 from researchgraph.profiles.research import PROFILE as RESEARCH_PROFILE
+from researchgraph.profiles.tasks import PROFILE as TASKS_PROFILE
 
 DEFAULTS_PROFILE = Profile(
     name="test-defaults",
@@ -72,6 +74,29 @@ CLI_PROFILE.event_hooks = [record_event]
 EVENTS_PROFILE = deepcopy(RESEARCH_PROFILE)
 EVENTS_PROFILE.name = "test-events"
 EVENTS_PROFILE.event_hooks = [record_event]
+
+
+def slow_stdio(before, write):
+    """Announce real validator entry before delaying one installed cancellation test."""
+    destination = os.environ.get("RG_TEST_STDIO_MARKER")
+    if destination and any(node.title == "slow cancellation" for node in write.nodes):
+        print("RG_STDIO_ENTER", flush=True)
+        Path(destination).write_text("entered", encoding="utf-8")
+        time.sleep(0.3)
+
+
+def noisy_stdio_commit(project, write, commit):
+    """Prove ordinary callback stdout cannot contaminate official stdio protocol framing."""
+    destination = os.environ.get("RG_TEST_STDIO_MARKER")
+    if destination and any(node.title == "slow cancellation" for node in write.nodes):
+        print("RG_STDIO_COMMITTED", flush=True)
+        Path(destination + ".done").write_text(commit, encoding="utf-8")
+
+
+STDIO_PROFILE = deepcopy(TASKS_PROFILE)
+STDIO_PROFILE.name = "test-stdio"
+STDIO_PROFILE.validators = [slow_stdio]
+STDIO_PROFILE.event_hooks = [noisy_stdio_commit]
 
 CONDITIONAL_PROFILE = deepcopy(RESEARCH_PROFILE)
 CONDITIONAL_PROFILE.name = "test-conditional"

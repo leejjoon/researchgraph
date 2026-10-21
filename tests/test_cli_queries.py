@@ -106,6 +106,24 @@ def read_cli(root, *arguments, deleted=False, **kwargs):
     return result
 
 
+@pytest.fixture(name="read_cli")
+def query_reader(request):
+    """Inject the read door without changing the independent API oracle."""
+    if request.param == "cli":
+        return read_cli
+
+    from tests.door_helpers import invoke_mcp
+
+    def read_mcp(root, *arguments, deleted=False, **kwargs):
+        prepare_cache(root, deleted)
+        before = source_snapshot(root)
+        result = invoke_mcp(root, *arguments, now=READ_NOW, **kwargs)
+        assert source_snapshot(root) == before
+        return result
+
+    return read_mcp
+
+
 def api(root, name, *args, now=READ_NOW, **kwargs):
     with Project.open(root, read_only=True) as project:
         return getattr(project, name)(*args, actor=ALICE, now=now, **kwargs)
@@ -218,7 +236,7 @@ def graph(tmp_path_factory):
 
 @pytest.mark.parametrize("name", QUERY_ARGUMENTS)
 @pytest.mark.parametrize("boundary", [None, "timestamp", "commit"])
-def test_all_query_json_matches_public_api_and_cache(graph, name, boundary):
+def test_all_query_json_matches_public_api_and_cache(graph, name, boundary, read_cli):
     key = QUERY_ARGUMENTS[name]
     arguments = () if key is None else (graph.ids[key],)
     as_of = {None: None, "timestamp": graph.ids["cutoff"], "commit": "HEAD"}[boundary]
@@ -285,7 +303,7 @@ def test_query_common_options_before_and_after_command(graph, name, deleted):
 
 
 @pytest.mark.parametrize("deleted", [False, True])
-def test_ready_blocked_queue_and_expired_show(graph, deleted):
+def test_ready_blocked_queue_and_expired_show(graph, deleted, read_cli):
     ready = succeeds(read_cli(graph.root, "ready", deleted=deleted))["items"]
     present = set(ids(ready))
     assert {graph.ids[k] for k in ("running", "blocker")} <= present
@@ -324,7 +342,7 @@ def test_ready_blocked_queue_and_expired_show(graph, deleted):
 
 
 @pytest.mark.parametrize("deleted", [False, True])
-def test_evidence_weakest_history_notes_subtree_and_digest(graph, deleted):
+def test_evidence_weakest_history_notes_subtree_and_digest(graph, deleted, read_cli):
     evidence = succeeds(
         read_cli(graph.root, "evidence", graph.ids["claim"], deleted=deleted)
     )
@@ -392,7 +410,9 @@ def test_evidence_weakest_history_notes_subtree_and_digest(graph, deleted):
 
 
 @pytest.mark.parametrize("deleted", [False, True])
-def test_show_preserves_relations_instructions_pins_and_warnings(graph, deleted):
+def test_show_preserves_relations_instructions_pins_and_warnings(
+    graph, deleted, read_cli
+):
     shown = succeeds(
         read_cli(
             graph.root,
@@ -418,7 +438,9 @@ def test_show_preserves_relations_instructions_pins_and_warnings(graph, deleted)
 
 
 @pytest.mark.parametrize("deleted", [False, True])
-def test_alternative_union_predictions_and_matrix_global_discrimination(graph, deleted):
+def test_alternative_union_predictions_and_matrix_global_discrimination(
+    graph, deleted, read_cli
+):
     alternatives = succeeds(
         read_cli(
             graph.root,
@@ -458,7 +480,9 @@ def test_alternative_union_predictions_and_matrix_global_discrimination(graph, d
 
 
 @pytest.mark.parametrize("deleted", [False, True])
-def test_where_conjoins_repeated_fields_author_tags_text_and_budget(graph, deleted):
+def test_where_conjoins_repeated_fields_author_tags_text_and_budget(
+    graph, deleted, read_cli
+):
     arguments = (
         "--type",
         "Task",
@@ -524,7 +548,7 @@ def test_where_conjoins_repeated_fields_author_tags_text_and_budget(graph, delet
         ("kind=expansion", "kind=missing"),
     ],
 )
-def test_where_rejects_conflicting_repeated_fields(graph, deleted, values):
+def test_where_rejects_conflicting_repeated_fields(graph, deleted, values, read_cli):
     refused(
         read_cli(
             graph.root,
@@ -540,7 +564,7 @@ def test_where_rejects_conflicting_repeated_fields(graph, deleted, values):
 
 
 @pytest.mark.parametrize("deleted", [False, True])
-def test_where_allows_identical_repeated_fields(graph, deleted):
+def test_where_allows_identical_repeated_fields(graph, deleted, read_cli):
     actual = succeeds(
         read_cli(
             graph.root,
@@ -568,7 +592,9 @@ def test_where_allows_identical_repeated_fields(graph, deleted):
         (("command=a=b", "command=a=b", "kind=expansion"), False),
     ],
 )
-def test_where_field_api_installed_console_parity(graph, deleted, fields, invalid):
+def test_where_field_api_installed_console_parity(
+    graph, deleted, fields, invalid, read_cli
+):
     from researchgraph.model import RuleViolation
 
     prepare_cache(graph.root, deleted)
@@ -602,10 +628,20 @@ def test_where_field_api_installed_console_parity(graph, deleted, fields, invali
         refused(result, "schema")
     else:
         assert succeeds(result) == expected
+    scenario = read_cli(
+        graph.root,
+        "where",
+        *[argument for entry in fields for argument in ("--field", entry)],
+        deleted=deleted,
+    )
+    if invalid:
+        refused(scenario, "schema")
+    else:
+        assert succeeds(scenario) == expected
 
 
 @pytest.mark.parametrize("deleted", [False, True])
-def test_as_of_approval_commit_timestamp_and_later_edge(graph, deleted):
+def test_as_of_approval_commit_timestamp_and_later_edge(graph, deleted, read_cli):
     for boundary, status in [
         (graph.ids["before_approval"], "proposed"),
         (graph.ids["between"], "proposed"),
@@ -639,7 +675,9 @@ def test_as_of_approval_commit_timestamp_and_later_edge(graph, deleted):
 
 
 @pytest.mark.parametrize("deleted", [False, True])
-def test_stale_deduplicates_independent_heads_paths_and_as_of(tmp_path, deleted):
+def test_stale_deduplicates_independent_heads_paths_and_as_of(
+    tmp_path, deleted, read_cli
+):
     g = Graph(tmp_path / "project")
     try:
         r0 = g.node("r0", "Result")
@@ -677,7 +715,7 @@ def test_stale_deduplicates_independent_heads_paths_and_as_of(tmp_path, deleted)
 @pytest.mark.parametrize("deleted", [False, True])
 @pytest.mark.parametrize("resolution", ["complete", "retire"])
 def test_blocked_disappears_when_blocker_finishes_or_edge_retires(
-    tmp_path, deleted, resolution
+    tmp_path, deleted, resolution, read_cli
 ):
     g = Graph(tmp_path / "project")
     try:
@@ -700,7 +738,7 @@ def test_blocked_disappears_when_blocker_finishes_or_edge_retires(
 
 
 @pytest.mark.parametrize("deleted", [False, True])
-def test_since_observes_late_approval_and_edge_retirement(tmp_path, deleted):
+def test_since_observes_late_approval_and_edge_retirement(tmp_path, deleted, read_cli):
     g = Graph(tmp_path / "project")
     try:
         h = g.node("hypothesis", "Hypothesis")
@@ -727,13 +765,13 @@ def test_query_required_positional_argument(graph, name):
 
 @pytest.mark.parametrize("name", ID_QUERIES)
 @pytest.mark.parametrize("deleted", [False, True])
-def test_query_missing_node_is_structured(graph, name, deleted):
+def test_query_missing_node_is_structured(graph, name, deleted, read_cli):
     refused(read_cli(graph.root, name, "ta-zzzzzzzz", deleted=deleted), "not_found")
 
 
 @pytest.mark.parametrize("name", QUERY_ARGUMENTS)
 @pytest.mark.parametrize("deleted", [False, True])
-def test_query_invalid_as_of_is_structured(graph, name, deleted):
+def test_query_invalid_as_of_is_structured(graph, name, deleted, read_cli):
     key = QUERY_ARGUMENTS[name]
     args = () if key is None else (graph.ids[key],)
     refused(
@@ -754,6 +792,22 @@ def test_query_invalid_as_of_is_structured(graph, name, deleted):
 )
 @pytest.mark.parametrize("deleted", [False, True])
 def test_query_malformed_context_and_filters_preserve_source(graph, arguments, deleted):
+    refused(read_cli(graph.root, *arguments, deleted=deleted), "schema")
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("where", "--field", "missing-equals"),
+        ("since", "not-a-time"),
+        ("ready", "--now", "invalid"),
+        ("ready", "--now", ""),
+    ],
+)
+@pytest.mark.parametrize("deleted", [False, True])
+def test_query_malformed_semantic_values_across_doors(
+    graph, arguments, deleted, read_cli
+):
     refused(read_cli(graph.root, *arguments, deleted=deleted), "schema")
 
 

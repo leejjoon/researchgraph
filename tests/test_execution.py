@@ -4,6 +4,7 @@ import hashlib
 import multiprocessing
 from copy import deepcopy
 from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -22,6 +23,16 @@ from tests.helpers import ALICE, NOW, git, refusal, repository
 BOT = Actor("agent", "agent1", model="original", version="1")
 OTHER = Actor("agent", "agent2")
 CALL = {"actor": ALICE, "now": NOW}
+
+
+@pytest.fixture(scope="module")
+def public_operation(request):
+    """Inject only public call boundaries; keep native storage oracles intact."""
+    if request.param == "mcp":
+        from tests.door_helpers import operation_mcp
+
+        return lambda project, name: partial(operation_mcp, project, name)
+    return lambda project, name: getattr(project, name)
 
 
 def snapshot(project):
@@ -50,10 +61,12 @@ def claim(project, id_, seconds=7200):
 
 
 @pytest.mark.parametrize("seconds", [1, 3600, 7200])
-def test_claim_canonical_reclaim_equality_and_lost_rights(project, index_mode, seconds):
+def test_claim_canonical_reclaim_equality_and_lost_rights(
+    public_operation, project, index_mode, seconds
+):
     id_ = task(project)
     cold(project, index_mode)
-    value = claim(project, id_, seconds)
+    value = public_operation(project, "claim")(id_, seconds, actor=BOT, now=NOW)
     assert value == load_node(project.path / f"graph/nodes/{id_}.yaml")
     assert value["status"] == "running"
     assert value["lease"] == {
@@ -68,10 +81,15 @@ def test_claim_canonical_reclaim_equality_and_lost_rights(project, index_mode, s
         "at": value["updated"],
         "what": "claim",
     }
-    refusal("lease_held", project.claim, id_, 0, actor=OTHER, now=NOW)
+    refusal(
+        "lease_held", public_operation(project, "claim"), id_, 0, actor=OTHER, now=NOW
+    )
     expiry = NOW + timedelta(seconds=seconds)
-    assert id_ in {n["id"] for n in project.ready(actor=ALICE, now=expiry)["items"]}
-    reclaimed = project.claim(id_, 10, actor=OTHER, now=expiry)
+    assert id_ in {
+        n["id"]
+        for n in public_operation(project, "ready")(actor=ALICE, now=expiry)["items"]
+    }
+    reclaimed = public_operation(project, "claim")(id_, 10, actor=OTHER, now=expiry)
     assert reclaimed["lease"]["actor"] == OTHER.to_dict()
     assert reclaimed["lease"]["acquired_at"] == reclaimed["updated"]
     for op, args in [
@@ -81,37 +99,51 @@ def test_claim_canonical_reclaim_equality_and_lost_rights(project, index_mode, s
         ("fail", ("bad",)),
     ]:
         refusal(
-            "not_lease_holder", getattr(project, op), id_, *args, actor=BOT, now=expiry
+            "not_lease_holder",
+            public_operation(project, op),
+            id_,
+            *args,
+            actor=BOT,
+            now=expiry,
         )
-    assert id_ not in {n["id"] for n in project.ready(actor=ALICE, now=expiry)["items"]}
+    assert id_ not in {
+        n["id"]
+        for n in public_operation(project, "ready")(actor=ALICE, now=expiry)["items"]
+    }
 
 
-def test_claim_readiness_blockers_nonclaimable_and_budget(project, index_mode):
+def test_claim_readiness_blockers_nonclaimable_and_budget(
+    public_operation, project, index_mode
+):
     a, b = task(project, "A"), task(project, "B")
-    project.link("blocks", a, b, **CALL)
+    public_operation(project, "link")("blocks", a, b, **CALL)
     cold(project, index_mode)
-    refusal("not_ready", project.claim, b, 0, actor=BOT, now=NOW)
+    refusal("not_ready", public_operation(project, "claim"), b, 0, actor=BOT, now=NOW)
     for type_ in ["Instruction", "Failure", "Note", "Hypothesis"]:
-        id_ = project.propose(type_, type_, **CALL)["id"]
-        refusal("not_ready", project.claim, id_, actor=BOT, now=NOW)
+        id_ = public_operation(project, "propose")(type_, type_, **CALL)["id"]
+        refusal(
+            "not_ready", public_operation(project, "claim"), id_, actor=BOT, now=NOW
+        )
     # T13's budget operation is not available yet; retain the prescribed given.
     path = project.path / f"graph/nodes/{a}.yaml"
     stored = load_node(path)
     stored["budget"] = {"tokens": 0}
     path.write_text(dump_node(stored), encoding="utf-8")
-    refusal("not_ready", project.claim, a, actor=BOT, now=NOW)
+    refusal("not_ready", public_operation(project, "claim"), a, actor=BOT, now=NOW)
 
 
-def test_claim_lease_held_precedes_new_blocker_and_negative(project):
+def test_claim_lease_held_precedes_new_blocker_and_negative(public_operation, project):
     id_, blocker = task(project), task(project, "blocker")
-    claim(project, id_)
-    project.link("blocks", blocker, id_, **CALL)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
+    public_operation(project, "link")("blocks", blocker, id_, **CALL)
     before = snapshot(project)
-    refusal("lease_held", project.claim, id_, 0, actor=BOT, now=NOW)
+    refusal(
+        "lease_held", public_operation(project, "claim"), id_, 0, actor=BOT, now=NOW
+    )
     assert snapshot(project) == before
     refusal(
         "not_ready",
-        project.claim,
+        public_operation(project, "claim"),
         id_,
         0,
         actor=OTHER,
@@ -120,36 +152,44 @@ def test_claim_lease_held_precedes_new_blocker_and_negative(project):
 
 
 @pytest.mark.parametrize("seconds", [0, -1, True, 1.5, "10", None])
-def test_bad_lease_durations_are_atomic(project, seconds):
+def test_bad_lease_durations_are_atomic(public_operation, project, seconds):
     id_ = task(project)
     before = snapshot(project)
-    refusal("negative", project.claim, id_, seconds, actor=BOT, now=NOW)
+    refusal(
+        "negative", public_operation(project, "claim"), id_, seconds, actor=BOT, now=NOW
+    )
     assert snapshot(project) == before
-    claim(project, id_)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     before = snapshot(project)
-    refusal("negative", project.renew, id_, seconds, actor=BOT, now=NOW)
+    refusal(
+        "negative", public_operation(project, "renew"), id_, seconds, actor=BOT, now=NOW
+    )
     assert snapshot(project) == before
 
 
 def test_renew_never_shortens_preserves_holder_metadata_and_acquisition(
-    project, index_mode
+    public_operation, project, index_mode
 ):
     id_ = task(project)
-    original = claim(project, id_, 5000)
+    original = public_operation(project, "claim")(id_, 5000, actor=BOT, now=NOW)
     changed_metadata = Actor("agent", BOT.name, model="new", version="2")
     cold(project, index_mode)
-    renewed = project.renew(id_, 3600, actor=changed_metadata, role="owner", now=NOW)
+    renewed = public_operation(project, "renew")(
+        id_, 3600, actor=changed_metadata, role="owner", now=NOW
+    )
     assert renewed["lease"] == original["lease"]
     assert renewed["approvals"][-1]["actor"] == changed_metadata.to_dict()
     assert renewed["approvals"][-1]["role"] == "owner"
     later = NOW + timedelta(seconds=6000)
-    renewed = project.renew(id_, 3600, actor=changed_metadata, now=later)
+    renewed = public_operation(project, "renew")(
+        id_, 3600, actor=changed_metadata, now=later
+    )
     assert renewed["lease"]["acquired_at"] == original["lease"]["acquired_at"]
     assert renewed["lease"]["actor"] == BOT.to_dict()
     assert renewed["lease"]["expires_at"] == "2026-10-20T02:40:00Z"
     refusal(
         "not_lease_holder",
-        project.renew,
+        public_operation(project, "renew"),
         id_,
         actor=Actor("human", BOT.name),
         now=later,
@@ -160,9 +200,11 @@ def test_renew_never_shortens_preserves_holder_metadata_and_acquisition(
     "operation,args",
     [("release", ()), ("complete", ("done",)), ("fail", ("bad",)), ("renew", ())],
 )
-def test_execution_not_running_and_shared_priorities(project, operation, args):
+def test_execution_not_running_and_shared_priorities(
+    public_operation, project, operation, args
+):
     id_ = task(project)
-    fn = getattr(project, operation)
+    fn = public_operation(project, operation)
     refusal("not_running", fn, id_, *args, actor=OTHER, now=NOW)
     refusal("wrong_role", fn, id_, *args, actor=BOT, role="unknown", now=NOW)
     refusal("not_found", fn, "ta-zzzzzzzz", *args, actor=BOT, role="unknown", now=NOW)
@@ -181,17 +223,17 @@ def test_execution_not_running_and_shared_priorities(project, operation, args):
     ],
 )
 def test_expired_holder_finish_usage_and_no_alias(
-    project, index_mode, operation, args, status
+    public_operation, project, index_mode, operation, args, status
 ):
     id_ = task(project)
-    claim(project, id_, 1)
+    public_operation(project, "claim")(id_, 1, actor=BOT, now=NOW)
     first_usage = {"tokens": 100}
-    project.release(id_, usage=first_usage, actor=BOT, now=NOW)
-    claim(project, id_, 1)
+    public_operation(project, "release")(id_, usage=first_usage, actor=BOT, now=NOW)
+    public_operation(project, "claim")(id_, 1, actor=BOT, now=NOW)
     usage = {"tokens": 50, "compute_seconds": 0}
     original = deepcopy(usage)
     cold(project, index_mode)
-    result = getattr(project, operation)(
+    result = public_operation(project, operation)(
         id_, *args, usage=usage, actor=BOT, now=NOW + timedelta(seconds=1)
     )
     assert (
@@ -206,7 +248,7 @@ def test_expired_holder_finish_usage_and_no_alias(
     assert project.get_node(id_).usage["tokens"] == 150
     refusal(
         "not_running",
-        getattr(project, operation),
+        public_operation(project, operation),
         id_,
         *args,
         actor=BOT,
@@ -227,57 +269,76 @@ def test_expired_holder_finish_usage_and_no_alias(
     ],
 )
 @pytest.mark.parametrize("operation", ["release", "complete", "fail"])
-def test_usage_validation_atomic(project, usage, rule, operation):
+def test_usage_validation_atomic(public_operation, project, usage, rule, operation):
     id_ = task(project)
-    claim(project, id_)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     before = snapshot(project)
     args = () if operation == "release" else ("summary",)
     refusal(
-        rule, getattr(project, operation), id_, *args, usage=usage, actor=BOT, now=NOW
+        rule,
+        public_operation(project, operation),
+        id_,
+        *args,
+        usage=usage,
+        actor=BOT,
+        now=NOW,
     )
     assert snapshot(project) == before
 
 
-def test_human_may_release_but_not_complete_or_fail(project):
+def test_human_may_release_but_not_complete_or_fail(public_operation, project):
     id_ = task(project)
-    claim(project, id_)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     for op in ["complete", "fail"]:
         refusal(
             "not_lease_holder",
-            getattr(project, op),
+            public_operation(project, op),
             id_,
             "summary",
             actor=ALICE,
             now=NOW,
         )
-    refusal("not_lease_holder", project.release, id_, actor=OTHER, now=NOW)
-    assert project.release(id_, actor=ALICE, now=NOW)["status"] == "active"
-    assert id_ in {n["id"] for n in project.ready(**CALL)["items"]}
+    refusal(
+        "not_lease_holder",
+        public_operation(project, "release"),
+        id_,
+        actor=OTHER,
+        now=NOW,
+    )
+    assert (
+        public_operation(project, "release")(id_, actor=ALICE, now=NOW)["status"]
+        == "active"
+    )
+    assert id_ in {n["id"] for n in public_operation(project, "ready")(**CALL)["items"]}
 
 
-def test_execution_does_not_run_task_command(project):
-    id_ = project.propose(
+def test_execution_does_not_run_task_command(public_operation, project):
+    id_ = public_operation(project, "propose")(
         "Task", "opaque task", fields={"command": "touch MUST_NOT_EXIST"}, **CALL
     )["id"]
-    claim(project, id_)
-    project.release(id_, actor=BOT, now=NOW)
-    claim(project, id_)
-    project.fail(id_, "reported failure", actor=BOT, now=NOW)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
+    public_operation(project, "release")(id_, actor=BOT, now=NOW)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
+    public_operation(project, "fail")(id_, "reported failure", actor=BOT, now=NOW)
     assert not (project.path / "MUST_NOT_EXIST").exists()
 
 
-def test_execution_usage_rolls_up_research_subtree(project, index_mode):
-    hypothesis = project.propose("Hypothesis", "H", **CALL)["id"]
-    prediction = project.propose("Prediction", "P", **CALL)["id"]
+def test_execution_usage_rolls_up_research_subtree(
+    public_operation, project, index_mode
+):
+    hypothesis = public_operation(project, "propose")("Hypothesis", "H", **CALL)["id"]
+    prediction = public_operation(project, "propose")("Prediction", "P", **CALL)["id"]
     id_ = task(project)
-    project.link("tests", prediction, hypothesis, fields={"expected": "yes"}, **CALL)
-    project.link("addresses", id_, prediction, **CALL)
-    claim(project, id_)
+    public_operation(project, "link")(
+        "tests", prediction, hypothesis, fields={"expected": "yes"}, **CALL
+    )
+    public_operation(project, "link")("addresses", id_, prediction, **CALL)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     cold(project, index_mode)
-    project.complete(
+    public_operation(project, "complete")(
         id_, "done", usage={"tokens": 1200, "compute_seconds": 5}, actor=BOT, now=NOW
     )
-    assert project.subtree(hypothesis, **CALL)["usage"] == {
+    assert public_operation(project, "subtree")(hypothesis, **CALL)["usage"] == {
         "tokens": 1200,
         "compute_seconds": 5,
     }
@@ -292,18 +353,20 @@ def artifact(project, id_, name="out.csv", content=b"hello"):
 
 
 def test_complete_entire_artifact_stream_unicode_newline_scoped_commit(
-    project, index_mode
+    public_operation, project, index_mode
 ):
     id_, blocked = task(project), task(project, "blocked")
-    project.link("blocks", id_, blocked, **CALL)
-    claim(project, id_)
+    public_operation(project, "link")("blocks", id_, blocked, **CALL)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     data = b"a" * (2 * 1024 * 1024) + b"late bytes\x00\xff"
     relative = artifact(project, id_, "결과\nfile.csv", data)
     other = artifact(project, id_, "not-named", b"keep")
     (project.path / "unrelated").write_text("staged")
     git(project.path, "add", "unrelated")
     cold(project, index_mode)
-    result = project.complete(id_, "done", [relative], actor=BOT, now=NOW)
+    result = public_operation(project, "complete")(
+        id_, "done", [relative], actor=BOT, now=NOW
+    )
     assert result["artifacts"] == [
         {
             "path": relative,
@@ -329,7 +392,9 @@ def test_complete_entire_artifact_stream_unicode_newline_scoped_commit(
     assert paths - {""} == {relative, f"graph/nodes/{id_}.yaml"}
     assert "unrelated" in git(project.path, "diff", "--cached", "--name-only")
     assert (project.path / other).read_bytes() == b"keep"
-    assert blocked in {n["id"] for n in project.ready(**CALL)["items"]}
+    assert blocked in {
+        n["id"] for n in public_operation(project, "ready")(**CALL)["items"]
+    }
 
 
 @pytest.mark.parametrize(
@@ -345,13 +410,13 @@ def test_complete_entire_artifact_stream_unicode_newline_scoped_commit(
         "artifacts/{other}/x",
     ],
 )
-def test_artifact_path_precedes_all_missing_and_usage(project, bad):
+def test_artifact_path_precedes_all_missing_and_usage(public_operation, project, bad):
     id_, other = task(project), task(project, "other")
-    claim(project, id_)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     before = snapshot(project)
     refusal(
         "artifact_path",
-        project.complete,
+        public_operation(project, "complete"),
         id_,
         "done",
         [f"artifacts/{id_}/missing", bad.format(id=id_, other=other)],
@@ -371,9 +436,9 @@ def test_artifact_path_precedes_all_missing_and_usage(project, bad):
         ("parent_symlink", "artifact_path"),
     ],
 )
-def test_artifact_nonfiles_and_symlinks(project, kind, rule):
+def test_artifact_nonfiles_and_symlinks(public_operation, project, kind, rule):
     id_ = task(project)
-    claim(project, id_)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     relative = f"artifacts/{id_}/out"
     path = project.path / relative
     path.parent.mkdir(parents=True)
@@ -387,7 +452,7 @@ def test_artifact_nonfiles_and_symlinks(project, kind, rule):
     before = snapshot(project)
     refusal(
         rule,
-        project.complete,
+        public_operation(project, "complete"),
         id_,
         "done",
         [relative],
@@ -398,12 +463,14 @@ def test_artifact_nonfiles_and_symlinks(project, kind, rule):
     assert snapshot(project) == before
 
 
-def test_artifact_duplicate_records_empty_usage_and_input_isolation(project):
+def test_artifact_duplicate_records_empty_usage_and_input_isolation(
+    public_operation, project
+):
     id_ = task(project)
-    claim(project, id_)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     relative = artifact(project, id_, content=b"")
     paths = [relative, relative]
-    value = project.complete(
+    value = public_operation(project, "complete")(
         id_, "done", paths, usage={}, actor=BOT, now=NOW, commit=False
     )
     assert len(value["artifacts"]) == 2
@@ -417,13 +484,13 @@ def test_artifact_duplicate_records_empty_usage_and_input_isolation(project):
 
 
 @pytest.mark.parametrize("paths", ["out.csv", {}, [None]])
-def test_malformed_artifact_input_is_atomic(project, paths):
+def test_malformed_artifact_input_is_atomic(public_operation, project, paths):
     id_ = task(project)
-    claim(project, id_)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     before = snapshot(project)
     refusal(
         "artifact_path" if isinstance(paths, list) else "schema",
-        project.complete,
+        public_operation(project, "complete"),
         id_,
         "done",
         paths,
@@ -433,13 +500,15 @@ def test_malformed_artifact_input_is_atomic(project, paths):
     assert snapshot(project) == before
 
 
-def test_fail_generated_failure_and_blocked_queries(project, index_mode):
+def test_fail_generated_failure_and_blocked_queries(
+    public_operation, project, index_mode
+):
     id_, blocked = task(project, "T" * 200), task(project, "blocked")
-    project.link("blocks", id_, blocked, **CALL)
-    claim(project, id_)
+    public_operation(project, "link")("blocks", id_, blocked, **CALL)
+    public_operation(project, "claim")(id_, actor=BOT, now=NOW)
     cold(project, index_mode)
     summary = "SNR too low\nexact body\n"
-    result = project.fail(
+    result = public_operation(project, "fail")(
         id_,
         summary,
         step="extract_1d",
@@ -460,11 +529,15 @@ def test_fail_generated_failure_and_blocked_queries(project, index_mode):
         "measured": "min 3.1",
     }
     assert failure["status"] == "active" and failure["lease"] is None
-    assert failure["id"] not in {n["id"] for n in project.ready(**CALL)["items"]}
-    assert blocked in {n["id"] for n in project.blocked(**CALL)["items"]}
+    assert failure["id"] not in {
+        n["id"] for n in public_operation(project, "ready")(**CALL)["items"]
+    }
+    assert blocked in {
+        n["id"] for n in public_operation(project, "blocked")(**CALL)["items"]
+    }
     failed = next(
         group
-        for group in project.digest(**CALL)["items"]
+        for group in public_operation(project, "digest")(**CALL)["items"]
         if group["kind"] == "failed_24h"
     )
     assert id_ in {n["id"] for n in failed["nodes"]}
@@ -491,20 +564,30 @@ def execution_profile(path, *, failure=True, gated=False, hooks=(), validators=(
     return Project.init(repository(path), profile="execution", **CALL)
 
 
-def test_failure_gate_and_missing_reserved_type(tmp_path):
+def test_failure_gate_and_missing_reserved_type(public_operation, tmp_path):
     with execution_profile(tmp_path / "gated", gated=True) as project:
         id_ = task(project)
-        claim(project, id_)
-        project.fail(id_, "bad", error="error", actor=BOT, now=NOW)
-        assert project.where(type="Failure", **CALL)[0]["status"] == "proposed"
+        public_operation(project, "claim")(id_, actor=BOT, now=NOW)
+        public_operation(project, "fail")(id_, "bad", error="error", actor=BOT, now=NOW)
+        assert (
+            public_operation(project, "where")(type="Failure", **CALL)[0]["status"]
+            == "proposed"
+        )
     with execution_profile(tmp_path / "missing", failure=False) as project:
         id_ = task(project)
         before = snapshot(project)
-        refusal("unsupported_by_profile", project.fail, id_, "bad", actor=BOT, now=NOW)
+        refusal(
+            "unsupported_by_profile",
+            public_operation(project, "fail"),
+            id_,
+            "bad",
+            actor=BOT,
+            now=NOW,
+        )
         assert snapshot(project) == before
 
 
-def test_claim_waits_for_task_activate_gate(tmp_path):
+def test_claim_waits_for_task_activate_gate(public_operation, tmp_path):
     profile = Profile(
         "execution-gate",
         "1.0",
@@ -517,9 +600,14 @@ def test_claim_waits_for_task_activate_gate(tmp_path):
     Profile.register(profile)
     with Project.init(repository(tmp_path), profile=profile.name, **CALL) as project:
         id_ = task(project)
-        refusal("not_ready", project.claim, id_, actor=BOT, now=NOW)
-        project.approve(id_, **CALL)
-        assert claim(project, id_)["status"] == "running"
+        refusal(
+            "not_ready", public_operation(project, "claim"), id_, actor=BOT, now=NOW
+        )
+        public_operation(project, "approve")(id_, **CALL)
+        assert (
+            public_operation(project, "claim")(id_, actor=BOT, now=NOW)["status"]
+            == "running"
+        )
 
 
 def test_callbacks_once_no_commit_visibility_and_fail_rollback(tmp_path, monkeypatch):
@@ -726,18 +814,20 @@ def queries(project, ids, now, as_of=None):
         max_size=14,
     )
 )
-def test_random_public_execution_sequences_i1_to_i8(actions):
+def test_random_public_execution_sequences_i1_to_i8(public_operation, actions):
     with (
         TemporaryDirectory() as directory,
         Project.init(repository(Path(directory)), **CALL) as project,
     ):
         ids = {
-            type_[0].lower(): project.propose(type_, type_, **CALL)["id"]
+            type_[0].lower(): public_operation(project, "propose")(
+                type_, type_, **CALL
+            )["id"]
             for type_ in ["Question", "Hypothesis", "Claim"]
         }
-        result = project.propose("Result", "R", **CALL)["id"]
-        project.link("answers", ids["h"], ids["q"], **CALL)
-        project.link("cites", ids["c"], result, **CALL)
+        result = public_operation(project, "propose")("Result", "R", **CALL)["id"]
+        public_operation(project, "link")("answers", ids["h"], ids["q"], **CALL)
+        public_operation(project, "link")("cites", ids["c"], result, **CALL)
         target = task(project)
         for i, (operation, agent, commit, delta) in enumerate(actions):
             now = NOW + timedelta(seconds=(i + 1) * 10 + delta)
@@ -749,33 +839,41 @@ def test_random_public_execution_sequences_i1_to_i8(actions):
             kwargs = {"actor": BOT if agent else ALICE, "now": now, "commit": commit}
             try:
                 if operation == "claim":
-                    project.claim(target, 1 if delta else 0, **kwargs)
+                    public_operation(project, "claim")(
+                        target, 1 if delta else 0, **kwargs
+                    )
                 elif operation == "renew":
-                    project.renew(target, 1 if delta else -1, **kwargs)
+                    public_operation(project, "renew")(
+                        target, 1 if delta else -1, **kwargs
+                    )
                 elif operation == "release":
-                    project.release(target, usage={"tokens": delta}, **kwargs)
+                    public_operation(project, "release")(
+                        target, usage={"tokens": delta}, **kwargs
+                    )
                 elif operation in {"complete", "fail"}:
-                    getattr(project, operation)(
+                    public_operation(project, operation)(
                         target, "summary", usage={"tokens": delta}, **kwargs
                     )
                 elif operation == "propose":
-                    target = project.propose("Task", "new", **kwargs)["id"]
+                    target = public_operation(project, "propose")(
+                        "Task", "new", **kwargs
+                    )["id"]
                 elif operation == "link":
-                    project.link(
+                    public_operation(project, "link")(
                         "blocks", target, target if delta else result, **kwargs
                     )
                 elif operation == "supersede":
-                    target = project.supersede(target, instruction="retry", **kwargs)[
-                        "id"
-                    ]
+                    target = public_operation(project, "supersede")(
+                        target, instruction="retry", **kwargs
+                    )["id"]
                 elif operation == "instruct":
-                    project.instruct(target, "guidance", **kwargs)
+                    public_operation(project, "instruct")(target, "guidance", **kwargs)
                 elif operation == "retire":
-                    project.retire(target, "stop", **kwargs)
+                    public_operation(project, "retire")(target, "stop", **kwargs)
                 elif operation == "approve":
-                    project.approve(ids["h"], **kwargs)
+                    public_operation(project, "approve")(ids["h"], **kwargs)
                 else:
-                    project.reject(ids["h"], "reject", **kwargs)
+                    public_operation(project, "reject")(ids["h"], "reject", **kwargs)
                 success = True
             except RuleViolation as exc:
                 assert exc.rule in {

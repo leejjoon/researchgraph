@@ -20,6 +20,11 @@ preset, hides and refuses all writes including init and import. Instructions
 are profile agent_guidance only. Results and errors mirror CLI JSON via the
 SDK's text/structured result channels, with readOnlyHint from the registry.
 
+Decision [021](021-modern-mcp-structured-results.md) records the observed legacy
+wire restriction and current SDK negotiation, faithful array results, bootstrap
+and transport-boundary refinement. Real agent-product support remains separately
+verified, never inferred from a mock or memory client.
+
 The HTTP adapter serves on loopback as the serving human's git identity,
 accepting declared roles per request but never read-only overrides. A launch
 token in the fragment is removed by the host and exchanged once in a JSON
