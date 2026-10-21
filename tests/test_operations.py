@@ -796,16 +796,21 @@ def query_snapshot(project, ids):
 
 @settings(max_examples=5, deadline=None)
 @given(
-    st.lists(
+    actions=st.lists(
         st.sampled_from(["approve", "reject", "agent", "link", "invalid", "propose"]),
         min_size=2,
         max_size=6,
-    )
+    ),
+    profile_name=st.sampled_from(["research", "test-conditional"]),
 )
-def test_random_public_lifecycle_sequences_preserve_invariants_and_all_queries(actions):
+def test_random_public_lifecycle_sequences_preserve_invariants_and_all_queries(
+    actions, profile_name
+):
     with (
         TemporaryDirectory() as directory,
-        Project.init(repository(Path(directory)), **CALL) as project,
+        Project.init(
+            repository(Path(directory)), profile=profile_name, **CALL
+        ) as project,
     ):
         q = project.propose("Question", "Q", commit=False, **CALL)
         h = project.propose(

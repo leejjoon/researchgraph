@@ -121,7 +121,7 @@ def gates_satisfied(profile, node):
             a.what == "approve" and gate_accepts(gate, a.actor, a.role)
             for a in node.approvals
         )
-        for gate in profile.gates_for(node.type)
+        for gate in profile.gates_for(node.type, node.fields)
     )
 
 
@@ -129,7 +129,7 @@ def validate_permissions(profile, write, nodes):
     """Shared actor/role permissions, then operation-specific state preconditions."""
     target = nodes.get(write.args.get("node"))
     gates = (
-        profile.gates_for(target.type)
+        profile.gates_for(target.type, target.fields)
         if target is not None and write.op == "approve"
         else []
     )
@@ -491,7 +491,9 @@ def validate_changes(profile, write, before_nodes, before_edges):
         if old is None:
             if write.op != "import":
                 expected = (
-                    Status.PROPOSED if profile.gates_for(node.type) else Status.ACTIVE
+                    Status.PROPOSED
+                    if profile.gates_for(node.type, node.fields)
+                    else Status.ACTIVE
                 )
                 if (
                     node.status != expected

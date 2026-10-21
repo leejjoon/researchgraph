@@ -16,6 +16,9 @@ On profile load, reject conditions on `node_type="*"`, unknown direct property
 keys, non-mappings and non-scalar values with `schema`. Keep the existing
 `unsupported_gate_transition` refusal for transitions other than `activate`.
 All matching gates must be satisfied under the existing role/agent rules.
+The existing mixed-gate permission boundary is retained: if any matching gate
+is human-only, agent approval is refused, even if another matching gate admits
+agents. Nonmatching gates do not participate in that decision.
 
 Every node constructor (`propose`, `supersede`, `expand`, `instruct`, `fail`,
 including an Instruction made by supersede) evaluates its own materialised

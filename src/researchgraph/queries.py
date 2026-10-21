@@ -661,7 +661,7 @@ class QueryView(View):
         """
         result = []
         for node in sorted(self.nodes.values(), key=created_order):
-            gates = self.profile.gates_for(node.type)
+            gates = self.profile.gates_for(node.type, node.fields)
             if node.status == Status.PROPOSED and gates:
                 result.append(
                     dict(

@@ -528,7 +528,7 @@ def _assert_invariants(before, after, operation):
                     assert old["lease"]["actor"]["name"] == "worker"
 
 
-def _baseline(root):
+def _baseline(root, *, conditional=False):
     ids = {}
     for name, kind in (
         ("question", "Question"),
@@ -539,7 +539,12 @@ def _baseline(root):
         ("other", "Task"),
         ("prediction", "Prediction"),
     ):
-        ids[name] = succeeds(invoke(root, "propose", kind, name))["id"]
+        fields = (
+            ("--fields", '{"review":false}') if conditional and kind == "Task" else ()
+        )
+        ids[name] = succeeds(invoke(root, "propose", kind, name, *fields))["id"]
+    if conditional:
+        succeeds(invoke(root, "propose", "Task", "awaiting conditional review"))
     for kind, source, target, extra in (
         ("answers", "hypothesis", "question", ()),
         ("cites", "claim", "result", ()),
@@ -617,12 +622,15 @@ ACTIONS = st.lists(
 
 @settings(max_examples=4, deadline=None)
 @given(actions=ACTIONS)
-def test_general8_random_cli_writes_preserve_invariants_and_all_query_indexes(actions):
+@pytest.mark.parametrize("profile_name", ["research", "test-conditional"])
+def test_general8_random_cli_writes_preserve_invariants_and_all_query_indexes(
+    actions, profile_name
+):
     # A fresh repository per generated/shrunk example, not a function-scoped
     # pytest fixture retained across Hypothesis examples.
     with TemporaryDirectory(prefix="rg-cli-general-") as directory:
-        root = _root(Path(directory) / "project")
-        ids = _baseline(root)
+        root = _root(Path(directory) / "project", profile_name)
+        ids = _baseline(root, conditional=profile_name == "test-conditional")
         previous = _models(root)
         _assert_invariants(({}, {}), previous, "baseline")
         for step, action in enumerate(actions, 1):

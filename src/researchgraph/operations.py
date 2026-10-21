@@ -53,6 +53,7 @@ def _edge(project, write, pending, type_, source, target, fields):
 
 def _node(project, write, pending, type_, title, body, fields):
     definition = project.profile.node_type(type_)
+    fields = project.profile.normalize_fields(type_, fields)
     return Node(
         _identifier(project, definition.prefix, pending),
         type_,
@@ -61,7 +62,9 @@ def _node(project, write, pending, type_, title, body, fields):
         write.actor,
         write.now,
         deepcopy(fields),
-        status=Status.PROPOSED if project.profile.gates_for(type_) else Status.ACTIVE,
+        status=Status.PROPOSED
+        if project.profile.gates_for(type_, fields)
+        else Status.ACTIVE,
     )
 
 

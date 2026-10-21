@@ -16,6 +16,7 @@ from researchgraph.model import (
     Status,
     Write,
 )
+from researchgraph.profiles import Gate, NodeType, Profile
 
 NOW = "2026-10-19T14:06:19Z"
 LATER = "2026-10-19T14:07:19Z"
@@ -235,6 +236,43 @@ def rule_violations():
     return st.builds(
         RuleViolation, rule=TEXT, message=TEXT, ids=st.lists(TEXT, max_size=4)
     )
+
+
+@st.composite
+def conditional_gate_cases(draw):
+    """A claimable type with random materialisation, authority and condition."""
+    default = draw(st.booleans())
+    match = draw(st.booleans())
+    allowed = draw(st.booleans())
+    fields = draw(
+        st.fixed_dictionaries(
+            {}, optional={"review": st.one_of(st.none(), st.booleans())}
+        )
+    )
+    profile = Profile(
+        "generated-gates",
+        "1.0",
+        [
+            NodeType(
+                "Task",
+                "ta",
+                {"properties": {"review": {"type": "boolean", "default": default}}},
+                True,
+            )
+        ],
+        [],
+        [
+            Gate(
+                node_type="Task",
+                roles=["owner"],
+                agents_allowed=allowed,
+                when_fields={"review": match},
+            )
+        ],
+        ["owner", "reviewer"],
+        [],
+    )
+    return profile, fields
 
 
 def query_nodes():

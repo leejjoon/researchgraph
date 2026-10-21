@@ -6,7 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from researchgraph.model import RuleViolation
-from researchgraph.profiles.base import EdgeType, NodeType, Profile
+from researchgraph.profiles.base import EdgeType, Gate, NodeType, Profile
 from researchgraph.profiles.research import PROFILE as RESEARCH_PROFILE
 
 DEFAULTS_PROFILE = Profile(
@@ -72,6 +72,27 @@ CLI_PROFILE.event_hooks = [record_event]
 EVENTS_PROFILE = deepcopy(RESEARCH_PROFILE)
 EVENTS_PROFILE.name = "test-events"
 EVENTS_PROFILE.event_hooks = [record_event]
+
+CONDITIONAL_PROFILE = deepcopy(RESEARCH_PROFILE)
+CONDITIONAL_PROFILE.name = "test-conditional"
+CONDITIONAL_PROFILE.validators = []
+for node_type in CONDITIONAL_PROFILE.node_types:
+    if node_type.name in {"Task", "Instruction"}:
+        node_type.schema.setdefault("properties", {})["review"] = {
+            "type": "boolean",
+            "default": True,
+        }
+CONDITIONAL_PROFILE.gates = (
+    deepcopy(RESEARCH_PROFILE.gates)
+    + [
+        Gate(node_type="Task", roles=[role], when_fields={"review": True})
+        for role in ("owner", "reviewer")
+    ]
+    + [
+        Gate(node_type="Instruction", when_fields={"review": True}),
+        Gate(node_type="Failure", when_fields={"step": "validation"}),
+    ]
+)
 
 INVALID_LOCATION_PROFILE = deepcopy(CLI_PROFILE)
 INVALID_LOCATION_PROFILE.name = "test-invalid-location"

@@ -53,12 +53,16 @@ class Gate:
     gate must be satisfied: human/agent role markers match actor kinds, while
     other roles match the per-call declared role; agents additionally require
     agents_allowed. Roles are declarations, not authenticated permissions.
+    when_fields optionally restricts matching to an exact scalar conjunction on
+    immutable, normalised fields. Loading validates direct property keys and
+    rejects conditions on wildcard types. None means unconditional.
     """
 
     transition: str = "activate"
     node_type: str = "*"
     roles: list[str] = field(default_factory=lambda: ["human"])
     agents_allowed: bool = False
+    when_fields: dict | None = None
 
 
 # Wildcards describe endpoint types, not graph invariants: supersedes additionally
@@ -347,6 +351,22 @@ class Profile:
             _check_default_locations(schema)
         for schema in schemas:
             _prepare_schema(schema)
+        for gate in result.gates:
+            if gate.when_fields is None:
+                continue
+            if gate.node_type == "*" or not isinstance(gate.when_fields, dict):
+                raise RuleViolation(
+                    "schema", "Gate conditions require a concrete type and mapping"
+                )
+            properties = result.node_type(gate.node_type).schema.get("properties", {})
+            if any(
+                key not in properties or type(value) not in (str, bool, int, float)
+                for key, value in gate.when_fields.items()
+            ):
+                raise RuleViolation(
+                    "schema",
+                    "Gate conditions require direct properties and scalar values",
+                )
         return result
 
     def node_type(self, name: str) -> NodeType:
@@ -404,12 +424,29 @@ class Profile:
             ) from exc
         return result
 
-    def gates_for(self, type_name: str) -> list[Gate]:
+    def gates_for(self, type_name: str, fields: Mapping | None = None) -> list[Gate]:
         """Return matching wildcard and type-specific gates in declaration order.
 
         The list is new but contains the original Gate objects, not copies.
         Check the node type first and raise unknown_type if undeclared. This
         selects requirements only; it does not evaluate approval satisfaction.
+        Omitted/None fields performs type-only lookup; an explicit mapping
+        filters conditions against already normalised/materialised fields.
+        Numeric equality follows JSON numbers, never boolean/string coercion.
         """
         self.node_type(type_name)
-        return [gate for gate in self.gates if gate.node_type in ("*", type_name)]
+        return [
+            gate
+            for gate in self.gates
+            if gate.node_type in ("*", type_name)
+            and (
+                fields is None
+                or gate.when_fields is None
+                or all(
+                    key in fields
+                    and isinstance(fields[key], bool) == isinstance(value, bool)
+                    and fields[key] == value
+                    for key, value in gate.when_fields.items()
+                )
+            )
+        ]
