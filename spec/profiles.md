@@ -19,10 +19,11 @@ class EdgeType:
 
 @dataclass
 class Gate:
-    transition: str = "activate"   # the only value in v0.1; others raise unsupported_gate_transition on load
+    transition: str = "activate"   # the only value in v0.2; others raise unsupported_gate_transition on load
     node_type: str = "*"           # or a node type name
     roles: list[str] = field(default_factory=lambda: ["human"])   # roles that satisfy it; "human" means any human
     agents_allowed: bool = False
+    when_fields: dict | None = None # exact scalar conjunction on immutable materialised fields
 
 @dataclass
 class Write:                       # what validators see
@@ -50,7 +51,11 @@ class Profile:
     migrations: dict[str, Callable] = field(default_factory=dict) # from-version -> fn(project)
 ```
 
-A type requires approval iff some gate's `node_type` is its name or `"*"`; when several gates match, each must be satisfied. A gate is satisfied by one approval whose actor fits `roles`: a human fits when its declared role is in `roles` or `roles` contains `"human"`; an agent fits only when `agents_allowed` and its declared role is in `roles` or `roles` contains `"agent"`. An agent approving a gate without `agents_allowed` gets `human_only_approval`; any other misfit gets `wrong_role`.
+A node requires approval iff at least one activate gate matches its type and immutable materialised `fields` (decision 018). A gate's type matches its declared `node_type` or `"*"`. Absent `when_fields` is unconditional; otherwise every condition key must be present and its scalar value must match exactly, without coercion. Strings, booleans and numbers retain their JSON types: `true` does not match `1`, nor does `"1"` match `1`. An empty mapping is an unconditional conjunction. Match after dropping null fields and materialising defaults, before choosing the initial status. Missing keys never match.
+
+At profile load, non-mapping conditions, null/array/object condition values, unknown direct `properties` keys, and any `when_fields` mapping on `node_type="*"` raise `schema`. Conditions do not evaluate expressions or access nested keys. Every constructor evaluates its own fields, including generated Failure, Task and Instruction nodes and the replacement and optional Instruction made by `supersede`. Supersession re-evaluates the replacement's conditions and inherits no approvals. Node and approval record formats are unchanged.
+
+When several gates match, each must be satisfied. A gate is satisfied by one approval whose actor fits `roles`: a human fits when its declared role is in `roles` or `roles` contains `"human"`; an agent fits only when `agents_allowed` and (its declared role is in `roles` or `roles` contains `"agent"`). An agent approving without an agent-admitting matching gate gets `human_only_approval`; any other misfit gets `wrong_role`. One approval may satisfy several matching gates; approvals for some but not all matching gates leave the node proposed. Unmatched gates have no effect on approval permissions or queue entries. A proposed claimable node cannot be claimed before all matching activation gates are satisfied.
 
 A project's `.researchgraph/profile.yaml` pins `name` and `version`. Versions are dotted integers compared as tuples (`1.10` > `1.9`). Opening a project whose pinned version is newer than the installed profile fails with `profile_too_new`; an older pinned version runs the migration chain in v0.3 and in v0.1 opens unchanged.
 
@@ -100,5 +105,7 @@ No gates, no roles, no validators. For trials and for `examples/minimal_runner.p
 ## Rules for the core
 - The core imports no profile by name except to register the two bundled ones.
 - The core calls validators on every write, event hooks after every committed write, and never calls `expansion_hook`.
-- A profile cannot remove core edge types or core invariants, and cannot change a core edge type's endpoints; it may add a `fields` schema or change `inherit`.
+- A profile cannot remove core edge types or core invariants. It may add a `fields` schema or change `inherit`. Core endpoints cannot change except for the additive `cites` extension below (decision 019).
+- A redeclared `cites.allowed` must retain both `(Claim, Result)` and `(Claim, Reference)` and may add explicit target types with Claim as the only source. Wildcards, narrowing, other sources and endpoint changes to any other core edge raise `schema` at profile load. Pairs naming undeclared types remain present but never match an endpoint. No existing stored node type is renamed.
+- `evidence`, `stale` and `weakest` require only Claim and treat every permitted citation target identically, including in profiles with neither Result nor Reference. On any declared permitted target, supplied `fields.runs` must be an integer (not a boolean), and supplied `fields.held_out` a boolean; otherwise writes raise `schema`. Profile schemas may restrict them further. Missing scoring fields mean 0 and false in `weakest`, without storing synthetic fields or coercing supplied values.
 - The names in `data-model.md` §8 are reserved; a profile that omits one gets the stated fallback behaviour.

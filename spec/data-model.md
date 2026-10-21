@@ -58,7 +58,7 @@ Operations that create a node other than `propose` fill it as follows. A compute
 | `fail` | Failure | `Failure: <old title>` | `summary` | `{step, check, measured, error}` as given, absent ones omitted |
 | `expand` | Task | `Expand: <titles of targets, comma-separated>` | `hint`, else empty | `{kind: expansion, targets: nodes}` |
 
-Each has `author` = the calling actor, `created` = `updated` = `now`, and is created `proposed` if the profile has an activate gate for its type, else `active`. `supersede` and `fail` may create types the profile must declare; if the profile lacks `Failure` or `Instruction`, `fail` and `instruct` raise `unsupported_by_profile`.
+Each has `author` = the calling actor, `created` = `updated` = `now`, and is created `proposed` if at least one activate gate matches its type and normalised/default-materialised immutable fields (`profiles.md`), else `active`. This also applies to the optional Instruction created by `supersede`. The replacement re-evaluates its own fields and inherits no approvals. `supersede` and `fail` may create types the profile must declare; if the profile lacks `Failure` or `Instruction`, `fail` and `instruct` raise `unsupported_by_profile`.
 
 ## 3. Edge
 An edge is a YAML mapping `{id, type, from, to, author, created, fields, retired, retired_at}`, keys in that order. `id` is `ed-<8 chars>` with the same alphabet as node ids. All keys except `retired` and `retired_at` are immutable. Edges are directed from `from` to `to`. `retired_at` is null until the edge is retired.
@@ -79,7 +79,7 @@ An edge is a YAML mapping `{id, type, from, to, author, created, fields, retired
 | `discovered-from` | any → any | outgoing | source was found while working on target. |
 | `instructs` | Instruction → any | both | the instruction applies to the target. Created only by `instruct` and `supersede`. |
 | `explains` | Failure → any | outgoing | the failure explains why the target failed. Created by `fail` and may be inherited by `supersede`; direct creation by `propose` or `link` is forbidden. |
-| `cites` | Claim → Result or Reference | outgoing | evidence relation; `evidence`, `stale`, `weakest` follow these. Research profile fields: `{artifact?: path, locator?: str, sha256?: str}`. |
+| `cites` | Claim → Result or Reference, plus explicit profile-added targets | outgoing | evidence relation; `evidence`, `stale`, `weakest` follow every permitted target equally. Claim remains the only source; profiles retain both core pairs and cannot use wildcards (`profiles.md`, decision 019). Research profile fields: `{artifact?: path, locator?: str, sha256?: str}`. |
 | `answers` | Hypothesis → Question | both | membership of the question's exclusion group. |
 | `part-of` | any → any | both | containment; defines subtrees for budgets and progress. Question → Question expresses sub-questions. |
 | `addresses` | Task → Prediction | both | the task carries out the prediction's test. |
@@ -101,7 +101,7 @@ Profile-added edge types default to `inherit: outgoing`.
 
 ## 5. Lifecycle
 ```
-proposed --approve--> active        (immediately active at creation if the profile has no activate gate for this type)
+proposed --approve--> active        (immediately active at creation if no activate gate matches the node)
 proposed --reject---> retired       (human; reason recorded; edges retired)
 active   --claim----> running       (only if ready, section 6)
 running  --claim----> running       (only if lease_expired; new holder)
@@ -132,7 +132,7 @@ All predicates take an evaluation time `now`; the CLI uses the wall clock and te
 A Question node has a profile-defined boolean field `closed` (default false), set at creation. The group is informational: no operation retires a hypothesis because of group membership. Auto-proposing the last member of a closed group is **reserved**: no profile attribute declares it in v0.1 and the core does not do it.
 
 ## 8. Profiles and reserved vocabulary
-A profile declares: node types with JSON Schemas for `fields`, an id prefix and a `claimable` flag each; edge types (core ones may be given a `fields` schema; additional ones also declare allowed endpoint type pairs and `inherit`); activate gates (`{node_type, roles, agents_allowed}`); validators; an optional expansion hook; renderers; event hooks; agent guidance text. A project pins `name` and `version` in `.researchgraph/profile.yaml`. Two profiles ship with the core: `research` and `tasks` (`profiles.md`).
+A profile declares: node types with JSON Schemas for `fields`, an id prefix and a `claimable` flag each; edge types (core ones may be given a `fields` schema; additional ones also declare allowed endpoint type pairs and `inherit`; `cites` alone permits additive explicit targets); activate gates (`{node_type, roles, agents_allowed, when_fields}`); validators; an optional expansion hook; renderers; event hooks; agent guidance text. A project pins `name` and `version` in `.researchgraph/profile.yaml`. Two profiles ship with the core: `research` and `tasks` (`profiles.md`).
 
 The core recognises these names when a profile declares them, and behaves as stated when it does not. No other type or field name has meaning in the core.
 
@@ -145,7 +145,7 @@ The core recognises these names when a profile declares them, and behaves as sta
 | node `Hypothesis`, `Question`, `Prediction` | `exclusion_group`, `alternatives`, `predictions`, `matrix` | those queries return empty |
 | node `Note` | `notes` | returns empty |
 | node `Task`, `Result` | `supersede`'s agent permission | an agent may supersede only those two types; a profile without them gives agents no supersede rights |
-| node `Result`, `Reference` | endpoints of core `cites` and `pins`; `weakest` | an endpoint rule naming an undeclared type never matches (I5 refuses the edge); `weakest` returns empty |
+| node `Result`, `Reference` | default targets of core `cites`; Result is the target of `pins` | an endpoint rule naming an undeclared type never matches (I5 refuses the edge); this does not disable Claim queries or profile-added citation targets |
 | field `Question.closed` | section 7 | treated as false |
-| field `Result.runs: int`, `Result.held_out: bool` | `weakest` | treated as 0 and false |
+| fields `runs: int`, `held_out: bool` on any permitted citation target | `weakest` | missing fields score as 0 and false; supplied values are validated on write, not coerced; boolean `runs` is invalid |
 | field `Task.kind`, `Task.targets`, `Task.command` | `expand`; the reference runner | `expand` raises `unsupported_by_profile` if the Task schema rejects `kind` or `targets` |
