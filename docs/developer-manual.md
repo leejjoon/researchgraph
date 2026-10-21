@@ -252,6 +252,89 @@ fifty live running nodes plus twenty external installed-CLI claims per cache mod
 each measured through both SSE and the actual graph/dashboard DOM under three
 seconds, with all samples retained. This is not external usability proof.
 
+## Runnable graph, events and HTTP example
+
+Use a fresh private working directory, Python 3.11+, Git and `curl`. Set `RG` to the
+absolute installed console path from an environment with `researchgraph[viewer]`.
+These two Python blocks run in order in that directory. They use live, whole-second
+UTC evaluation, not a fixed historical clock. The launch URL and cookie file are
+private credentials: do not publish them or include them in session recordings.
+
+<!-- rg-example: live-interfaces; part=1; runnable -->
+```python
+import os
+import subprocess
+from pathlib import Path
+
+root = Path("live-demo").resolve()
+root.mkdir()
+subprocess.run(["git", "init", "-b", "main", str(root)], check=True, capture_output=True)
+for key, value in (("user.name", "Demo Human"), ("user.email", "demo@example.invalid")):
+    subprocess.run(["git", "-C", str(root), "config", key, value], check=True)
+console = [os.environ["RG"], "--project", str(root), "--json"]
+subprocess.run(console + ["init", "--profile", "tasks"], check=True, capture_output=True)
+subprocess.run(console + ["propose", "Task", "Observe live interfaces"], check=True, capture_output=True)
+```
+
+The next block checks `graph` and one-shot JSONL `events`, launches `serve` on an
+ephemeral loopback port, exchanges its one-use fragment token, and compares an
+actual authenticated `curl` graph read with the CLI. It closes the server even
+on failure. `events --follow` is a separate long-running observation stream, not
+a durable audit log; reset notifications require authoritative readback.
+
+<!-- rg-example: live-interfaces; part=2; runnable -->
+```python
+import json
+import os
+import selectors
+import signal
+import subprocess
+from pathlib import Path
+from urllib.parse import urlsplit
+
+root = Path("live-demo").resolve()
+console = [os.environ["RG"], "--project", str(root)]
+
+def output(arguments):
+    return subprocess.run(arguments, check=True, capture_output=True, text=True, timeout=15).stdout
+
+graph = json.loads(output(console + ["--json", "graph"]))
+events = [json.loads(line) for line in output(console + ["--json", "events"]).splitlines()]
+assert len(graph["nodes"]) == 1 and events[0]["kind"] == "index"
+server = subprocess.Popen(console + ["serve", "--no-open"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+try:
+    with selectors.DefaultSelector() as ready:
+        ready.register(server.stdout, selectors.EVENT_READ)
+        assert ready.select(timeout=10), "Server did not print its launch URL"
+    launch = urlsplit(server.stdout.readline().strip())
+    assert launch.fragment.startswith("token=")
+    origin = f"{launch.scheme}://{launch.netloc}"
+    cookie_path = Path("session.cookies").resolve()
+    cookie_path.touch(mode=0o600, exist_ok=False)
+    cookie = str(cookie_path)
+    curl = ["curl", "--silent", "--show-error", "--fail", "--max-time", "10"]
+    output(curl + ["--cookie-jar", cookie, "--header", f"Origin: {origin}",
+                   "--header", "Content-Type: application/json", "--data",
+                   json.dumps({"token": launch.fragment.removeprefix("token=")}), origin + "/api/session"])
+    actual = json.loads(output(curl + ["--cookie", cookie, origin + "/api/graph"]))
+    assert actual == graph
+finally:
+    if server.poll() is None:
+        server.send_signal(signal.SIGINT)
+    try:
+        _, errors = server.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        server.kill()
+        server.communicate()
+        raise
+    assert server.returncode == 0, errors
+print(json.dumps({"task": graph["nodes"][0]["id"], "graph_nodes": len(graph["nodes"]),
+                  "event_kind": events[0]["kind"], "http_matches_cli": actual == graph}))
+```
+
+This verifies installed interface behavior, not Claude Code/Codex compatibility,
+unassisted work or an outside researcher's usability session.
+
 ## Wrapper contracts, errors and durability
 
 For graph operations, --json stdout is one JSON value; events instead emits

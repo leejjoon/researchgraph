@@ -10,7 +10,7 @@ A project is a directory of small YAML files (nodes, edges) under version contro
 - Python API and CLI integrations: [developer manual](docs/developer-manual.md)
 - Synthetic research lifecycle: [tutorial notebook](docs/research-tutorial.ipynb), with [local setup and execution](docs/developer-manual.md#notebook-setup-and-execution)
 - Normative specification: `spec/`
-- Work list: `tasks/v0.1.md`
+- Work lists: [v0.2 work list](tasks/v0.2.md); [retained v0.1 baseline](tasks/v0.1.md)
 - Why: `docs/proposal.md`, `docs/decisions/`
 - Intended viewer: `docs/design/`
 

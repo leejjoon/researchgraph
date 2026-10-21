@@ -338,3 +338,56 @@ approval. Contract clarifications in this revision are grounded in `AGENTS.md`,
 `spec/operations.md`, `spec/profiles.md`, `spec/data-model.md`,
 `spec/store-layout.md`, the acceptance scenarios, and the existing installed
 interfaces and documentation tests.
+
+## v0.2 supplement
+
+This additive supplement extends the original seven-round interview record for
+T16; it does not rewrite that record or change the normative authority of `spec/`.
+`tasks/v0.2.md` is the current ordered work list; `tasks/v0.1.md` and its gates
+remain the retained baseline. README changes remain navigation-only, and the
+protected tutorial notebook is not rewritten by this supplement.
+
+- Extend reference coverage to **37 graph operations** (18 writes, 19 reads),
+  including `graph` and `profile`, plus the separate `events` stream and
+  `mcp`/`serve` launchers, with their actual options, result/error contracts and
+  reference fields. Keep inventory categories disjoint and verify against the
+  normative specification and installed help, not counts alone.
+- Document the optional `mcp` extra (official SDK, stdio) and `viewer` extra
+  (Starlette/Uvicorn, HTTP/SSE and packaged custom element). No optional imports
+  become prerequisites for core-only Python API or CLI use. Required CPython
+  browser checks use Playwright from `test` and real installed Chromium; missing
+  required tooling fails rather than silently skipping.
+- Publish actual runnable `rg graph`, `rg events` and `rg serve` + `curl`
+  examples, exercised from an isolated installed environment outside the checkout
+  with local Git identity and deterministic inputs where assertions need them.
+  Cover finite stream cleanup and server shutdown, not only copied responses.
+- Give Claude Code and Codex CLI stdio registration syntax with absolute console
+  and project paths, launch identity and preset selection. Mark registration as
+  operator configuration, not an authentic session: syntax/help or discovery
+  checks do not prove model access, protocol compatibility or unassisted use.
+- Teach viewer inspect, re-run and review workflows, including supersession and
+  instructions rather than core execution, conditional/multiple approval gates,
+  read-only and permission failures, and persisted-state refresh after errors.
+  Explain loopback binding, private fragment-token bootstrap, HttpOnly session
+  cookies, Host/Origin checks and inert artifact downloads. Declared identity and
+  roles are not authentication; no sandbox or concurrent-clone coordination is
+  promised. Never publish private tokens in examples or evidence.
+- Explain observed-state notifications, opaque restart/reset cursors, reconnect
+  and full refetch, with no durable replay log or one-event-per-write guarantee.
+  Historical reads and exports remain partial, not mutable-field reconstruction
+  or redaction. Describe native live monitoring, lease-clock refreshes, truthful
+  stale/disconnected indicators and measured SSE-to-DOM latency, without claiming
+  a runner, scheduler, inherited budgets/leases or runner-capacity metrics.
+- Extend the developer manual with HTTP requests/errors and SSE event schemas,
+  MCP tool discovery/results/permissions and protocol limits, resource cleanup,
+  and embedding `<research-graph>`. Renderers, migrations, timeline scrubber,
+  diff view, standalone app and expansion-hook execution remain future
+  capabilities, not delivered promises.
+- Keep external Gate 2 evidence incomplete without real recordings from both
+  agent products and a moderated outside-researcher session with consent,
+  product/model/configuration records, privacy-reviewed transcripts, checker
+  output, task outcomes/times and triaged findings. Local smoke tests, deterministic
+  replay and native browser monitoring do not substitute for those sessions or
+  external profile adoption. Clean committed-clone verification is distinct from
+  overlay proof over protected dirty inputs; report which was actually obtained
+  and never use overlay results to claim a clean release or completed Gate 2.

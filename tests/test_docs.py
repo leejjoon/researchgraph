@@ -157,6 +157,7 @@ REFERENCE_LABELS = (
 )
 PROVISIONING = {"source-install", "wheel-install", "notebook-setup"}
 WORKFLOWS = {"user-lifecycle", "integration"}
+OPTIONAL_WORKFLOWS = {"live-interfaces"}
 NOTEBOOK_MARKER = "<!-- rg-example: notebook-execution; part=1; notebook -->"
 
 
@@ -229,7 +230,7 @@ def manual_blocks(text):
 def runnable_scenarios(blocks):
     """An explicit bounded dispatch ensures a newly added recipe cannot go untested."""
     scenarios = {block.scenario for block in blocks if block.kind == "runnable"}
-    assert scenarios == PROVISIONING | WORKFLOWS, (
+    assert scenarios == PROVISIONING | WORKFLOWS | OPTIONAL_WORKFLOWS, (
         "uncovered or missing runnable scenario"
     )
     return scenarios
@@ -438,9 +439,9 @@ def test_manual_examples_reject_unclassified_or_invalid_fixtures(text, message):
 def test_manual_example_dispatch_rejects_new_uncovered_recipes():
     blocks = [
         ManualBlock(name, 1, "runnable", "sh", "true\n")
-        for name in PROVISIONING | WORKFLOWS
+        for name in PROVISIONING | WORKFLOWS | OPTIONAL_WORKFLOWS
     ]
-    assert runnable_scenarios(blocks) == PROVISIONING | WORKFLOWS
+    assert runnable_scenarios(blocks) == PROVISIONING | WORKFLOWS | OPTIONAL_WORKFLOWS
     for bad in ([], blocks + [ManualBlock("untested", 1, "runnable", "sh", "true\n")]):
         with pytest.raises(AssertionError, match="uncovered or missing"):
             runnable_scenarios(bad)
@@ -485,6 +486,21 @@ def test_manual_navigation_versions_and_example_inventory():
         assert "](research-tutorial.ipynb)" in text
     assert "](quickstart.md)" in (ROOT / MANUALS[0]).read_text()
     published_manual_blocks()
+
+
+def test_current_task_pointer_and_additive_v02_requirements():
+    instructions = (ROOT / "AGENTS.md").read_text()
+    assert "tasks/v0.2.md" in instructions
+    assert "tasks/v0.1.md" in instructions
+    assert len(instructions.splitlines()) <= 60
+    assert "Do not build the viewer or MCP server in v0.1" not in instructions
+    requirements = (ROOT / "docs/documentation-requirements.md").read_text()
+    original, supplement = requirements.split("\n## v0.2 supplement\n", 1)
+    assert "## Decisions by interview round" in original
+    for phrase in ("37", "events", "Claude Code", "Codex CLI", "partial", "consent"):
+        assert phrase in supplement
+    readme = (ROOT / "README.md").read_text()
+    assert "](tasks/v0.2.md)" in readme
 
 
 def docs_environment(tmp_path):

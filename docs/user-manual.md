@@ -388,6 +388,9 @@ restored by an agent; it does not trust the index or agent-returned outcome IDs.
 It proves declared-actor consistency, not authenticated identity or absence of
 physical human assistance. Its success cannot complete Gate 2 by itself.
 
+See the [runnable graph, events and HTTP example](developer-manual.md#runnable-graph-events-and-http-example)
+in the developer manual.
+
 ## Common options
 
 Every invocation accepts `--project PATH` (default discover project in current
