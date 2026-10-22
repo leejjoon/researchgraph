@@ -379,6 +379,11 @@ def test_real_expired_cursor_reset_refetches_profile_and_preserves_selection(
         viewer_page(chromium_browser, owner) as (page, requests, errors, _),
     ):
         component = page.locator("research-graph")
+        assert page.evaluate("() => navigator.onLine") is True, (
+            "Offline/reconnect scenario requires an initially connected browser "
+            "with actual offline and online transitions; loopback-only namespaces "
+            "may leave navigator.onLine false."
+        )
         page.wait_for_function(
             "() => document.querySelector('research-graph').shadowRoot.querySelector('[role=status]').textContent === 'Snapshot refreshed.'"
         )
