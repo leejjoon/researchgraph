@@ -1,4 +1,4 @@
-Status: awaiting product-owner review
+Status: approved for collection by the product owner, 2026-10-22
 
 # Real agent-product session protocol
 
@@ -13,12 +13,15 @@ help syntax are **not a substitute** for either recording or compatibility proof
 ## Owner review gate
 
 Do not recruit or record until the product owner has reviewed this protocol and
-its capture, stop and disclosure rules. Do not self-approve this table.
+its capture, stop and disclosure rules. The protocol's author does not sign this
+table; the product owner signs it and records that they did not author it. The
+implementer agent never supplies this approval. Signing authorizes collection;
+it does not approve any session outcome.
 
 | Review | Reviewer | Decision | Date / evidence |
 | --- | --- | --- | --- |
-| Product-owner protocol review | pending | pending | pending |
-| Consent and privacy/capture review | pending | pending | pending |
+| Product-owner protocol review | Jae-Joon Lee (product owner; not the author) | approved | 2026-10-22; committee review (Claude Fable 5.1, Codex GPT-6-Astra) applied in this commit; reviewed at 190edc5 |
+| Consent and privacy/capture review | Jae-Joon Lee (product owner; not the author) | approved | 2026-10-22; committee review (Claude Fable 5.1, Codex GPT-6-Astra) applied in this commit; reviewed at 190edc5 |
 
 ## Consent, isolation and capture
 
@@ -86,7 +89,16 @@ Prediction in the `research` profile. Retain its printed manifest, `seed_head`,
 `baseline` hashes, `seed_actor`, `seed_time`, `hypothesis` and `prediction`. Review
 that seed before launch. No human graph writes are allowed after this boundary.
 
-Register the server using the actual installed absolute executable and project:
+Register the server using the actual installed absolute executable and project.
+Claude Code's `--scope local` registration is keyed to the working directory, so
+run `claude mcp add` from the session project directory and launch `claude` from
+that same directory; researchgraph's `--project` does not set Claude's scope.
+`claude --mcp-config FILE --strict-mcp-config` is an alternative that writes no
+configuration. Codex CLI writes one entry per server name into the shared
+`~/.codex/config.toml`, so use a distinct name per attempt (for example
+`researchgraph-diag` for a diagnostic and `researchgraph` for the formal run) or a
+separate `CODEX_HOME`, and launch Codex with `-C` naming the selected project, so
+that no registration is ever overwritten:
 
 ```sh
 claude mcp add --transport stdio --scope local researchgraph -- \
@@ -117,9 +129,13 @@ any launch `--role` and why; do not supply authority overrides through tool args
 
 ## Compatibility preflight: real products, real negotiation
 
-Run operator-directed compatibility diagnostics on a **separate disposable
-diagnostic project and conversation**, before creating the formal session seed
-described above. Diagnostic prompting is assisted setup, never one of the two
+A compatibility preflight is **optional** assisted setup: a formal attempt whose
+first `show` fails is already a retained failed attempt and the compatibility
+finding the evidence index asks for. If used, run operator-directed diagnostics
+on a **separate disposable diagnostic project and conversation**, before creating
+the formal session seed described above, and use it as a dry run to discover any
+residual permission prompt so the frozen configuration can be extended before
+the formal attempt. Diagnostic prompting is assisted setup, never one of the two
 required unassisted recordings. After a passing diagnostic, create a fresh formal
 seed/manifest and a fresh product conversation, retaining the reviewed product,
 model, permissions and preset; record the deliberate project-path change. Deliver
@@ -129,11 +145,16 @@ ask for extra diagnostic calls, supply hints or repair configuration after seed.
 If formal negotiation fails, retain a failed attempt rather than coach it through.
 
 Within each actual product's `/mcp` view inspect connection/discovery and retain
-its real output. Verify modern **MCP 2026-07-28 discovery negotiation**, using
-available consent-safe client/server diagnostics to establish the negotiated
-version. A server listing or successful registration alone is insufficient.
-Have that product invoke `show` for the seed Hypothesis and retain the actual
-request/result, including arbitrary-JSON structured content. Legacy
+its real output. Neither product's view reports a protocol version, so the proof
+of modern **MCP 2026-07-28 discovery negotiation** is behavioural: the server
+refuses every tool call unless the negotiated version equals the installed SDK's
+latest (`src/researchgraph/mcp.py`; 2026-07-28 with `mcp` 2.3.0), so a structured
+`show` result returned to the actual product is the negotiation proof, and a
+`schema` error naming the required version is a negotiation failure. Retain both
+verbatim with the SDK version. A server listing or successful registration alone
+is insufficient. Seed the diagnostic project with `seed.py` and its own manifest,
+have the product invoke `show` for that manifest's `hypothesis`, and retain the
+actual request/result, including arbitrary-JSON structured content. Legacy
 initialize-only refusal, missing credentials/model access, unavailable protocol
 evidence or incompatible structured results are real findings. Do not downgrade
 the server, wrap results, replace the client with an SDK replay or claim a pass
@@ -174,9 +195,22 @@ edit managed YAML. Explicit tool clocks, if supplied, must increase by whole UTC
 seconds after the seed; clock failures count as failures.
 
 Never coach after start: no hints, corrected IDs/arguments, graph edits, hidden
-prompts, retries by the operator or supplied solutions. Record every interaction
-in `assistance_interventions`, including required permission clicks, clarifications
-and safety stops, with time, initiator, content and effect. Zero assistance must
+prompts, retries by the operator or supplied solutions. Pre-authorise each product
+before launch and freeze that configuration, recording the exact rules under
+`configuration`: for Claude Code, allow rules for the `researchgraph` server's
+tools and for writes under the project's `artifacts/` directory, or an equivalent
+`--permission-mode`; for Codex CLI, `-C <project>`, `-s workspace-write` and an
+approval policy that does not prompt for MCP calls. Record every interaction after
+prompt submission in `assistance_interventions`, including any permission prompt
+and its response, clarifications and safety stops, with time, initiator, content
+and effect. Any human response to a prompt after submission, including approving
+exactly what was presented, makes the attempt `completed-assisted`: approving a
+blocked action supplies authority the agent lacked, and capture proves the
+intervention rather than removing it. (Owner decision, 2026-10-22, on the
+committee's split: the strict reading was chosen over logging approve-as-presented
+clicks as a non-assisting `permission_grant`.) If a prompt fires, retain the
+assisted attempt, extend the frozen configuration, and run a fresh attempt with a
+fresh seed. Zero assistance must
 be supported by capture, not asserted by default. An intervention makes the attempt
 assisted; retain it as such rather than relabel it unassisted.
 
@@ -216,8 +250,16 @@ restored. It intentionally does not support merged histories or extra graph
 nodes/relationships. Preserve failures rather than weakening its contract.
 
 Declared actors and Git authors are not authenticated human/model identities.
-The checker does not prove physical non-assistance or product identity; actual
-capture, version/configuration evidence and independent review are also required.
+The checker does not prove physical non-assistance or product identity. It also
+cannot distinguish MCP writes from `rg --as-agent <name>` shell writes, and it does
+not compare artifact contents, Result `fields`, the `supports` strength or the four
+`fail` arguments with the prompt: it requires only a nonempty Failure step and
+check, and its citation checks are conditional. The reviewer therefore audits the
+capture and retained bytes against all ten prompt steps: every graph write was an
+MCP tool call; both exact measurement CSV paths and contents; Result fields; the
+`cites` artifact and sha256; weak `supports`; all four `fail` arguments; and the
+final report. Record deviations under `findings / review`. A checker pass alone is
+not a ten-step pass.
 
 ## Report template and retention
 
@@ -249,6 +291,11 @@ record relative evidence names, byte sizes and redaction lineage. Do not use
 empty fake transcripts or placeholder hashes as evidence. Set the consent-agreed
 retention deadline and custodian before collection; delete restricted originals
 and backups at that deadline, recording deletion receipts without private data.
-Only consent-safe actual reports and approved derivatives may be reviewed for a
-later commit. Hashes establish byte identity, not authenticity or owner approval.
+After privacy and outcome review, commit the consent-safe derivatives (the filled
+report, redacted transcript or product export, checker stdout, stderr and exit
+files, and findings) under `docs/evaluation/sessions/` with the file names above,
+and update the evidence index and `recorded_product_count`. Recordings and
+restricted originals are never committed; link their inventory references.
+Collection approval alone leaves Gate 2 open. Hashes establish byte identity, not
+authenticity or owner approval.
 No recording or review has been performed by creating this protocol.

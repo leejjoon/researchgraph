@@ -52,8 +52,8 @@ that a release commit contains those bytes.
 
 | Requirement | Current status | Required actual evidence |
 | --- | --- | --- |
-| Agent protocol product-owner review | pending | Owner decision for [agent-session.md](agent-session.md), not author self-approval. |
-| Usability protocol product-owner review | pending | Owner decision for [usability-session.md](usability-session.md), including consent/capture and reviewed seed. |
+| Agent protocol product-owner review | approved 2026-10-22 by the product owner after committee review (see the review table in agent-session.md) | Owner decision for [agent-session.md](agent-session.md), not author self-approval. |
+| Usability protocol product-owner review | approved 2026-10-22 by the product owner after committee review (see the review table in usability-session.md) | Owner decision for [usability-session.md](usability-session.md), including consent/capture and reviewed seed. |
 | Claude Code | pending; recorded_product_count: 0 across both products | Actual product/model/configuration, MCP 2026-07-28 discovery preflight, real unassisted ten-step recording/transcript and independent native checker results. |
 | Codex CLI | pending | Separate fresh project/seed, actual product/model/configuration, compatibility finding, real recording/transcript and independent checker results. |
 | Outside-researcher usability | pending; participant_count_target: 3; participant_count_achieved: 0 | At least one consenting researcher outside the team; actual three-task timings/outcomes/assistance, native state verification, consent-safe recordings and findings. |
@@ -95,8 +95,10 @@ absence of human coaching, consent or protocol-owner review.
    Record original/derivative hashes, redaction reasons and privacy-review
    decisions. Delete restricted originals and backups at the agreed deadline;
    keep only consent-permitted deletion receipts/derivatives.
-5. Review only actual consent-safe reports and approved derivatives for a later
-   commit. Empty tables in the protocols are schemas, not sessions. No blank
+5. After privacy and outcome review, commit consent-safe reports and approved
+   derivatives (agent transcripts or exports, checker outputs, task tables,
+   findings) under `docs/evaluation/sessions/`, keeping restricted originals in
+   the custody store with inventory references, and update the counts here. Empty tables in the protocols are schemas, not sessions. No blank
    recording or invented measured value may stand in for missing evidence.
    Record independent reviewer decisions with evidence references in the runtime
    ledger. Do not edit this index to manufacture owner approval or completion.

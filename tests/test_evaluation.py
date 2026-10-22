@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_agent_protocol_requires_real_products_consent_and_independent_audit():
     text = (ROOT / "docs/evaluation/agent-session.md").read_text()
     for value in (
-        "Status: awaiting product-owner review",
+        "Status: approved for collection by the product owner, 2026-10-22",
         "Claude Code",
         "Codex CLI",
         "consent",
@@ -32,6 +32,16 @@ def test_agent_protocol_requires_real_products_consent_and_independent_audit():
         "2026-07-28",
         "examples/agent_session/PROMPT.md",
         "check.py",
+        # committee-reviewed content, 2026-10-22
+        "does not sign this",
+        "keyed to the working directory",
+        "distinct name per attempt",
+        "structured\n`show` result returned to the actual product is the negotiation proof",
+        "preflight is **optional**",
+        "Pre-authorise each product",
+        "cannot distinguish MCP writes",
+        "A checker pass alone is\nnot a ten-step pass",
+        "docs/evaluation/sessions/",
     ):
         assert value in text
     assert "recorded_product_count: 0" in text
@@ -41,7 +51,7 @@ def test_agent_protocol_requires_real_products_consent_and_independent_audit():
 def test_usability_protocol_records_each_real_timed_task_and_achieved_count():
     text = (ROOT / "docs/evaluation/usability-session.md").read_text()
     for value in (
-        "Status: awaiting product-owner review",
+        "Status: approved for collection by the product owner, 2026-10-22",
         "outside the team",
         "consent",
         "inspect",
@@ -52,6 +62,12 @@ def test_usability_protocol_records_each_real_timed_task_and_achieved_count():
         "participant_count_achieved: 0",
         "600",
         "findings",
+        # committee-reviewed content, 2026-10-22
+        "does\nnot sign the table",
+        "binds loopback only",
+        "locate and download its registered artifact",
+        "institutional ethics review",
+        "docs/evaluation/sessions/",
     ):
         assert value in text
 

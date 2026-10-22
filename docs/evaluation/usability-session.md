@@ -1,4 +1,4 @@
-Status: awaiting product-owner review
+Status: approved for collection by the product owner, 2026-10-22
 
 # Outside-researcher viewer usability protocol
 
@@ -16,15 +16,22 @@ Local browser tests, team demonstrations and replay are not outside-user proof.
 
 | Review | Reviewer | Decision | Date / evidence |
 | --- | --- | --- | --- |
-| Product-owner protocol and task review | pending | pending | pending |
-| Synthetic seed and privacy/capture review | pending | pending | pending |
+| Product-owner protocol and task review | Jae-Joon Lee (product owner; not the author) | approved | 2026-10-22; committee review (Claude Fable 5.1, Codex GPT-6-Astra) applied in this commit; reviewed at 190edc5 |
+| Synthetic seed and privacy/capture review | Jae-Joon Lee (product owner; not the author) | approved | 2026-10-22; committee review (Claude Fable 5.1, Codex GPT-6-Astra) applied in this commit; reviewed at 190edc5 |
 
 The product owner reviews the task wording, synthetic starting state, success
-criteria, stopping rules and privacy plan before use. Do not self-approve.
+criteria, stopping rules and privacy plan before use. The protocol's author does
+not sign the table; the product owner signs it and records that they did not
+author it. Signing authorizes recruitment and collection, not any outcome.
 Obtain explicit consent **before recording**: purpose, what screen/audio and
 interaction data will be recorded, who can access originals and public derivatives,
-retention/deletion dates, voluntary participation, withdrawal contact and deadline
-before publication. Offer stopping without penalty. Store consent/contact records
+retention/deletion dates, voluntary participation, a named study and privacy
+contact, a withdrawal deadline before publication, and separate agreement to
+screen capture, to optional think-aloud audio (no webcam) and to public
+derivatives, explaining that published Git copies cannot reliably be recalled.
+State whether institutional ethics review applies and record the determination
+or exemption reference before recruitment. Offer the participant review of any
+derivative before publication. Offer stopping without penalty. Store consent/contact records
 separately under restricted access, linked only by a pseudonymous participant ID.
 Use no real research identifiers, patient data, credentials or secrets. Anonymize
 researcher/institution/project names, personal paths and Git identities in reports.
@@ -107,8 +114,10 @@ Hypothesis. Record the reviewed seed version/hash and IDs in the operator packet
 The example agent-session checker is intentionally narrow and is **not** an audit
 of this different usability graph. Do not report its result as usability proof.
 
-Open the private launch URL in the participant's browser, authenticate, and remove
-credential exposure before capture. Serve as the configured Git human (default),
+The server binds loopback only, so the participant works at the operator-controlled
+machine, in person or through a remote-desktop session they control; an outside
+researcher's own laptop cannot reach it. Open the launch URL there, complete the
+one-use session exchange, and remove credential exposure before capture. Serve as the configured Git human (default),
 without `--read-only`, because the next two tasks require human writes. The launch
 fixes identity and project; roles are declared profile roles, not authentication.
 Do not run a runner/scheduler. Keep a baseline native snapshot and preserve the
@@ -144,7 +153,8 @@ retain the real stop reason, not a newly weakened definition of success.
 ### 1. Inspect a failed node (inspect)
 
 Participant card: “Find the failed synthetic sample-validation Task. Explain what
-failed, at which step and check, and locate its registered artifact. Tell us what
+failed, at which step and check, and locate and download its registered artifact.
+Tell us what
 the evidence does and does not show.”
 
 Success requires finding the failed node, reading the linked Failure's
@@ -234,6 +244,10 @@ seed and redacted derivative. Hash actual bytes (for example
 derivative's source hash, redactions and privacy reviewer decision. Record the
 custodian, consent-agreed deletion date, authorized access list and withdrawal
 process before collecting. Remove restricted originals/backups at expiry and
-retain only permitted deletion receipts. Review and commit only consent-safe
-actual reports/derivatives; no empty fake session reports. This protocol creates
+retain only permitted deletion receipts. After privacy and outcome review, commit
+the consent-safe derivatives (filled session and task tables, findings, redacted
+screenshots and native verification) under `docs/evaluation/sessions/` with the
+file names above, and update the evidence index and
+`participant_count_achieved`; recordings and restricted originals are never
+committed. No empty fake session reports. This protocol creates
 no consent, recording, measured result or product-owner approval.
