@@ -446,8 +446,150 @@ def test_profile_declared_role_is_sent_without_actor_override(
         assert posts == [
             {"node": seeded["active"]["id"], "tokens": 12, "role": "owner"}
         ]
-        assert inspector.evaluate("element => element.lastAction.error") is None
-        assert inspector.evaluate("element => element.node.budget.tokens") == 12
+        state = inspector.evaluate(
+            """element => ({node:element.node,lastAction:element.lastAction,
+            readOnly:element.readOnly,status:element.shadowRoot.querySelector('[role="status"]').textContent})"""
+        )
+        assert state["lastAction"]["error"] is None, state
+        assert ((state["node"] or {}).get("budget") or {}).get("tokens") == 12, state
+        assert not errors
+
+
+@pytest.mark.parametrize("write_error", [False, True])
+@pytest.mark.parametrize("replacement_selection", [False, True])
+def test_successful_budget_reports_delayed_native_readback_failure_without_retry(
+    tmp_path, chromium_browser, monkeypatch, write_error, replacement_selection
+):
+    """A settled write is not successful inspector readback when native show fails."""
+    import asyncio
+    import threading
+
+    import researchgraph.serve as serving
+    from researchgraph.model import RuleViolation
+
+    seeded = inspector_project(tmp_path)
+    identifier = seeded["active"]["id"]
+    persisted = threading.Event()
+    failed = threading.Event()
+    delayed = threading.Event()
+    release = threading.Event()
+    message = "Dedicated post-budget native show unavailable"
+    write_message = "Dedicated post-persistence budget failure"
+    native_budget, native_show = Project.budget, Project.show
+    authority = []
+    posts = []
+
+    def budget(self, *args, **context):
+        result = native_budget(self, *args, **context)
+        authority.append((context["actor"], context["role"]))
+        persisted.set()
+        if write_error:
+            raise RuleViolation("schema", write_message)
+        return result
+
+    def show(self, *args, **context):
+        if persisted.is_set() and not failed.is_set():
+            failed.set()
+            raise RuleViolation("schema", message)
+        return native_show(self, *args, **context)
+
+    class DelayedJSON(serving.JSONResponse):
+        """Hold actual native error bytes, not the Project lock or a fake route."""
+
+        async def __call__(self, scope, receive, send):
+            if (
+                scope["path"] == "/api/show"
+                and self.status_code == 422
+                and json.loads(self.body).get("message") == message
+            ):
+                delayed.set()
+                if not await asyncio.to_thread(release.wait, 5):
+                    raise RuntimeError("Native readback delivery was not released")
+            await super().__call__(scope, receive, send)
+
+    monkeypatch.setattr(Project, "budget", budget)
+    monkeypatch.setattr(Project, "show", show)
+    monkeypatch.setattr(serving, "JSONResponse", DelayedJSON)
+    with (
+        loopback_server(tmp_path) as owner,
+        selected_inspector(chromium_browser, owner, identifier) as (
+            page,
+            inspector,
+            _,
+            errors,
+        ),
+    ):
+        page.on(
+            "request",
+            lambda request: (
+                posts.append(request.post_data_json)
+                if request.method == "POST" and request.url.endswith("/api/budget")
+                else None
+            ),
+        )
+        inspector.get_by_label("Role", exact=True).select_option("owner")
+        try:
+            choose_action(inspector, "Budget", {"tokens": 12})
+            assert delayed.wait(5), (
+                "Post-write native show error never reached delivery"
+            )
+            assert inspector.evaluate("element => element.busy") is True
+            assert inspector.evaluate("element => element.lastAction") is None
+            # The response is held outside the server's Project critical section:
+            # a separate native reader already sees the one persisted write.
+            with Project.open(tmp_path) as project:
+                authoritative = native_show(
+                    project, identifier, actor=ALICE, now=NOW + timedelta(days=2)
+                )
+            assert authoritative["budget"]["tokens"] == 12
+            if replacement_selection:
+                # Replace the failed request through the actual host selection
+                # bridge while its native response is still held. Completion
+                # must use this latest selection's successful terminal outcome.
+                replacement = seeded["task"]["id"]
+                page.locator(f'research-graph [data-node-id="{replacement}"]').click()
+                page.wait_for_function(
+                    "id => document.querySelector('research-inspector').node?.id === id",
+                    arg=replacement,
+                )
+        finally:
+            release.set()
+        wait_action(page)
+        assert posts == [{"node": identifier, "tokens": 12, "role": "owner"}]
+        assert authority == [(ALICE, "owner")]
+        action = inspector.evaluate("element => element.lastAction")
+        assert (action["result"] is None) == write_error
+        if write_error:
+            assert write_message in action["error"]
+        if replacement_selection:
+            assert message not in (action["error"] or "")
+            if not write_error:
+                assert action["error"] is None
+            with Project.open(tmp_path) as project:
+                expected = native_show(
+                    project, replacement, actor=ALICE, now=NOW + timedelta(days=2)
+                )
+            assert inspector.evaluate("element => element.node") == expected
+            assert inspector.evaluate("element => element.readOnly") is False
+        else:
+            assert action["error"] is not None, (
+                "Failed readback must not publish success"
+            )
+            assert message in action["error"]
+            if not write_error:
+                assert "Write succeeded" in action["error"]
+            assert inspector.evaluate("element => element.node.budget") is None
+            assert inspector.evaluate("element => element.readOnly") is None
+            warning = inspector.get_by_role("status").inner_text()
+            assert message in warning
+            assert "stale" in warning.lower()
+        # Recovery is a read, not a repeated POST or a wait hiding stale success.
+        if replacement_selection:
+            inspector.evaluate("(element,id) => element.select(id)", identifier)
+        recovery = inspector.evaluate("element => element.reload()")
+        assert recovery["error"] is None, recovery
+        assert inspector.evaluate("element => element.node") == authoritative
+        assert posts == [{"node": identifier, "tokens": 12, "role": "owner"}]
         assert not errors
 
 

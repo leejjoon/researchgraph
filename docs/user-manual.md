@@ -308,7 +308,9 @@ values use JSON, so omitted priority preserves it while explicit `null` clears i
 An action error remains visible while the inspector refetches actual persisted
 state. A commit or post-commit hook failure can leave a replacement and Instruction
 on disk: inspect their history before another deliberate action. Writes are never
-automatically retried.
+automatically retried. If the write succeeds but its readback fails, the inspector
+reports those outcomes separately, marks retained node data stale and disables
+writes until a successful refresh establishes availability again.
 
 The review panel lists the native queue in creation order, with a badge equal to
 its length, server gate metadata, declared conditions, approvals, waiting time and

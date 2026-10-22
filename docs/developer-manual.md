@@ -212,7 +212,11 @@ issues one POST, followed by authoritative readback even on errors. Selection-re
 cancellation is separate from mutation lifetime; cancellation does not promise
 rollback. A retained-byte commit/hook failure remains an error while fresh history
 can reveal its persisted replacement and Instruction. No mutation retry is hidden
-in refresh or component reconnection.
+in refresh or component reconnection. Failed authoritative readback also appears
+in `lastAction.error`: a successful POST is distinguished from a failed read, and
+an original write error is preserved alongside any readback error. Retained node
+data is explicitly stale and write availability becomes unknown. Completion
+follows the latest replacement selection read, not an obsolete aborted request.
 
 `review-queue.js` registers `research-review-queue`: `items` is a detached native
 queue result, while `reload()` refetches queue, blocked and profile. Applicable

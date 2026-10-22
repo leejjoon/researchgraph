@@ -113,7 +113,7 @@ export class ResearchInspector extends HTMLElement {
     this.#error = null;
     this.#loading = Boolean(id);
     this.#render();
-    if (!this.isConnected || !id) return;
+    if (!this.isConnected || !id) return { error: null };
     try {
       const base = apiPrefix(this.getAttribute("src"));
       const read = (name, args = {}) => readOperation(base, name, args, { signal: request.signal, role: this.#role });
@@ -136,11 +136,13 @@ export class ResearchInspector extends HTMLElement {
         responses.every(response => response.readOnly === false) ? false : null;
       if (!this.#profile.roles.includes(this.#role)) this.#role = "";
       this.#node = shown.value;
+      return { error: null };
     } catch (error) {
       if (request.signal.aborted || this.#read !== request) return;
       request.abort();
       this.#readOnly = null;
-      this.#error = String(error);
+      this.#error = `${error} Displayed node may be stale; write availability unknown.`;
+      return { error: String(error) };
     } finally {
       if (this.#read === request) {
         this.#loading = false;
@@ -373,11 +375,17 @@ export class ResearchInspector extends HTMLElement {
       // Selection only cancels reads, never a write. An error does not imply rollback:
       // every settled write is followed by authoritative persisted-state readback.
       if (epoch === this.#epoch && this.isConnected) {
-        await this.reload();
-        let pending = this.#readPromise;
+        let pending = this.reload();
         while (pending) {
-          await pending;
-          if (pending === this.#readPromise || epoch !== this.#epoch || !this.isConnected) break;
+          const outcome = await pending;
+          if (epoch !== this.#epoch || !this.isConnected) break;
+          if (pending === this.#readPromise) {
+            if (outcome?.error) {
+              const readback = `Authoritative readback failed: ${outcome.error}`;
+              error = error ? `${error}\n${readback}` : `Write succeeded. ${readback}`;
+            }
+            break;
+          }
           pending = this.#readPromise;
         }
       }

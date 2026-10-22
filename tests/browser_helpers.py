@@ -1,6 +1,8 @@
 """Real served-browser helpers; never fake graph endpoints or persistence."""
 
+from collections import deque
 from contextlib import contextmanager
+from urllib.parse import urlsplit
 
 from tests.helpers import git
 
@@ -26,7 +28,19 @@ def viewer_page(browser, owner):
     page = context.new_page()
     page.set_default_timeout(5000)
     requests, errors = [], []
+    failed_requests = deque(maxlen=128)
     page.on("request", lambda request: requests.append(request.url))
+    page.on(
+        "requestfailed",
+        lambda request: failed_requests.append(
+            {
+                "method": request.method,
+                "path": urlsplit(request.url).path,
+                "port": urlsplit(request.url).port,
+                "failure": request.failure,
+            }
+        ),
+    )
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on(
         "console",
@@ -47,5 +61,8 @@ def viewer_page(browser, owner):
             "() => document.querySelector('research-graph').graph !== null"
         )
         yield page, requests, errors, token
+    except BaseException as error:
+        error.add_note(f"Actual browser request failures: {list(failed_requests)!r}")
+        raise
     finally:
         context.close()
