@@ -4,6 +4,7 @@ Status: approved for collection by the product owner, 2026-10-22
 
 participant_count_target: 3
 participant_count_achieved: 0
+substitution: for v0.2 an agent committee walkthrough stands in (decision 026, `sessions/usability-walkthrough-2026-10-22.md`); this count changes only with a real outside researcher
 
 This is a protocol and blank report schema, not evidence of completed sessions.
 No participants or sessions have actually run. Recruit at least one consenting
