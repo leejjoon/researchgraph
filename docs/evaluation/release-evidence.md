@@ -1,4 +1,4 @@
-Status: release blocked
+Status: v0.2 closure candidate — final verification and review required
 
 # Release evidence index and remaining boundaries
 
@@ -22,13 +22,14 @@ they do not turn these historical receipts into proof of a different HEAD.
 | T17 clean-clone receipt | `/tmp/researchgraph-release-3a0477d`, clean before and after; CPython 3.14.4; fresh optional install | Docs + `serve_docs` + notebook + CI cohort: **96 passed**, 42.53s. Legacy JUnit path: `/tmp/researchgraph-clean-3a0477d-docs.xml`. These are existing local receipts, not a newly run check in this documentation change. |
 | T17 at `5adaca9` | Exact clean clone at `5adaca9`: full suite **3,785 passed**, 2,530.87 s, no warnings or skips, all 120 strict latency checks and the unchanged historical/rebuild budgets; astroharness `0c0ff07` installed against the current wheel, 15 passed (receipt in the workflow ledger, 2026-10-22) | Candidate readiness is established at `5adaca9`. The run is repeated at the final SHA before any tag; the earlier 96-test cohort at `3a0477d` is retained as historical. |
 | Separate-profile astroharness adoption | Commits `aec49a3` / `0c0ff07`; 15 existing/new lifecycle tests against built core `447bb9a` | Authentic separately rooted consumer adoption is already proved. Do not repeat the stale claim that external profile adoption is missing. Preserve this positive evidence independently of the still-open human/product evaluations. |
-| G004 concrete repair | Query/evidence repair `0553138`; final-source 131 regression + 4 strict-load + 4 consumer checks done; all 80 samples durable | Concrete repair and retained samples are done. G004 remains review-blocked at the formal final boundary; do not infer final approval from completed checks. |
-| G006 formal boundary | pending | Formal final-boundary disposition remains pending, not falsely complete. |
+| G004 concrete repair | Query/evidence repair `0553138`; final-source 131 regression + 4 strict-load + 4 consumer checks done; all 80 samples durable | Superseded by the completed G006 repair checkpoint; the final aggregate review is still required. |
+| G006 repair checkpoint | Completed with native targeted-verification receipt at `03cf6ab` | This is not a substitute for the final aggregate review cohort. |
+| Walkthrough release blockers | U1/U2 fixed in `bec3700`; inspector/live/review/evidence cohort **102 passed**, 290.16 s, both cache modes, seed 20261020 | Six genuine pre-fix browser failures retained. Edited-but-unset fields now block before any POST; successful creation has readable feedback and a real replacement link. Final full-candidate verification remains separately required. |
 | Final review cohort | pending | Final single heavy cohort and distinct critic review remain pending; previous task-local results do not substitute. |
 
-The local cohort above is precisely a scoped result. It is **not** a claim of a
-full suite, hosted GitHub Actions success, external agent sessions, outside-user
-research, final reviewer approval or final release HEAD verification. Any future
+Each row above is bound to its stated source and cohort. None establishes hosted
+GitHub Actions success, outside-user research, final reviewer approval or proof
+for a different release HEAD. Any future
 receipt must state its actual source commit and command/cohort; do not relabel an
 older green result as proof for changed source. Temporary `/tmp` paths identify
 historical receipts, not a retention guarantee; preserve approved bytes and hashes
@@ -54,13 +55,14 @@ that a release commit contains those bytes.
 | --- | --- | --- |
 | Agent protocol product-owner review | approved 2026-10-22 by the product owner after committee review (see the review table in agent-session.md) | Owner decision for [agent-session.md](agent-session.md), not author self-approval. |
 | Usability protocol product-owner review | approved 2026-10-22 by the product owner after committee review (see the review table in usability-session.md) | Owner decision for [usability-session.md](usability-session.md), including consent/capture and reviewed seed. |
-| Claude Code | **completed-unassisted** 2026-10-22, attempt s01-1 on 2.1.306 / claude-fable-5-1; checker exit 0; reviewer ten-step audit passed; report [sessions/agent-claude-code-s01-1.md](sessions/agent-claude-code-s01-1.md); recorded_product_count: 1 of 2 | Recorded. Does not close Gate 2 alone; the second product and the outside researcher remain open. |
+| Claude Code | **completed-unassisted** 2026-10-22, attempt s01-1 on 2.1.306 / claude-fable-5-1; checker exit 0; reviewer ten-step audit passed; report [sessions/agent-claude-code-s01-1.md](sessions/agent-claude-code-s01-1.md); recorded_product_count: 1 of 2 | Recorded. The other external cells have the explicit v0.2 dispositions in decisions 026/027 below, not passing results. |
 | Codex CLI | **deferred to Gate 3 (decision 027), failed attempts retained**: 0.155.1 and 0.163.0 negotiate 2025-06-18 over stdio; decision 021 kept ([sessions/preflight-2026-10-22.md](sessions/preflight-2026-10-22.md)); recorded_product_count stays 1 of 2 | A formal unassisted session on a product that negotiates 2026-07-28 over stdio, or after a later decision narrows the refusal; required before Gate 3. |
 | Outside-researcher usability | **substituted for v0.2 (decision 026)**: agent committee walkthrough 2026-10-22, two participants, all six task attempts success-unassisted, 11 findings ([sessions/usability-walkthrough-2026-10-22.md](sessions/usability-walkthrough-2026-10-22.md)); pending outside researcher; participant_count_target: 3; participant_count_achieved: 0 | At least one consenting researcher outside the team, carried forward as a debt to be run before Gate 3 and before the v1.0 measurement; the walkthrough is expert review, not outside-user proof. |
 | Separate-profile adoption | already proved | Preserve `aec49a3` / `0c0ff07`, built core `447bb9a` and the 15 lifecycle-test receipt; this is not an open missing-adoption cell. |
 
-No participants or agent sessions were run to create this evidence kit. Protocols
-are executable operator instructions, not fabricated reports. Deterministic
+The initial kit contained no sessions. The subsequent formal Claude session and
+committee walkthrough are linked above; no outside researcher has participated.
+Protocols are executable operator instructions, not fabricated reports. Deterministic
 replay, browser acceptance, SDK checks, help syntax and successful registration
 are not a substitute for real product compatibility, unassisted recordings or an
 outside researcher. A real preflight refusal is a finding, not permission to
@@ -103,12 +105,29 @@ absence of human coaching, consent or protocol-owner review.
    Record independent reviewer decisions with evidence references in the runtime
    ledger. Do not edit this index to manufacture owner approval or completion.
 
-## Release remains blocked until actual disposition
+## Gate 2 closure note — 2026-10-23
 
-At kit preparation, unresolved boundaries are protocol-owner reviews; real Claude Code and Codex
-CLI recordings/checker outcomes; outside-researcher evaluation; G001 protected
-T02 owner inclusion disposition; G004 review-blocked/G006 pending formal final
-boundary; T17 full final clean clone; and the final single heavy cohort with a
-distinct critic. Authentic astroharness adoption and the concrete G004 repair
-remain completed facts, not reopened missing work. No final release, full-suite,
-hosted Actions or external/final review claim is made here.
+The owner-amended external evidence boundary is satisfied for v0.2 by the actual
+Claude session, the committee walkthrough substitution in decision 026, and the
+second-product deferral in decision 027. This closes neither deferred external
+cell: the outside-researcher count stays zero and the Codex failures remain
+failures. Both debts are mandatory before Gate 3, as recorded in `tasks/backlog.md`.
+G001's protected inclusion decision is resolved by owner commit `190edc5`.
+
+Walkthrough U1/U2 were release-blocking and are fixed in `bec3700` with genuine
+red/green real-browser/native tests. The historical walkthrough reports are not
+rewritten as post-fix retests. Remaining U3–U9/U11 are nonblocking viewer follow-ups:
+last-action context, history disclosure reproduction, artifact metadata presentation,
+retired-card discoverability, wording, incident labels and accessibility investigation.
+U10 remains the accepted field-based expansion-progress limitation. All remain
+visible in the original findings table and in the v0.3 backlog; no human usability
+improvement or measured human timing is claimed.
+
+Technical closure additionally requires the exact final committed candidate's
+all-door/both-cache full suite, unchanged performance and live-update gates,
+installed-wheel consumers and separately rooted astroharness tests, followed by
+the single frozen cleaner/architect/QA cohort and a distinct completion critic.
+Source-bound receipts and verdicts are recorded in the canonical workflow ledger;
+the older green rows above must not be relabelled as that final candidate.
+No tag or push is authorized by this note alone. The agent does not claim hosted
+Actions success or the completion of either deferred external evaluation.

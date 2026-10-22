@@ -16,6 +16,61 @@ from tests.helpers import ALICE, repository
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_recorded_session_transcript_matches_checker_and_reviewed_hash():
+    directory = ROOT / "docs/evaluation/sessions"
+    transcript = directory / "agent-claude-code-s01-1-transcript.redacted.jsonl"
+    report = (directory / "agent-claude-code-s01-1.md").read_text()
+    assert sha256(transcript.read_bytes()).hexdigest() in report
+    assert (
+        directory / "agent-claude-code-s01-1-checker.exit.txt"
+    ).read_text().strip() == "0"
+    checked = json.loads(
+        (directory / "agent-claude-code-s01-1-checker.stdout.json").read_text()
+    )
+    assert checked["ok"] is True
+    calls = [
+        block
+        for line in transcript.read_text().splitlines()
+        if (event := json.loads(line)).get("type") == "assistant"
+        for block in event.get("message", {}).get("content", [])
+        if block.get("type") == "tool_use"
+    ]
+    assert all(
+        call["name"].startswith("mcp__researchgraph__")
+        or call["name"] in {"ToolSearch", "Write"}
+        for call in calls
+    )
+    assert not any(call["name"].endswith("__approve") for call in calls)
+    writes = [call["input"] for call in calls if call["name"] == "Write"]
+    assert len(writes) == len(checked["artifacts"]) == 2
+    for write in writes:
+        assert any(write["file_path"].endswith(path) for path in checked["artifacts"])
+        assert write["content"] == "sample,value\ncontrol,2\ntreatment,4\n"
+    (failure,) = [call["input"] for call in calls if call["name"].endswith("__fail")]
+    assert failure["node"] == checked["failed_task"]
+    assert {key: failure[key] for key in ("step", "check", "measured", "error")} == {
+        "step": "validate second sample",
+        "check": "sample count must be at least 2",
+        "measured": "1",
+        "error": "insufficient samples",
+    }
+
+
+def test_release_deferrals_preserve_failed_and_unmeasured_external_cells():
+    evidence = (ROOT / "docs/evaluation/release-evidence.md").read_text()
+    backlog = (ROOT / "tasks/backlog.md").read_text()
+    for decision, label in (
+        ("026", "outside researcher"),
+        ("027", "second"),
+    ):
+        assert decision in evidence
+        assert decision in backlog
+        assert label.lower() in evidence.lower()
+    assert "participant_count_achieved: 0" in evidence
+    assert "recorded_product_count stays 1 of 2" in evidence
+    assert "failed attempts retained" in evidence
+
+
 def test_agent_protocol_requires_real_products_consent_and_independent_audit():
     text = (ROOT / "docs/evaluation/agent-session.md").read_text()
     for value in (
@@ -75,7 +130,7 @@ def test_usability_protocol_records_each_real_timed_task_and_achieved_count():
 def test_release_evidence_distinguishes_committed_proof_and_open_external_cells():
     text = (ROOT / "docs/evaluation/release-evidence.md").read_text()
     for value in (
-        "Status: release blocked",
+        "Status: v0.2 closure candidate",
         "3a0477d70311081c3e3c95516ac236c32d9c7128",
         "96 passed",
         "protected",
