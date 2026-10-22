@@ -7,10 +7,11 @@ attempt used its own disposable diagnostic project seeded with `seed.py --now
 researchgraph MCP server, report the raw result, no other tools, no writes. No
 shared product configuration was modified: Claude Code used an inline
 `--mcp-config` file with `--strict-mcp-config`; Codex CLI used `-c
-mcp_servers.*` overrides. Raw captures, seed manifests, wire logs and a SHA-256
-inventory are in the operator's custody store
-(`preflight/evidence/inventory-2026-10-22.sha256`); nothing here is a formal
-session report and the counts in the protocols stay at zero.
+mcp_servers.*` overrides. Raw captures, seed manifests and wire logs are in the operator's private
+custody store outside this repository, inventoried in a file named per the
+custody convention (`agent-preflight-2026-10-22-1-inventory.sha256`); verify by
+that file's digest in the restricted custody register, not by path. Nothing here
+is a formal session report.
 
 | Product | Version | Model | Negotiation | Outcome |
 | --- | --- | --- | --- | --- |

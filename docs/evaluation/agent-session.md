@@ -2,7 +2,7 @@ Status: approved for collection by the product owner, 2026-10-22
 
 # Real agent-product session protocol
 
-recorded_product_count: 0
+recorded_product_count: 1
 
 This is an operator protocol and report schema, not a session report. No sessions,
 recordings, consent or owner approvals are claimed here. Run one independent,

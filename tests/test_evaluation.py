@@ -44,7 +44,7 @@ def test_agent_protocol_requires_real_products_consent_and_independent_audit():
         "docs/evaluation/sessions/",
     ):
         assert value in text
-    assert "recorded_product_count: 0" in text
+    assert "recorded_product_count: 1" in text
     assert "not a substitute" in text
 
 

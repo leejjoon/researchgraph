@@ -8,7 +8,7 @@ receipts and owner decisions; this document is not a replacement ledger or an
 approval authority. Writing these protocols does not run evaluations or close
 gates. No pushes have been performed by this documentation work.
 
-This is the kit-preparation snapshot after `3a0477d`. Pending verification labels
+This index was first written as the kit-preparation snapshot after `3a0477d` and refreshed on 2026-10-22 at `5adaca9` and after agent session s01-1. For readers of the repository, git history and CI are canonical; the workflow ledger is the maintainer's local record. Pending verification labels
 below describe that snapshot, not a claim that later checks never ran. Subsequent
 exact-commit results belong in the canonical ledger with their actual revision;
 they do not turn these historical receipts into proof of a different HEAD.
@@ -20,7 +20,7 @@ they do not turn these historical receipts into proof of a different HEAD.
 | T16 | Completed at `44baf38` | Retain its task-specific proof; not a final release approval. |
 | T17 source boundary | `3a0477d70311081c3e3c95516ac236c32d9c7128` | Source of the recorded clean-clone cohort below, not a full final release HEAD proof. |
 | T17 clean-clone receipt | `/tmp/researchgraph-release-3a0477d`, clean before and after; CPython 3.14.4; fresh optional install | Docs + `serve_docs` + notebook + CI cohort: **96 passed**, 42.53s. Legacy JUnit path: `/tmp/researchgraph-clean-3a0477d-docs.xml`. These are existing local receipts, not a newly run check in this documentation change. |
-| T17 remaining | pending | Full final clean-clone verification against the final approved source boundary remains pending. The 96-test cohort is not a full-suite result or proof for later edits. |
+| T17 at `5adaca9` | Exact clean clone at `5adaca9`: full suite **3,785 passed**, 2,530.87 s, no warnings or skips, all 120 strict latency checks and the unchanged historical/rebuild budgets; astroharness `0c0ff07` installed against the current wheel, 15 passed (receipt in the workflow ledger, 2026-10-22) | Candidate readiness is established at `5adaca9`. The run is repeated at the final SHA before any tag; the earlier 96-test cohort at `3a0477d` is retained as historical. |
 | Separate-profile astroharness adoption | Commits `aec49a3` / `0c0ff07`; 15 existing/new lifecycle tests against built core `447bb9a` | Authentic separately rooted consumer adoption is already proved. Do not repeat the stale claim that external profile adoption is missing. Preserve this positive evidence independently of the still-open human/product evaluations. |
 | G004 concrete repair | Query/evidence repair `0553138`; final-source 131 regression + 4 strict-load + 4 consumer checks done; all 80 samples durable | Concrete repair and retained samples are done. G004 remains review-blocked at the formal final boundary; do not infer final approval from completed checks. |
 | G006 formal boundary | pending | Formal final-boundary disposition remains pending, not falsely complete. |
@@ -40,7 +40,7 @@ in the durable evidence store before relying on their continued availability.
 | --- | --- | --- |
 | Committed notebook | SHA-256 `ce3e76651da923cb3ce67e87dba66c9d23a2a7f9a9be69cbfc5b6b40380c7a3c` | Committed proof boundary; do not overwrite it to match unrelated workspace state. |
 | Protected dirty notebook | SHA-256 `8e8815e624f6cd523de4422fd22b555b196400286bdd356ccadf0ba06a52cd07` | Pre-existing user state, not release evidence silently substituted for the committed notebook. Neither notebook version was overwritten by this documentation work. |
-| G001 / T02 | Only remaining T02 issue is the named protected `tasks/v0.2.md` hunk | It cannot be isolated without pre-existing user lines. Owner inclusion disposition is required; do not stage, rewrite or discard the protected task content as a workaround. |
+| G001 / T02 | Closed: the owner committed the accepted `tasks/v0.2.md` amendments and review resolutions in `190edc5` | Resolved; the implementation had been built to the amended text. |
 
 Protected notebook, tasks, review files, lock, checkpoints and incident material
 remain outside this documentation change. Their presence is not authorization to
@@ -54,7 +54,7 @@ that a release commit contains those bytes.
 | --- | --- | --- |
 | Agent protocol product-owner review | approved 2026-10-22 by the product owner after committee review (see the review table in agent-session.md) | Owner decision for [agent-session.md](agent-session.md), not author self-approval. |
 | Usability protocol product-owner review | approved 2026-10-22 by the product owner after committee review (see the review table in usability-session.md) | Owner decision for [usability-session.md](usability-session.md), including consent/capture and reviewed seed. |
-| Claude Code | pending formal recording; preflight passed 2026-10-22 on 2.1.306 (see [sessions/preflight-2026-10-22.md](sessions/preflight-2026-10-22.md)); recorded_product_count: 0 across both products | Actual product/model/configuration, MCP 2026-07-28 discovery preflight, real unassisted ten-step recording/transcript and independent native checker results. |
+| Claude Code | **completed-unassisted** 2026-10-22, attempt s01-1 on 2.1.306 / claude-fable-5-1; checker exit 0; reviewer ten-step audit passed; report [sessions/agent-claude-code-s01-1.md](sessions/agent-claude-code-s01-1.md); recorded_product_count: 1 of 2 | Recorded. Does not close Gate 2 alone; the second product and the outside researcher remain open. |
 | Codex CLI | pending; **failed compatibility attempts** 2026-10-22 on 0.155.1 and 0.163.0 (stdio negotiates 2025-06-18; decision 021 kept by owner disposition, see [sessions/preflight-2026-10-22.md](sessions/preflight-2026-10-22.md)) | Separate fresh project/seed, actual product/model/configuration, compatibility finding, real recording/transcript and independent checker results. Open until Codex negotiates 2026-07-28 over stdio, another second product is chosen, or a later decision narrows the refusal. |
 | Outside-researcher usability | pending; participant_count_target: 3; participant_count_achieved: 0 | At least one consenting researcher outside the team; actual three-task timings/outcomes/assistance, native state verification, consent-safe recordings and findings. |
 | Separate-profile adoption | already proved | Preserve `aec49a3` / `0c0ff07`, built core `447bb9a` and the 15 lifecycle-test receipt; this is not an open missing-adoption cell. |
