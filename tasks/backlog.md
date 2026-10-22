@@ -18,3 +18,4 @@ Items moved into `tasks/v0.2.md` on 2026-10-21: MCP server, change events, viewe
 - Incremental index update if a full rebuild fails the live-update latency target at scale
 - Extend profile-added endpoints beyond `cites` (for example `pins`) when a consumer needs it
 - Outside-researcher usability session (three timed viewer tasks, at least one consenting researcher outside the team): deferred from Gate 2 by decision 026; must run before Gate 3 and before the v1.0 measurement. Viewer findings U1–U11 from the 2026-10-22 walkthrough are input to v0.3's viewer items.
+- Second agent-product MCP session (Gate 2 criterion deferred by decision 027): a Codex CLI release that negotiates MCP 2026-07-28 over stdio, another product that does, or a decision narrowing 021 for object-shaped results; then a formal unassisted session under the signed protocol. Required before Gate 3.
