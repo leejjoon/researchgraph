@@ -427,7 +427,7 @@ def test_discovery_batches_start_before_walk_finishes_and_publish_atomically(tmp
     def sink(paths):
         assert files._files is published
         assert type(paths) is tuple
-        assert 0 < len(paths) <= 512
+        assert 0 < len(paths) <= 256
         assert all(type(path) is str and os.path.isabs(path) for path in paths)
         batches.append(paths)
 
@@ -440,7 +440,7 @@ def test_discovery_batches_start_before_walk_finishes_and_publish_atomically(tmp
         flattened = [path for batch in batches for path in batch]
         assert len(flattened) == len(expected)
         assert set(flattened) == expected
-        assert len(batches) == 3
+        assert len(batches) == 5
         assert type(files._discovered) is list
         assert all(
             type(record) is tuple

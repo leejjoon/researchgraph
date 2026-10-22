@@ -144,7 +144,8 @@ def main():
 
     Each request is an array of path strings; success frames contain a zero
     status byte followed by full-file SHA-256 digests in request order. Repeated
-    requests reuse only parsed paths and bounded mappings, never prior digests.
+    requests reuse only filesystem-encoded paths and bounded mappings, never
+    prior digests.
     OSError, ValueError and TypeError produce a bounded UTF-8 error frame with
     status one, then terminate the loop. EOF closes mappings; pipe-write and
     other uncaught errors propagate. This is not a graph execution API.
@@ -162,6 +163,7 @@ def main():
                         not isinstance(path, str) for path in paths
                     ):
                         raise ValueError("Hash request must be an array of paths")
+                    paths = [os.fsencode(path) for path in paths]
                     previous_line, previous_paths = line, paths
                 payload = b"".join(files.digest(path) for path in paths)
                 status = b"\x00"

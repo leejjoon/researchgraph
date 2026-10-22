@@ -436,11 +436,20 @@ def test_repeated_wire_reuses_only_paths_and_hashes_changed_live_bytes(
         return original_loads(line)
 
     monkeypatch.setattr(hash_worker.json, "loads", loads)
+    inspected = []
+    original_identity = _native_scan.fresh_file_identity
+
+    def fresh_identity(source):
+        inspected.append(source)
+        return original_identity(source)
+
+    monkeypatch.setattr(_native_scan, "fresh_file_identity", fresh_identity)
     output = io.BytesIO()
     monkeypatch.setattr(hash_worker.sys, "stdin", SimpleNamespace(buffer=requests()))
     monkeypatch.setattr(hash_worker.sys, "stdout", SimpleNamespace(buffer=output))
     hash_worker.main()
     assert decoded == [request]
+    assert inspected == [os.fsencode(path)] * 2
     assert output.getvalue() == b"".join(
         struct.pack(">I", 33) + b"\x00" + sha(content)
         for content in (b"before", b"after!")

@@ -722,9 +722,9 @@ def test_scan_more_than_eight_bounded_tuple_batches_and_final_history(tmp_path):
     before = fd_snapshot()
     records = scan.discover(str(tmp_path), {}, batches.append)
     assert_records(records, tmp_path, names)
-    assert len(batches) == 9
-    assert all(type(batch) is tuple and 0 < len(batch) <= 512 for batch in batches)
-    assert all(len(batch) == 512 for batch in batches[:-1])
+    assert len(batches) == 17
+    assert all(type(batch) is tuple and 0 < len(batch) <= 256 for batch in batches)
+    assert all(len(batch) == 256 for batch in batches[:-1])
     assert batches[-1][-1] == str(tmp_path / ".researchgraph/history.jsonl")
     emitted = [path for batch in batches for path in batch]
     assert emitted == [path for _, path in records]
@@ -755,7 +755,7 @@ def test_scan_late_callback_errors_preserve_identity_and_close_fds(tmp_path, exc
         scan.discover(str(tmp_path), {}, sink)
     assert error.value is exception
     assert len(batches) == 2
-    assert all(len(batch) == 512 for batch in batches)
+    assert all(len(batch) == 256 for batch in batches)
     assert_fd_unchanged(before)
     assert len(scan.discover(str(tmp_path), {})) == 1025
 
@@ -778,7 +778,7 @@ def test_scan_late_source_oserror_is_not_translated_and_closes_fds(tmp_path):
         scan.discover(str(tmp_path), {}, sink)
     assert not isinstance(error.value, scan.PathError)
     assert error.value.errno is not None
-    assert batches and len(batches[0]) == 512
+    assert batches and len(batches[0]) == 256
     assert_fd_unchanged(before)
 
 
@@ -789,7 +789,8 @@ def test_scan_late_history_path_error_after_graph_batches_closes_fds(tmp_path):
 
     def sink(batch):
         batches.append(batch)
-        (tmp_path / ".researchgraph").symlink_to(tmp_path / "missing")
+        if len(batches) == 1:
+            (tmp_path / ".researchgraph").symlink_to(tmp_path / "missing")
 
     before = fd_snapshot()
     with pytest.raises(scan.PathError) as error:
@@ -797,7 +798,7 @@ def test_scan_late_history_path_error_after_graph_batches_closes_fds(tmp_path):
     assert (
         str(error.value) == "Symlink graph/history path: .researchgraph/history.jsonl"
     )
-    assert len(batches) == 1
+    assert len(batches) == 2
     assert_fd_unchanged(before)
 
 

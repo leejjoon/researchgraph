@@ -31,7 +31,7 @@ class SourceFiles:
         """Freshly discover sources under root and return the current file count.
 
         Forward optional private _batch_sink (default None) to native discovery;
-        it receives tuples of absolute path strings, at most 512 paths each.
+        it receives tuples of absolute path strings, at most 256 paths each.
         Publish sorted paths, UTF-8 length-prefixed name frames and compiled
         framing only after discovery/encoding/compilation succeed; unchanged path
         sets reuse framing, not content hashes. Native PathError and non-UTF-8

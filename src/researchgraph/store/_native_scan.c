@@ -162,7 +162,7 @@ static int push_directory(PyObject *stack, PyObject *absolute, PyObject *relativ
 static int emit_batch(PyObject *result, PyObject *sink, Py_ssize_t *emitted, int final) {
     if (sink == Py_None) return 0;
     Py_ssize_t count = PyList_GET_SIZE(result) - *emitted;
-    if (!count || (!final && count < 512)) return 0;
+    if (!count || (!final && count < 256)) return 0;
     PyObject *batch = PyTuple_New(count);
     if (!batch) return -1;
     for (Py_ssize_t i = 0; i < count; i++) {
