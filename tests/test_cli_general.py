@@ -580,16 +580,12 @@ def _assert_all_queries(root, ids, now):
                 for name, arguments in cases
             ]
         extra = () if as_of is None else ("--as-of", as_of)
-        cached = [
-            succeeds(invoke(root, name, *arguments, *extra, now=now))
-            for name, arguments in cases
-        ]
-        assert cached == expected
         for (name, arguments), value in zip(cases, expected, strict=True):
-            # No API Project owns the sqlite connection at this boundary. Each
-            # family independently exercises opening with the index absent.
-            (root / ".researchgraph/index.sqlite").unlink()
+            # cli_cache_policy selects kept/deleted for the real console.
             assert succeeds(invoke(root, name, *arguments, *extra, now=now)) == value
+            # Independently rebuild every native query after the CLI exits.
+            # This preserves the per-write I8 oracle in either CLI cache mode.
+            (root / ".researchgraph/index.sqlite").unlink()
             with Project.open(root) as project:
                 assert (
                     getattr(project, name)(
@@ -597,6 +593,38 @@ def _assert_all_queries(root, ids, now):
                     )
                     == value
                 )
+
+
+def test_query_oracle_uses_selected_cli_cache_and_independent_api_rebuilds(
+    tmp_path, monkeypatch, index_mode
+):
+    root = _root(tmp_path / "project")
+    ids = _baseline(root)
+    index = root / ".researchgraph/index.sqlite"
+    cli_cache_states = []
+    api_cache_states = []
+    run = subprocess.run
+    open_project = Project.open
+
+    def record_run(arguments, *args, **kwargs):
+        if arguments[0] == str(_console()):
+            cli_cache_states.append(index.exists())
+        return run(arguments, *args, **kwargs)
+
+    def record_open(path, *args, **kwargs):
+        if Path(path) == root:
+            api_cache_states.append(index.exists())
+        return open_project(path, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", record_run)
+    monkeypatch.setattr(Project, "open", staticmethod(record_open))
+    _assert_all_queries(root, ids, NOW)
+
+    # Sixteen real CLI query families, current and historical, once per mode.
+    assert len(cli_cache_states) == 32
+    assert cli_cache_states == [index_mode == "kept"] * 32
+    # Cached native expectations precede independently rebuilt native results.
+    assert api_cache_states == ([True] + [False] * 16) * 2
 
 
 ACTIONS = st.lists(
