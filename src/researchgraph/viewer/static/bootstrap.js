@@ -56,6 +56,7 @@ try {
   document.querySelector("#viewer").before(navigation);
   reviews.addEventListener("queue-updated", event => { reviewCount.textContent = String(event.detail.count); });
   graph.addEventListener("node-select", inspectNode);
+  inspector.addEventListener("node-select", inspectNode);
   inspector.addEventListener("mutation-complete", () => { void graph.reload(); void reviews.reload(); });
   reviews.addEventListener("node-select", inspectNode);
   reviews.addEventListener("mutation-complete", () => { void graph.reload(); void inspector.reload(); });

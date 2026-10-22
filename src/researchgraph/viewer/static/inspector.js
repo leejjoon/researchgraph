@@ -180,6 +180,27 @@ export class ResearchInspector extends HTMLElement {
     this.#shell.append(status);
     if (this.#lastAction) {
       const action = this.#lastAction;
+      if (!action.error && ["supersede", "instruct", "expand"].includes(action.operation) && action.result?.id) {
+        const result = action.result;
+        const summary = element("p");
+        summary.setAttribute("role", "status");
+        let text = `Created ${result.type} ${result.id}.`;
+        if (action.operation === "supersede") {
+          const instructions = this.#graph.edges.filter(edge => edge.type === "instructs" && edge.to === result.id).map(edge => edge.from);
+          text += ` Retired ${action.node}. Instruction: ${instructions.length ? instructions.join(", ") : "none"}.`;
+        }
+        summary.append(document.createTextNode(`${text} This does not execute work. `));
+        const link = element("a", `Open ${result.id}`);
+        link.href = `#${encodeURIComponent(result.id)}`;
+        link.addEventListener("click", event => {
+          event.preventDefault();
+          this.dispatchEvent(new CustomEvent("node-select", {
+            bubbles: true, composed: true, detail: { id: result.id },
+          }));
+        });
+        summary.append(link);
+        this.#shell.append(summary);
+      }
       this.#shell.append(element("pre", action.error || json(action.result), action.error ? "error" : "action-result"));
     }
     if (!this.#node) return;
@@ -305,6 +326,7 @@ export class ResearchInspector extends HTMLElement {
       wrapper.append(element("span", name), input);
       form.append(wrapper);
       let include = null;
+      let edited = false;
       if (!argument.required) {
         const hint = Object.hasOwn(argument, "default") ?
           `Omitted unless Set ${name} is checked. Server default: ${JSON.stringify(argument.default)}.` :
@@ -317,11 +339,11 @@ export class ResearchInspector extends HTMLElement {
         const toggle = element("label");
         toggle.append(include, element("span", `Set ${name}`));
         form.append(toggle);
-        const enable = () => { include.checked = true; };
+        const enable = () => { edited = true; include.checked = true; };
         input.addEventListener("input", enable);
         input.addEventListener("change", enable);
       }
-      controls.push({ argument, input, include, types });
+      controls.push({ argument, input, include, types, wasEdited: () => edited });
     }
     const submit = element("button", `Apply ${label}`);
     submit.type = "submit";
@@ -332,14 +354,17 @@ export class ResearchInspector extends HTMLElement {
       if (this.#busy || this.#readOnly !== false || this.#loading) return;
       try {
         const args = { ...presets };
-        for (const { argument, input, include, types } of controls) {
+        for (const { argument, input, include, types, wasEdited } of controls) {
+          if (include && !include.checked && wasEdited()) {
+            throw new Error(`${labelFor(argument.name)} was edited but would be omitted. Check Set ${labelFor(argument.name)} to include it, or reopen this action to discard the draft.`);
+          }
           if (include && !include.checked) continue;
           args[argument.name] = types.includes("boolean") ? input.checked :
             types.includes("string") ? input.value : JSON.parse(input.value);
         }
         void this.#mutate(operation, args);
       } catch (error) {
-        this.#error = `Invalid form JSON: ${error.message}`;
+        this.#error = `Invalid form: ${error.message}`;
         // Keep entered values available for correction.
         let message = form.querySelector('[role="alert"]');
         if (!message) {

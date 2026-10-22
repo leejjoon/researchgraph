@@ -1,6 +1,7 @@
 """Real browser inspector reads, deliberate actions and persisted failure outcomes."""
 
 import json
+import re
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
@@ -415,6 +416,226 @@ def test_each_deliberate_action_exact_payload_native_result_and_installed_histor
                 assert result["lease"] is None
             elif name == "Pin link":
                 assert result["id"] in [item["id"] for item in shown["pins"]]
+        assert not errors
+
+
+def test_rerun_edited_instruction_cannot_be_silently_omitted_by_set_toggle(
+    tmp_path, chromium_browser, index_mode
+):
+    from playwright.sync_api import expect
+
+    seeded = inspector_project(tmp_path)
+    identifier = seeded["task"]["id"]
+    instruction = "Collect at least two synthetic samples before validating."
+    posts = []
+    with (
+        loopback_server(tmp_path) as owner,
+        selected_inspector(chromium_browser, owner, identifier) as (
+            page,
+            inspector,
+            _,
+            errors,
+        ),
+    ):
+        before = authoritative_bytes(tmp_path)
+        previous = git(tmp_path, "rev-parse", "HEAD")
+        page.on(
+            "request",
+            lambda request: (
+                posts.append((request.url, request.post_data_json))
+                if request.method == "POST"
+                else None
+            ),
+        )
+        inspector.get_by_role(
+            "button", name="Re-run with instruction", exact=True
+        ).click()
+        inspector.get_by_label("Instruction", exact=True).fill(instruction)
+        # w01 followed the visible "Omitted unless Set ... is checked" hint:
+        # typing already checked it, so this deliberate click turns it off.
+        inspector.get_by_label("Set Instruction", exact=True).click()
+        inspector.get_by_role(
+            "button", name="Apply Re-run with instruction", exact=True
+        ).click()
+        warning = inspector.get_by_role("alert")
+        expect(warning).to_contain_text(re.compile("instruction", re.IGNORECASE))
+        expect(warning).to_contain_text(
+            re.compile("omit|not included|not sent", re.IGNORECASE)
+        )
+        assert posts == []
+        assert authoritative_bytes(tmp_path) == before
+        assert git(tmp_path, "rev-parse", "HEAD") == previous
+        assert (
+            inspector.get_by_label("Instruction", exact=True).input_value()
+            == instruction
+        )
+
+        # Correct the omission before the sole write, not with a second Instruct.
+        inspector.get_by_label("Set Instruction", exact=True).set_checked(True)
+        inspector.get_by_role(
+            "button", name="Apply Re-run with instruction", exact=True
+        ).click()
+        wait_action(page)
+        assert len(posts) == 1
+        assert posts[0][0].endswith("/api/supersede")
+        assert posts[0][1] == {"node": identifier, "instruction": instruction}
+        action = inspector.evaluate("element => element.lastAction")
+        assert action["error"] is None
+        replacement_id = action["result"]["id"]
+        with Project.open(tmp_path) as project:
+            original = project.show(identifier, actor=ALICE, now=NOW)
+            replacement = project.show(replacement_id, actor=ALICE, now=NOW)
+            assert original["status"] == "retired"
+            assert [item["body"] for item in replacement["instructions"]] == [
+                instruction
+            ]
+            assert any(
+                edge["type"] == "supersedes"
+                and edge["from"] == replacement_id
+                and edge["to"] == identifier
+                for edge in replacement["edges"]
+            )
+            assert replacement["lease"] is None
+            assert replacement["approvals"] == []
+            assert replacement["artifacts"] == []
+        assert git(tmp_path, "rev-list", "--count", f"{previous}..HEAD") == "1"
+        assert inspector.evaluate("element => element.node.status") == "retired"
+        assert replacement_id in json.dumps(
+            inspector.evaluate("element => element.related.history")
+        )
+        assert not errors
+
+
+@pytest.mark.parametrize(
+    ("name", "label", "value"),
+    [
+        ("Tag", "Priority", "null"),
+        ("Tag", "Priority", "0"),
+        ("Tag", "Add", "[]"),
+        ("Re-run with instruction", "Instruction", ""),
+        ("Re-run with instruction", "Inherit edges", False),
+    ],
+)
+def test_edited_unset_optional_values_warn_without_losing_draft(
+    tmp_path, chromium_browser, name, label, value
+):
+    from playwright.sync_api import expect
+
+    seeded = inspector_project(tmp_path)
+    posts = []
+    with (
+        loopback_server(tmp_path) as owner,
+        selected_inspector(chromium_browser, owner, seeded["task"]["id"]) as (
+            page,
+            inspector,
+            _,
+            errors,
+        ),
+    ):
+        before = authoritative_bytes(tmp_path)
+        page.on(
+            "request",
+            lambda request: (
+                posts.append(request.url) if request.method == "POST" else None
+            ),
+        )
+        inspector.get_by_role("button", name=name, exact=True).click()
+        control = inspector.get_by_label(label, exact=True)
+        if isinstance(value, bool):
+            control.set_checked(value)
+        else:
+            # Include an explicit clear operation in the empty-string case.
+            control.fill("draft" if value == "" else value)
+            if value == "":
+                control.fill("")
+        inspector.get_by_label(f"Set {label}", exact=True).set_checked(False)
+        inspector.get_by_role("button", name=f"Apply {name}", exact=True).click()
+        expect(inspector.get_by_role("alert")).to_contain_text(label)
+        expect(inspector.get_by_role("alert")).to_contain_text("omitted")
+        assert posts == []
+        assert authoritative_bytes(tmp_path) == before
+        if isinstance(value, bool):
+            assert control.is_checked() is value
+        else:
+            assert control.input_value() == value
+        assert not inspector.get_by_label(f"Set {label}", exact=True).is_checked()
+        assert not errors
+
+
+@pytest.mark.parametrize("with_instruction", [False, True])
+def test_rerun_feedback_names_created_retired_and_instruction_and_links_replacement(
+    tmp_path, chromium_browser, index_mode, with_instruction
+):
+    from playwright.sync_api import expect
+
+    seeded = inspector_project(tmp_path)
+    identifier = seeded["task"]["id"]
+    arguments = {"instruction": "Collect two samples."} if with_instruction else {}
+    posts = []
+    with (
+        loopback_server(tmp_path) as owner,
+        selected_inspector(chromium_browser, owner, identifier) as (
+            page,
+            inspector,
+            _,
+            errors,
+        ),
+    ):
+        previous = git(tmp_path, "rev-parse", "HEAD")
+        page.on(
+            "request",
+            lambda request: (
+                posts.append((request.url, request.post_data_json))
+                if request.method == "POST"
+                else None
+            ),
+        )
+        choose_action(inspector, "Re-run with instruction", arguments)
+        wait_action(page)
+        assert len(posts) == 1
+        assert posts[0][0].endswith("/api/supersede")
+        assert posts[0][1] == {"node": identifier, **arguments}
+        action = inspector.evaluate("element => element.lastAction")
+        assert action["error"] is None
+        replacement_id = action["result"]["id"]
+        with Project.open(tmp_path) as project:
+            assert project.show(identifier, actor=ALICE, now=NOW)["status"] == "retired"
+            replacement = project.show(replacement_id, actor=ALICE, now=NOW)
+            instructions = replacement["instructions"]
+            assert [item["body"] for item in instructions] == (
+                [arguments["instruction"]] if with_instruction else []
+            )
+            assert replacement["lease"] is None
+            assert replacement["approvals"] == []
+            assert replacement["artifacts"] == []
+        assert git(tmp_path, "rev-list", "--count", f"{previous}..HEAD") == "1"
+
+        # Successful graph mutation needs readable feedback, not JSON parsing.
+        # A live status also exposes the outcome to assistive technology.
+        feedback = " ".join(inspector.get_by_role("status").all_text_contents())
+        assert re.search(r"created.*Task", feedback, re.IGNORECASE), feedback
+        assert replacement_id in feedback
+        assert re.search(r"retired", feedback, re.IGNORECASE) and identifier in feedback
+        assert re.search(r"instruction", feedback, re.IGNORECASE), feedback
+        if with_instruction:
+            assert instructions[0]["id"] in feedback
+        else:
+            assert re.search(
+                r"no instruction|instruction[^.]*none", feedback, re.IGNORECASE
+            )
+        assert re.search(
+            r"not execut|does not execute|no work.*execut", feedback, re.IGNORECASE
+        )
+        replacement_link = inspector.get_by_role(
+            "link", name=re.compile(re.escape(replacement_id))
+        )
+        expect(replacement_link).to_be_visible()
+        replacement_link.click()
+        page.wait_for_function(
+            "id => document.querySelector('research-inspector').node?.id === id",
+            arg=replacement_id,
+        )
+        assert len(posts) == 1
         assert not errors
 
 
