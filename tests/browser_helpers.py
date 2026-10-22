@@ -2,7 +2,8 @@
 
 from collections import deque
 from contextlib import contextmanager
-from urllib.parse import urlsplit
+from time import monotonic
+from urllib.parse import parse_qsl, urlsplit
 
 from tests.helpers import git
 
@@ -29,7 +30,41 @@ def viewer_page(browser, owner):
     page.set_default_timeout(5000)
     requests, errors = [], []
     failed_requests = deque(maxlen=128)
+    native_reads = deque(maxlen=256)
+    started = monotonic()
+
+    def record_read(event, request, **details):
+        url = urlsplit(request.url)
+        if request.method != "GET" or not url.path.startswith("/api/"):
+            return
+        native_reads.append(
+            {
+                "event": event,
+                "elapsed_ms": round((monotonic() - started) * 1000, 1),
+                "path": url.path,
+                "port": url.port,
+                "selection": {
+                    key: value
+                    for key, value in parse_qsl(url.query)
+                    if key in {"id", "claim", "hypothesis"}
+                },
+                **details,
+            }
+        )
+
     page.on("request", lambda request: requests.append(request.url))
+    page.on("request", lambda request: record_read("request", request))
+    page.on(
+        "response",
+        lambda response: record_read(
+            "response", response.request, status=response.status
+        ),
+    )
+    page.on("requestfinished", lambda request: record_read("finished", request))
+    page.on(
+        "requestfailed",
+        lambda request: record_read("failed", request, failure=request.failure),
+    )
     page.on(
         "requestfailed",
         lambda request: failed_requests.append(
@@ -63,6 +98,7 @@ def viewer_page(browser, owner):
         yield page, requests, errors, token
     except BaseException as error:
         error.add_note(f"Actual browser request failures: {list(failed_requests)!r}")
+        error.add_note(f"Bounded native GET lifecycle: {list(native_reads)!r}")
         raise
     finally:
         context.close()

@@ -111,16 +111,109 @@ def inspector_project(root, *, profile="research"):
 @contextmanager
 def selected_inspector(browser, owner, identifier):
     """Select through the actual host event bridge and await real inspector data."""
+    from playwright.sync_api import Error as PlaywrightError
+
     with viewer_page(browser, owner) as (page, requests, errors, _):
         page.wait_for_function(
             "() => customElements.get('research-inspector') !== undefined"
         )
-        page.locator(f'research-graph [data-node-id="{identifier}"]').click()
-        page.wait_for_function(
-            "id => document.querySelector('research-inspector').node?.id === id",
-            arg=identifier,
+        page.evaluate(
+            """() => {
+                const graph = document.querySelector('research-graph');
+                const inspector = document.querySelector('research-inspector');
+                const started = performance.now();
+                const events = [];
+                const record = (event, detail = {}) => {
+                    events.push({event, elapsed_ms: performance.now() - started,
+                        selected: inspector?.getAttribute('node-id'),
+                        loaded: inspector?.node?.id ?? null, ...detail});
+                    if (events.length > 32) events.shift();
+                };
+                const selection = event => record(event.type, {
+                    source: event.target.localName, id: event.detail?.id ?? null});
+                const pointer = event => {
+                    const path = event.composedPath();
+                    const node = path.find(item =>
+                        item.getAttribute?.('data-node-id'));
+                    if (path.includes(graph)) record(event.type, {
+                        id: node?.getAttribute('data-node-id') ?? null,
+                        target: event.target.localName, trusted: event.isTrusted,
+                        x: event.clientX, y: event.clientY});
+                };
+                const types = ['node-select', 'snapshot-reset', 'snapshot-updated'];
+                const pointerTypes = ['pointerdown', 'pointerup', 'click'];
+                for (const type of types) document.addEventListener(type, selection, true);
+                for (const type of pointerTypes) document.addEventListener(type, pointer, true);
+                record('before-click');
+                window.__inspectorSelectionEvidence = {
+                    snapshot: () => ({events,
+                        sameGraph: graph === document.querySelector('research-graph'),
+                        sameInspector: inspector === document.querySelector('research-inspector'),
+                        connected: inspector?.isConnected ?? false,
+                        selected: inspector?.getAttribute('node-id'),
+                        loaded: inspector?.node?.id ?? null,
+                        readOnly: inspector?.readOnly,
+                        busy: inspector?.busy,
+                        status: inspector?.shadowRoot.querySelector('[role="status"]')?.textContent}),
+                    stop: () => {
+                        for (const type of types) document.removeEventListener(type, selection, true);
+                        for (const type of pointerTypes) document.removeEventListener(type, pointer, true);
+                        delete window.__inspectorSelectionEvidence;
+                    }
+                };
+            }"""
         )
+        try:
+            page.locator(f'research-graph [data-node-id="{identifier}"]').click()
+            page.wait_for_function(
+                "id => document.querySelector('research-inspector').node?.id === id",
+                arg=identifier,
+            )
+        except BaseException as error:
+            try:
+                evidence = page.evaluate(
+                    "() => window.__inspectorSelectionEvidence.snapshot()"
+                )
+            except PlaywrightError as diagnostic_error:
+                evidence = {"unavailable": str(diagnostic_error)}
+            error.add_note(
+                f"Pre-action selection evidence for {identifier}: {evidence!r}"
+            )
+            raise
+        page.evaluate("() => window.__inspectorSelectionEvidence.stop()")
         yield page, page.locator("#viewer > research-inspector"), requests, errors
+
+
+def test_initial_selection_failure_retains_native_and_pointer_diagnostics(
+    tmp_path, chromium_browser, monkeypatch
+):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    from researchgraph.model import RuleViolation
+
+    seeded = inspector_project(tmp_path)
+    identifier = seeded["active"]["id"]
+    message = "Dedicated initial native show unavailable"
+
+    def unavailable(self, *args, **context):
+        raise RuleViolation("schema", message)
+
+    monkeypatch.setattr(Project, "show", unavailable)
+    with (
+        loopback_server(tmp_path) as owner,
+        pytest.raises(PlaywrightTimeoutError) as raised,
+        selected_inspector(chromium_browser, owner, identifier),
+    ):
+        pytest.fail("A refused native selection must not publish a node")
+    notes = "\n".join(raised.value.__notes__)
+    assert "Pre-action selection evidence" in notes
+    assert "node-select" in notes
+    assert identifier in notes
+    assert message in notes
+    assert "Bounded native GET lifecycle" in notes
+    assert "'/api/show'" in notes
+    assert "'status': 422" in notes
+    assert "'id':" in notes
 
 
 def choose_action(inspector, name, arguments):
