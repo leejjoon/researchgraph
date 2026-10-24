@@ -1,7 +1,8 @@
 # researchgraph user manual
 
-This describes researchgraph 0.0.1, the v0.1 specification milestone, and bundled
-profiles research 1.0 and tasks 1.0. It is descriptive, not normative: [the
+This manual covers the v0.2 specification milestone for researchgraph 0.0.1
+(package version), with bundled profiles research 1.0 and tasks 1.0. It is
+descriptive, not normative: [the
 specification](../spec/operations.md) remains the contract. Report discrepancies;
 never change the specification just to make documentation pass.
 

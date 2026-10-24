@@ -1,7 +1,8 @@
 # researchgraph integration manual
 
-For external Python/CLI integrations with researchgraph 0.0.1, the v0.1 milestone,
-and bundled profiles research 1.0 and tasks 1.0. This is descriptive documentation,
+For external Python/CLI, MCP and HTTP/SSE integrations with researchgraph 0.0.1
+(package version), covering the v0.2 specification milestone and bundled
+profiles research 1.0 and tasks 1.0. This is descriptive documentation,
 not a replacement for the [normative operations](../spec/operations.md). Report
 implementation/specification disagreements rather than editing the spec to satisfy
 these examples. The [user manual](user-manual.md) supplies the complete 37-graph-command

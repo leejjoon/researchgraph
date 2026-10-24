@@ -479,8 +479,10 @@ def test_manual_navigation_versions_and_example_inventory():
                     destination
                 )
         # Provenance only: these checks do not claim the prose is self-contained.
-        assert f"researchgraph {__version__}" in text
-        assert "v0.1" in text
+        opening = " ".join(text.split("\n\n", 2)[1].split())
+        assert f"researchgraph {__version__}" in opening
+        assert "v0.2 specification milestone" in opening
+        assert "v0.1" not in opening
         for profile in (RESEARCH_PROFILE, TASKS_PROFILE):
             assert f"{profile.name} {profile.version}" in text
         assert "](research-tutorial.ipynb)" in text
