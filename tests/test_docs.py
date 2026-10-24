@@ -490,6 +490,24 @@ def test_manual_navigation_versions_and_example_inventory():
     published_manual_blocks()
 
 
+def test_serve_manual_embeds_viewer_image_with_accessible_description():
+    manual = ROOT / MANUALS[0]
+    servers = manual.read_text().split("\n## Servers\n", 1)[1].split("\n## ", 1)[0]
+    images = {
+        destination: description
+        for description, destination in re.findall(r"!\[([^\]]+)\]\(([^)]+)\)", servers)
+    }
+    description = images["images/viewer.png"].lower()
+    assert "graph" in description and "inspector" in description
+    assert "synthetic" in servers.lower()
+    image = (manual.parent / "images/viewer.png").read_bytes()
+    assert image.startswith(b"\x89PNG\r\n\x1a\n")
+    assert image[12:16] == b"IHDR"
+    assert int.from_bytes(image[16:20], "big") >= 640
+    assert int.from_bytes(image[20:24], "big") >= 360
+    assert len(image) > 4096
+
+
 def test_current_task_pointer_and_additive_v02_requirements():
     instructions = (ROOT / "AGENTS.md").read_text()
     assert "tasks/v0.2.md" in instructions

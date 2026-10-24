@@ -299,6 +299,11 @@ history, evidence, weakest inputs, alternatives, predictions, notes and subtree.
 The role selector uses the profile's declared roles; its blank option keeps the
 launch default. Read-only serving hides actions and also refuses direct writes.
 
+![Researchgraph web viewer showing live monitoring, the research graph, and a selected Task in the inspector](images/viewer.png)
+
+*Actual `rg serve` page with synthetic demonstration data. The running status
+reflects a recorded claim, not work executed by the viewer.*
+
 Approve can include a note; Reject requires a reason. Instruct adds an Instruction.
 Re-run with instruction makes one `supersede` call, retiring the old node and
 creating a replacement with an optional Instruction. It does not execute a task
