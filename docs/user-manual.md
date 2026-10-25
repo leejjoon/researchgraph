@@ -83,6 +83,29 @@ Run all nine steps in order from the same working directory. JSON files retain
 the generated IDs between steps. Each `jq -e` check prints `true` on success and
 stops the example if the expected condition is false.
 
+**Workflow overview.** These arrows show the order of actions, not stored graph
+edges. The core records and checks work; a person or external agent performs it.
+
+<!-- rg-example: workflow-diagrams; part=1; fragment -->
+```mermaid
+flowchart TD
+    setup["1. Initialize the project"] --> question["2. Ask a Question and propose a Hypothesis"]
+    question --> reviewH["Human: review and approve the Hypothesis"]
+    reviewH --> prediction["3. State a Prediction"]
+    prediction --> reviewP["Human: review and approve the Prediction"]
+    reviewP --> task["4. Create a Task and check readiness"]
+    task --> work["5. Agent: claim, save data, complete"]
+    work --> result["6. Human: record a Result and attach saved data"]
+    result --> claim["7. Human: cite the Result, review and approve a Claim"]
+    claim --> inspect["8. Inspect evidence and the cleared lease"]
+    inspect --> followup["9. Replace a follow-up, preserving history"]
+```
+
+The graph snapshots below instead use **stored edge directions**, with edge types
+on the arrows: `Hypothesis → answers → Question`, for example. They show the state
+after each step. Highlighted nodes are newly added in that step; labels also name
+them so color is not required. Step 5 shows Task state changes, not graph edges.
+
 ### 1. Create a project and a small CLI helper
 
 Create a disposable Git repository with a local demo identity. The helper file
@@ -111,11 +134,22 @@ git -C "$root" config commit.gpgsign false
 call 00:00:02 init | jq -e '.profile == "research"'
 ```
 
+**What you now have:** an empty research-profile project in `research-demo`, a
+declared demo human identity, and a reusable CLI helper. No research nodes exist yet.
+
 ### 2. Ask a question and approve a hypothesis
 
 Propose the research Question and a possible answer. The `answers` edge points
 from the Hypothesis to the Question. After reviewing both, the declared human
 approves the Hypothesis, changing it from proposed to active.
+
+<!-- rg-example: workflow-diagrams; part=2; fragment -->
+```mermaid
+flowchart LR
+    H["New Hypothesis: active"] -->|answers| Q["New Question: active"]
+    classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e,stroke-width:2px;
+    class H,Q added;
+```
 
 <!-- rg-example: user-lifecycle; part=2; runnable -->
 ```sh
@@ -134,6 +168,17 @@ Give the hypothesis a concrete expected outcome. The `tests` edge records that
 expectation and connects the Prediction to the Hypothesis. Review the prediction
 before approving it.
 
+<!-- rg-example: workflow-diagrams; part=3; fragment -->
+```mermaid
+flowchart LR
+    P["New Prediction: active"] -->|tests| H["Hypothesis: active"]
+    H -->|answers| Q["Question: active"]
+    classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e,stroke-width:2px;
+    class P added;
+```
+
+The `tests` edge stores the expected outcome: `paired mean difference = 2`.
+
 <!-- rg-example: user-lifecycle; part=3; runnable -->
 ```sh
 . ./user-cli.sh
@@ -150,6 +195,18 @@ call 00:00:16 approve "$prediction" | jq -e '.status == "active"'
 Create the work item and link it to the Prediction it addresses. The readiness
 query confirms this Task can be claimed; it does not schedule or execute it.
 
+<!-- rg-example: workflow-diagrams; part=4; fragment -->
+```mermaid
+flowchart TD
+    T["New Task: active and ready"] -->|addresses| P["Prediction: active"]
+    P -->|tests| H["Hypothesis: active"]
+    H -->|answers| Q["Question: active"]
+    classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e,stroke-width:2px;
+    class T added;
+```
+
+Ready is a computed condition, not a stored status. The Task is still `active`.
+
 <!-- rg-example: user-lifecycle; part=4; runnable -->
 ```sh
 . ./user-cli.sh
@@ -165,6 +222,18 @@ call 00:00:22 ready | jq -e --arg task "$task" 'any(.items[]; .id == $task)'
 Switch to a distinct declared agent for the claim and completion. Write a tiny
 constructed dataset under the Task's artifact directory, then register it while
 completing the Task. The shift of two is illustrative, not scientific validation.
+
+<!-- rg-example: workflow-diagrams; part=5; fragment -->
+```mermaid
+flowchart TD
+    ready["Task: active, ready, no lease"] -->|agent claims| running["Same Task: running, lease held"]
+    running --> save["Agent writes paired.json under the Task artifact directory"]
+    save --> complete["Agent completes with the artifact path"]
+    complete --> done["Same Task: done, artifact registered, lease cleared"]
+```
+
+These are actions on one Task, not new nodes or edges. Completion does not create
+a Result automatically; that is the next step.
 
 <!-- rg-example: user-lifecycle; part=5; runnable -->
 ```sh
@@ -184,6 +253,20 @@ call 00:00:26 --as-agent tutorial-worker complete "$task" 'Paired shift measured
 Return to the declared human identity by omitting `--as-agent`. Create a Result
 derived from the completed Task. Copy the saved data into the Result's own
 directory and attach it there: `attach` records existing bytes, not a file copy.
+
+<!-- rg-example: workflow-diagrams; part=6; fragment -->
+```mermaid
+flowchart TD
+    R["New Result: active, own artifact registered"] -->|derived-from| T["Task: done, own artifact registered"]
+    T -->|addresses| P["Prediction: active"]
+    P -->|tests| H["Hypothesis: active"]
+    H -->|answers| Q["Question: active"]
+    classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e,stroke-width:2px;
+    class R added;
+```
+
+The two artifact records refer to separate files owned by their respective nodes,
+even though this example copies identical bytes. They are not graph edges.
 
 <!-- rg-example: user-lifecycle; part=6; runnable -->
 ```sh
@@ -205,6 +288,23 @@ call 00:00:32 attach "$result" --artifact "$result_relative" \
 The Claim cites the Result and supports the Hypothesis. Review the Result's saved
 bytes and these relations before approval. Approval makes the Claim active, not
 done; the validator checks provenance links, not the truth of the claim.
+
+<!-- rg-example: workflow-diagrams; part=7; fragment -->
+```mermaid
+flowchart TD
+    C["New Claim: active after human approval"] -->|cites| R["Result: active, artifact registered"]
+    C -->|supports| H["Hypothesis: active"]
+    R -->|derived-from| T["Task: done"]
+    T -->|addresses| P["Prediction: active"]
+    P -->|tests| H
+    H -->|answers| Q["Question: active"]
+    classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e,stroke-width:2px;
+    class C added;
+```
+
+Read the evidence path as `Claim → cites → Result → derived-from → Task`.
+The separate `supports` edge states what the Claim says about the Hypothesis;
+it does not establish that the Hypothesis is true.
 
 <!-- rg-example: user-lifecycle; part=7; runnable -->
 ```sh
@@ -234,11 +334,34 @@ call 00:00:42 evidence "$claim" | jq -e --arg result "$result" \
 call 00:00:44 show "$task" | jq -e '.lease == null'
 ```
 
+**What you now have:** a readback confirming that the Claim's evidence includes
+the Result and its saved artifact, and that the completed Task no longer holds a
+lease. These queries add no nodes or edges and do not assess scientific validity.
+
 ### 9. Replace a follow-up without erasing history
 
 Propose a separate follow-up Task, then supersede it with a better-scoped Task.
 The replacement has a new ID; the original remains available in history. The
 last command prints a compact receipt with the project, Claim, and replacement IDs.
+
+<!-- rg-example: workflow-diagrams; part=8; fragment -->
+```mermaid
+flowchart TB
+    subgraph before["Before supersede"]
+        original["Follow-up Task: active"]
+    end
+    subgraph after["After supersede"]
+        direction TB
+        replacement["New replacement Task: active, new ID"] -->|supersedes| retired["Original follow-up Task: retired, same old ID"]
+    end
+    classDef added fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e,stroke-width:2px;
+    class replacement added;
+```
+
+The before/after panels are two snapshots, not additional nodes. The stored
+`supersedes` edge points **from the replacement to the original**. This is a
+separate follow-up, not a replacement of the completed measurement Task. Neither
+creating nor superseding it starts another run.
 
 <!-- rg-example: user-lifecycle; part=9; runnable -->
 ```sh
