@@ -2,7 +2,7 @@
 
 An append-only research graph in git, for humans and agents.
 
-A project is a directory of small YAML files (nodes, edges) under version control, plus a disposable SQLite index. Nineteen operations (init, propose, link, attach, approve, reject, supersede, instruct, claim, renew, release, complete, fail, expand, budget, retire, tag, export, import) and a handful of queries are exposed identically through a Python API, a CLI (`rg`) and, from v0.2, an MCP server and an embeddable viewer. Domain content (node types, gates, validators, renderers) comes from a **profile**; the core knows no field.
+A project is a directory of small YAML files (nodes, edges) under version control, plus a disposable SQLite index. Nineteen operations (init, propose, link, attach, approve, reject, supersede, instruct, claim, renew, release, complete, fail, expand, budget, retire, tag, export, import) and a handful of queries are exposed identically through a Python API, a CLI (`rgraph`) and, from v0.2, an MCP server and an embeddable viewer. Domain content (node types, gates, validators, renderers) comes from a **profile**; the core knows no field.
 
 - Start here if you are an agent: `AGENTS.md`
 - Executable three-task walkthrough: [quickstart](docs/quickstart.md)
@@ -23,7 +23,8 @@ supported; no stable-ABI or free-threaded compatibility is claimed. The document
 PyPy 3.11 dependency constraint selects the tested `rpds-py==0.25.1` release of
 jsonschema's existing dependency; it adds no core package dependency or output filter.
 
-Use `.venv/bin/rg`, not an unqualified `rg`: the latter often names ripgrep.
+Use `.venv/bin/rgraph` (or `rgraph` with the environment activated). No `rg` alias
+is installed, avoiding collisions with ripgrep.
 Every operation/query has a command, with one JSON result on stdout under `--json`.
 Domain errors are JSON on stderr, exit 2; absent/invalid projects exit 3.
 Common options work before or after the command: `--project`, `--json`,

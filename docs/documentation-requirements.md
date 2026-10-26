@@ -1,5 +1,9 @@
 # Documentation requirements — agreed interview results
 
+**Current CLI naming (decision 028):** the installed command is `rgraph`, with no
+`rg` alias. Earlier interview requirements below retain their original spelling;
+current examples and verification use `rgraph`.
+
 ## Status
 
 This document exports the requirements agreed during seven interview rounds.
@@ -357,7 +361,7 @@ protected tutorial notebook is not rewritten by this supplement.
   become prerequisites for core-only Python API or CLI use. Required CPython
   browser checks use Playwright from `test` and real installed Chromium; missing
   required tooling fails rather than silently skipping.
-- Publish actual runnable `rg graph`, `rg events` and `rg serve` + `curl`
+- Publish actual runnable `rgraph graph`, `rgraph events` and `rgraph serve` + `curl`
   examples, exercised from an isolated installed environment outside the checkout
   with local Git identity and deterministic inputs where assertions need them.
   Cover finite stream cleanup and server shutdown, not only copied responses.

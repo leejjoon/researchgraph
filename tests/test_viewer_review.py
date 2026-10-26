@@ -76,7 +76,7 @@ def wait_review_action(page):
 
 
 def assert_installed_queue(root, queue):
-    """Compare exact detached queue records and badge with an installed rg process."""
+    """Compare exact detached queue records and badge with an installed rgraph process."""
     expected = succeeds(invoke(root, "queue"))["items"]
     assert queue.evaluate("element => element.items") == expected
     assert int(queue.locator("[data-review-badge]").inner_text()) == len(expected)

@@ -139,7 +139,7 @@ def test_http_read_only_all_writes_precede_validation_and_absent_root(tmp_path):
 
 
 def test_installed_http_launcher_help_and_nonloopback_refusal(tmp_path):
-    executable = str(Path(sysconfig.get_path("scripts")) / "rg")
+    executable = str(Path(sysconfig.get_path("scripts")) / "rgraph")
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
     help_result = subprocess.run(

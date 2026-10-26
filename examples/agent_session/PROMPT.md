@@ -35,7 +35,7 @@ Register an installed stdio server with the agent product, using the absolute
 project directory and a fixed declared agent identity:
 
 ```sh
-rg --project /tmp/research-session --as-agent session-worker mcp --preset essential
+rgraph --project /tmp/research-session --as-agent session-worker mcp --preset essential
 ```
 
 `full` also works and is the default. Do not launch as human, override actor or

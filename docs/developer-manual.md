@@ -25,10 +25,11 @@ unrelated existing environment. Provisioning can download build/runtime dependen
 uv build --python "${UV_PYTHON:-python3}" --wheel --out-dir dist
 uv venv --python "${UV_PYTHON:-python3}" .venv
 uv pip install --python .venv/bin/python dist/*.whl "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
-.venv/bin/rg --version
+.venv/bin/rgraph --version
 ```
 
-Use the absolute installed `.venv/bin/rg`, never PATH's possibly-ripgrep `rg`.
+Use the installed `.venv/bin/rgraph` or its absolute path. The distribution does
+not install an `rg` alias; that name is left to ripgrep (decision 028).
 The native wheel is interpreter/platform-specific. The PyPy dependency constraint
 selects an existing jsonschema dependency version; it adds no core dependency.
 
@@ -113,7 +114,7 @@ intermediate states; envelope time and HEAD describe observation, not causation.
 ## Optional MCP contract
 
 Install the `mcp` extra for the official SDK; core import and launcher help do
-not import it. `rg mcp` requires explicit agent or human mode, fixes project,
+not import it. `rgraph mcp` requires explicit agent or human mode, fixes project,
 actor, role and read-only, and runs only SDK stdio framing. Initialization uses
 current discovery negotiation (decision 021). Legacy initialize-only tool calls
 are explicitly refused: their wire cannot carry the required bare array results.
@@ -147,7 +148,7 @@ tested separately from memory-client domain scenarios.
 ## Optional HTTP/SSE contract
 
 Install `researchgraph[viewer]` for Starlette/Uvicorn; neither belongs in the core
-dependencies or launcher-help imports. `rg serve` fixes root/actor/read-only at
+dependencies or launcher-help imports. `rgraph serve` fixes root/actor/read-only at
 launch, human Git identity by default or explicit `--as-agent`. Role is declared
 per request. Loopback only, ephemeral port by default; `--no-open` suppresses the
 browser but still prints the private one-use fragment URL. The static host strips
@@ -259,7 +260,7 @@ seconds, with all samples retained. This is not external usability proof.
 
 ## Runnable graph, events and HTTP example
 
-Use a fresh private working directory, Python 3.11+, Git and `curl`. Set `RG` to the
+Use a fresh private working directory, Python 3.11+, Git and `curl`. Set `RGRAPH` to the
 absolute installed console path from an environment with `researchgraph[viewer]`.
 These two Python blocks run in order in that directory. They use live, whole-second
 UTC evaluation, not a fixed historical clock. The launch URL and cookie file are
@@ -276,7 +277,7 @@ root.mkdir()
 subprocess.run(["git", "init", "-b", "main", str(root)], check=True, capture_output=True)
 for key, value in (("user.name", "Demo Human"), ("user.email", "demo@example.invalid")):
     subprocess.run(["git", "-C", str(root), "config", key, value], check=True)
-console = [os.environ["RG"], "--project", str(root), "--json"]
+console = [os.environ["RGRAPH"], "--project", str(root), "--json"]
 subprocess.run(console + ["init", "--profile", "tasks"], check=True, capture_output=True)
 subprocess.run(console + ["propose", "Task", "Observe live interfaces"], check=True, capture_output=True)
 ```
@@ -298,7 +299,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 root = Path("live-demo").resolve()
-console = [os.environ["RG"], "--project", str(root)]
+console = [os.environ["RGRAPH"], "--project", str(root)]
 
 def output(arguments):
     return subprocess.run(arguments, check=True, capture_output=True, text=True, timeout=15).stdout
@@ -393,7 +394,7 @@ intervals retain recorded commit IDs.
 
 ## Executable integration: API, real console, archive and errors
 
-Set RG to the absolute installed console and use its environment's Python. Run the
+Set RGRAPH to the absolute installed console and use its environment's Python. Run the
 two parts in order from a new empty directory outside the checkout. No network or
 prepared project is used. Fixed UTC clocks, distinct declared human/agent actors,
 local Git identity and returned IDs make the assertions reproducible. The human
@@ -487,7 +488,7 @@ from researchgraph import Actor, Project
 state = json.loads(Path("integration-state.json").read_text())
 root = Path(state["project"])
 clock = datetime.fromisoformat(state["clock"])
-console = os.environ["RG"]
+console = os.environ["RGRAPH"]
 errors = []
 
 def run(*arguments, project=root):
@@ -562,7 +563,7 @@ CPython 3.11/PyPy 3.11, not a claim of notebook execution on PyPy.
 ```sh
 uv venv --python "${UV_PYTHON:-python3}" .venv
 uv pip install --python .venv/bin/python -e '.[test]' tests/testprofiles "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
-.venv/bin/rg --version
+.venv/bin/rgraph --version
 ```
 
 Export RESEARCHGRAPH_CHECKOUT_ROOT as the absolute current checkout root. Supply

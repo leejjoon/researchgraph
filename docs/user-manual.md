@@ -27,12 +27,12 @@ selects an existing jsonschema dependency, not a new core dependency.
 ```sh
 uv venv --python "${UV_PYTHON:-python3}" .venv
 uv pip install --python .venv/bin/python -e . "rpds-py==0.25.1; platform_python_implementation == 'PyPy' and python_version == '3.11'"
-.venv/bin/rg --version
+.venv/bin/rgraph --version
 ```
 
-Always use the installed `.venv/bin/rg`, or its absolute path: unqualified `rg`
-often means ripgrep. Export `RG` with that absolute path (for example,
-`export RG="$PWD/.venv/bin/rg"` from the checkout). Install the `jq` command-line
+The installed command is `rgraph`, distinct from ripgrep's `rg`; no `rg` alias is
+provided. Export `RGRAPH` with its absolute path (for example,
+`export RGRAPH="$PWD/.venv/bin/rgraph"` from the checkout). Install the `jq` command-line
 JSON processor, then run the following shell blocks in order from the same new,
 empty working directory **outside the checkout**. Parts share files, so they may
 run in separate shells. Provisioning can download build
@@ -118,11 +118,11 @@ CLI with JSON output and an explicit UTC timestamp. Later blocks load it with
 set -eu
 cat > user-cli.sh <<'SH'
 set -eu
-: "${RG:?Export the absolute path to the installed .venv/bin/rg}"
+: "${RGRAPH:?Export the absolute path to the installed .venv/bin/rgraph}"
 root="$PWD/research-demo"
 call() {
     time="$1"; shift
-    "$RG" --project "$root" --json --now "2026-10-20T${time}Z" "$@"
+    "$RGRAPH" --project "$root" --json --now "2026-10-20T${time}Z" "$@"
 }
 SH
 . ./user-cli.sh
@@ -379,7 +379,7 @@ jq -n -c --arg project "$root" --arg claim "$claim" --arg replacement "$replacem
 
 ## Servers
 
-`rg mcp` is an optional stdio server, outside the graph-operation inventory.
+`rgraph mcp` is an optional stdio server, outside the graph-operation inventory.
 Install the source extra with `uv pip install -e '.[mcp]'`; a core-only install
 still supports launcher help and reports this remedy on invocation. Select the
 project and launch either as an explicit agent or with explicit human mode.
@@ -391,7 +391,7 @@ compatibility and recordings are separate release evidence, not inferred here.
 No core prompts are supplied: instructions are only profile guidance (empty
 before bootstrapping a selected uninitialized destination).
 
-`rg serve` is the optional loopback HTTP/SSE server, not a graph operation.
+`rgraph serve` is the optional loopback HTTP/SSE server, not a graph operation.
 Install `researchgraph[viewer]` (from source, `uv pip install -e '.[viewer]'`).
 It binds an ephemeral loopback port and prints a launch URL; `--no-open` avoids
 opening a browser. The URL fragment is a one-use credential: keep it private.
@@ -424,7 +424,7 @@ launch default. Read-only serving hides actions and also refuses direct writes.
 
 ![Researchgraph web viewer showing live monitoring, the research graph, and a selected Task in the inspector](images/viewer.png)
 
-*Actual `rg serve` page with synthetic demonstration data. The running status
+*Actual `rgraph serve` page with synthetic demonstration data. The running status
 reflects a recorded claim, not work executed by the viewer.*
 
 Approve can include a note; Reject requires a reason. Instruct adds an Instruction.
@@ -483,7 +483,7 @@ as a human before an essential agent session: it does not expose `init` or
 human review operations.
 
 Use absolute paths to the installed console script and the selected project,
-not another executable named `rg`. The following commands change the client's
+so the intended installation is selected. The following commands change the client's
 configuration; they are operator setup, not a CI session or recorded evaluation.
 Claude's local scope is project-specific; Codex's CLI writes its configuration
 (normally `~/.codex/config.toml`, shared with other Codex surfaces). Use isolated
@@ -492,10 +492,10 @@ evaluation configuration rather than overwriting a shared server registration.
 <!-- rg-example: mcp-registration; part=1; fragment -->
 ```sh
 claude mcp add --transport stdio --scope local researchgraph -- \
-  /absolute/path/to/venv/bin/rg --project /absolute/path/to/project \
+  /absolute/path/to/venv/bin/rgraph --project /absolute/path/to/project \
   --as-agent claude-code mcp --preset essential
 codex mcp add researchgraph -- \
-  /absolute/path/to/venv/bin/rg --project /absolute/path/to/project \
+  /absolute/path/to/venv/bin/rgraph --project /absolute/path/to/project \
   --as-agent codex-cli mcp --preset essential
 ```
 
@@ -558,7 +558,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 ## CLI reference
 
 ### init
-**Invocation**: `rg init [PATH]`.
+**Invocation**: `rgraph init [PATH]`.
 **Arguments**: Optional destination; defaults to project option or current directory.
 **Options and defaults**: `--profile research`; [Common options](#common-options).
 **Permissions / preconditions**: Human; Git identity must be available from an existing parent repository when the destination does not yet exist. Prefer configuring the demo repository first.
@@ -566,7 +566,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `already_initialised`, `unknown_profile`.
 
 ### propose
-**Invocation**: `rg propose TYPE TITLE`.
+**Invocation**: `rgraph propose TYPE TITLE`.
 **Arguments**: Type and title required.
 **Options and defaults**: `--body` empty string; `--fields` absent JSON object; repeatable `--edge` empty (JSON `{type,to|from,fields?}`); [Common options](#common-options).
 **Permissions / preconditions**: Human or agent; profile must define type and relations.
@@ -574,7 +574,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `unknown_type`, `reserved_edge_type`, `schema`, `edge_endpoints`, `cycle`, `duplicate_edge`.
 
 ### link
-**Invocation**: `rg link TYPE FROM TO`.
+**Invocation**: `rgraph link TYPE FROM TO`.
 **Arguments**: Edge type and existing endpoint IDs.
 **Options and defaults**: `--fields` absent JSON object; [Common options](#common-options).
 **Permissions / preconditions**: Human or agent, compatible endpoint types; retired endpoints are not categorically forbidden.
@@ -582,7 +582,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `reserved_edge_type`, `edge_endpoints`, `schema`, `cycle`, `duplicate_edge`.
 
 ### approve
-**Invocation**: `rg approve NODE`.
+**Invocation**: `rgraph approve NODE`.
 **Arguments**: Proposed node ID.
 **Options and defaults**: `--what activate` (only supported value), `--note` absent; [Common options](#common-options).
 **Permissions / preconditions**: Gate-compatible actor; bundled research gates human only, any human, not reviewer-only.
@@ -590,7 +590,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `wrong_role`, `not_proposed`, `already_approved`, `unknown_what`; research Claim `claim_needs_evidence`. Agent rejection follows not_proposed checking.
 
 ### reject
-**Invocation**: `rg reject NODE REASON`.
+**Invocation**: `rgraph reject NODE REASON`.
 **Arguments**: Proposed ID and reason required.
 **Options and defaults**: No command-specific options; [Common options](#common-options).
 **Permissions / preconditions**: Human; proposed status.
@@ -598,7 +598,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `not_proposed`.
 
 ### supersede
-**Invocation**: `rg supersede NODE`.
+**Invocation**: `rgraph supersede NODE`.
 **Arguments**: Old ID required.
 **Options and defaults**: `--title`, `--body`, `--fields` absent retain old values; `--inherit-edges` / `--no-inherit-edges` defaults inherit; `--instruction` absent; [Common options](#common-options).
 **Permissions / preconditions**: Human any type; agent Task/Result only; not retired or running (completed/failed can be replaced).
@@ -606,7 +606,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `agent_cannot_supersede_type`, `terminal_status`, `running`, `cycle`, `schema`.
 
 ### instruct
-**Invocation**: `rg instruct NODE TEXT`.
+**Invocation**: `rgraph instruct NODE TEXT`.
 **Arguments**: Target ID and instruction text.
 **Options and defaults**: No command-specific options; [Common options](#common-options).
 **Permissions / preconditions**: Human; target proposed or active.
@@ -614,7 +614,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `already_ran`.
 
 ### claim
-**Invocation**: `rg claim NODE`.
+**Invocation**: `rgraph claim NODE`.
 **Arguments**: Task ID.
 **Options and defaults**: `--lease-seconds 7200`, integer at least 1; [Common options](#common-options).
 **Permissions / preconditions**: Human or agent; ready claimable node, or expired running lease eligible for reclaim.
@@ -622,7 +622,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `lease_held` checked before `not_ready`; `not_ready`, `negative`.
 
 ### renew
-**Invocation**: `rg renew NODE`.
+**Invocation**: `rgraph renew NODE`.
 **Arguments**: Running ID.
 **Options and defaults**: `--lease-seconds 7200`, integer at least 1; [Common options](#common-options).
 **Permissions / preconditions**: Lease holder only, even after expiry.
@@ -630,7 +630,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `not_running`, `not_lease_holder`, `negative`.
 
 ### release
-**Invocation**: `rg release NODE`.
+**Invocation**: `rgraph release NODE`.
 **Arguments**: Running ID.
 **Options and defaults**: `--note` absent; `--usage` absent JSON object; [Common options](#common-options).
 **Permissions / preconditions**: Lease holder or any human.
@@ -638,7 +638,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `not_running`, `not_lease_holder`, `negative`.
 
 ### complete
-**Invocation**: `rg complete NODE SUMMARY`.
+**Invocation**: `rgraph complete NODE SUMMARY`.
 **Arguments**: Running ID and summary.
 **Options and defaults**: Repeatable `--artifact` empty; `--usage` absent JSON object; [Common options](#common-options).
 **Permissions / preconditions**: Lease holder; files must already exist under artifacts/NODE/ relative to project.
@@ -646,7 +646,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `not_running`, `not_lease_holder`, `artifact_path`, `artifact_missing`, `negative`.
 
 ### fail
-**Invocation**: `rg fail NODE SUMMARY`.
+**Invocation**: `rgraph fail NODE SUMMARY`.
 **Arguments**: Running ID and summary.
 **Options and defaults**: `--step`, `--check`, `--measured`, `--error` absent strings; `--usage` absent JSON object; [Common options](#common-options).
 **Permissions / preconditions**: Lease holder.
@@ -654,7 +654,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `not_running`, `not_lease_holder`, `negative`.
 
 ### expand
-**Invocation**: `rg expand [TARGETS...]`.
+**Invocation**: `rgraph expand [TARGETS...]`.
 **Arguments**: One or more target IDs (parser allows empty, domain rejects).
 **Options and defaults**: `--hint` absent; [Common options](#common-options).
 **Permissions / preconditions**: Human; profile supports generated Expansion Task.
@@ -662,7 +662,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `no_targets`.
 
 ### budget
-**Invocation**: `rg budget NODE`.
+**Invocation**: `rgraph budget NODE`.
 **Arguments**: Target ID.
 **Options and defaults**: `--tokens`, `--compute-seconds` absent integers; [Common options](#common-options).
 **Permissions / preconditions**: Human; dimensions nonnegative.
@@ -670,7 +670,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `negative`.
 
 ### retire
-**Invocation**: `rg retire NODE REASON`.
+**Invocation**: `rgraph retire NODE REASON`.
 **Arguments**: ID and reason.
 **Options and defaults**: No command-specific options; [Common options](#common-options).
 **Permissions / preconditions**: Human; proposed, active or failed, not running.
@@ -678,7 +678,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `terminal_status`, `running`.
 
 ### attach
-**Invocation**: `rg attach NODE`.
+**Invocation**: `rgraph attach NODE`.
 **Arguments**: Artifact owner ID.
 **Options and defaults**: Repeatable `--artifact` empty; [Common options](#common-options).
 **Permissions / preconditions**: Human or agent; non-retired node, existing files under artifacts/NODE/.
@@ -686,7 +686,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; `terminal_status` (retired), `artifact_path` before `artifact_missing`.
 
 ### tag
-**Invocation**: `rg tag NODE`.
+**Invocation**: `rgraph tag NODE`.
 **Arguments**: Target ID.
 **Options and defaults**: Repeatable `--add`, `--remove` empty; `--priority` absent keeps existing, JSON integer sets, JSON null clears; [Common options](#common-options).
 **Permissions / preconditions**: Human or agent.
@@ -694,7 +694,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules; malformed priority JSON/type gives `schema`.
 
 ### import
-**Invocation**: `rg import ARCHIVE [PATH]`.
+**Invocation**: `rgraph import ARCHIVE [PATH]`.
 **Arguments**: Archive required; destination defaults to project option or current directory.
 **Options and defaults**: No command-specific options; [Common options](#common-options).
 **Permissions / preconditions**: Human; empty/nonexistent destination; now at least all restored timestamps, including future lease expiry and history.
@@ -702,7 +702,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared write rules including `clock_skew`; `not_empty`, `bad_archive`, `profile_too_new`.
 
 ### mcp
-**Invocation**: `rg --project PATH --as-agent NAME mcp` or `rg --project PATH mcp --as-human`.
+**Invocation**: `rgraph --project PATH --as-agent NAME mcp` or `rgraph --project PATH mcp --as-human`.
 **Arguments**: None; project selection is fixed at launch.
 **Options and defaults**: `--as-human` false; `--preset essential|full` (default `full`); [Common options](#common-options) for project, declared identity, role, read-only, JSON errors and help. Full registry tools are the default.
 **Permissions / preconditions**: Exactly one explicit agent identity or human mode. Install the optional mcp extra; launcher help does not require it. Current MCP discovery negotiation is required.
@@ -710,7 +710,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: `schema` for missing/conflicting launch identity, missing optional extra, authority/path overrides or unsupported negotiation; shared domain errors for tool calls. Missing/invalid project and profile errors retain the core refusal rather than being masked.
 
 ### serve
-**Invocation**: `rg --project PATH serve --no-open`.
+**Invocation**: `rgraph --project PATH serve --no-open`.
 **Arguments**: None; project and declared actor are fixed at launch.
 **Options and defaults**: `--host 127.0.0.1` (loopback only), `--port 0` (ephemeral), `--open/--no-open` (default opens); [Common options](#common-options) for project, identity, role, read-only, JSON errors and help. No launcher evaluation clock or commit control.
 **Permissions / preconditions**: Install optional viewer extra; help remains available without it. Default serving Git human or explicit launch-fixed agent. Cookie and Host protect every API/SSE/download; exact Origin also protects exchange and writes.
@@ -718,7 +718,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: `schema` for invalid launch options or missing extra; HTTP 403 for authentication/Host/Origin/authority refusal without disclosure, 422 for rule/message/ids domain errors, 503 for unavailable projects, 404 for unsafe/unregistered downloads. Cancellation is not an automatic transaction rollback or mutation retry.
 
 ### events
-**Invocation**: `rg events` or `rg events --follow`.
+**Invocation**: `rgraph events` or `rgraph events --follow`.
 **Arguments**: None. This is a stream, outside the 37 graph operations.
 **Options and defaults**: `--follow` false; `--since` absent full cursor; `--poll-interval` 1 second, positive and finite; [Common options](#common-options). Current observations only.
 **Permissions / preconditions**: Any actor; always read-only, without the writer lock. Keep stdin open to follow; closing stdin or SIGINT exits zero and closes the owner.
@@ -726,7 +726,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `schema` for nonfinite intervals, Click usage error for nonpositive intervals.
 
 ### graph
-**Invocation**: `rg graph`.
+**Invocation**: `rgraph graph`.
 **Arguments**: None.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any actor, including read-only project.
@@ -734,7 +734,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `schema` for invalid clock/as-of selectors.
 
 ### profile
-**Invocation**: `rg profile`.
+**Invocation**: `rgraph profile`.
 **Arguments**: None. Python calls `Project.profile_info`, since `Project.profile` is the loaded object.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any actor, including read-only project.
@@ -742,7 +742,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `schema` for invalid clock/as-of selectors.
 
 ### show
-**Invocation**: `rg show ID`.
+**Invocation**: `rgraph show ID`.
 **Arguments**: Node or edge ID.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor; ID visible at selected time.
@@ -750,7 +750,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `not_found`.
 
 ### ready
-**Invocation**: `rg ready`.
+**Invocation**: `rgraph ready`.
 **Arguments**: None.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor.
@@ -758,7 +758,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors.
 
 ### blocked
-**Invocation**: `rg blocked`.
+**Invocation**: `rgraph blocked`.
 **Arguments**: None.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor.
@@ -766,7 +766,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors.
 
 ### queue
-**Invocation**: `rg queue`.
+**Invocation**: `rgraph queue`.
 **Arguments**: None.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor.
@@ -774,7 +774,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors.
 
 ### history
-**Invocation**: `rg history ID`.
+**Invocation**: `rgraph history ID`.
 **Arguments**: Node ID.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor, existing node.
@@ -782,7 +782,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `not_found`.
 
 ### evidence
-**Invocation**: `rg evidence CLAIM`.
+**Invocation**: `rgraph evidence CLAIM`.
 **Arguments**: Starting Claim ID.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor, existing start node.
@@ -790,7 +790,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `not_found`.
 
 ### stale
-**Invocation**: `rg stale`.
+**Invocation**: `rgraph stale`.
 **Arguments**: None.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor.
@@ -798,7 +798,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors.
 
 ### weakest
-**Invocation**: `rg weakest CLAIM`.
+**Invocation**: `rgraph weakest CLAIM`.
 **Arguments**: Claim ID.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor, existing start node.
@@ -806,7 +806,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `not_found`.
 
 ### predictions
-**Invocation**: `rg predictions HYPOTHESIS`.
+**Invocation**: `rgraph predictions HYPOTHESIS`.
 **Arguments**: Hypothesis ID.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor, existing hypothesis.
@@ -814,7 +814,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `not_found`.
 
 ### matrix
-**Invocation**: `rg matrix QUESTION`.
+**Invocation**: `rgraph matrix QUESTION`.
 **Arguments**: Question ID.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor, existing question.
@@ -822,7 +822,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `not_found`.
 
 ### alternatives
-**Invocation**: `rg alternatives HYPOTHESIS`.
+**Invocation**: `rgraph alternatives HYPOTHESIS`.
 **Arguments**: Hypothesis ID.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor, existing hypothesis.
@@ -830,7 +830,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `not_found`.
 
 ### since
-**Invocation**: `rg since TIME`.
+**Invocation**: `rgraph since TIME`.
 **Arguments**: Timestamp, strictly-after comparison.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor; valid whole-second UTC timestamp.
@@ -838,7 +838,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; invalid timestamp `schema`.
 
 ### where
-**Invocation**: `rg where`.
+**Invocation**: `rgraph where`.
 **Arguments**: None.
 **Options and defaults**: `--type`, `--status`, `--author`, `--tag`, `--text` absent; repeatable `--field K=V` empty; `--over-budget` false; `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor. Filters conjoin; field string equality splits at first equals; identical repeated fields allowed, conflicting repeats rejected.
@@ -846,7 +846,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; invalid filters `schema`.
 
 ### notes
-**Invocation**: `rg notes ID`.
+**Invocation**: `rgraph notes ID`.
 **Arguments**: Target ID.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor, existing target.
@@ -854,7 +854,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `not_found`.
 
 ### subtree
-**Invocation**: `rg subtree ID`.
+**Invocation**: `rgraph subtree ID`.
 **Arguments**: Root ID.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor, existing root.
@@ -862,7 +862,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors; `not_found`.
 
 ### digest
-**Invocation**: `rg digest`.
+**Invocation**: `rgraph digest`.
 **Arguments**: None.
 **Options and defaults**: `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any declared actor.
@@ -870,7 +870,7 @@ an ongoing stream may already have emitted valid lines before a later error.
 **Errors**: Shared read errors.
 
 ### export
-**Invocation**: `rg export OUT`.
+**Invocation**: `rgraph export OUT`.
 **Arguments**: Output tar.zst path.
 **Options and defaults**: `--include-artifacts` false; `--since` absent timestamp; `--as-of` current; [Common options](#common-options).
 **Permissions / preconditions**: Any actor, including read-only project; writable external archive location.

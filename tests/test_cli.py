@@ -53,7 +53,7 @@ def prepare_console(arguments):
 
 def run_console(arguments):
     prepare_console(arguments)
-    executable = (Path(sysconfig.get_path("scripts")) / "rg").resolve()
+    executable = (Path(sysconfig.get_path("scripts")) / "rgraph").resolve()
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
     process = subprocess.run(

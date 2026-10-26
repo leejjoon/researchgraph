@@ -42,7 +42,7 @@ def _server_options(function):
 
 
 @click.group()
-@click.version_option(__version__, prog_name="rg")
+@click.version_option(__version__, prog_name="rgraph")
 @_common_options
 @click.pass_context
 def main(ctx, **options):

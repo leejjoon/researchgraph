@@ -36,7 +36,7 @@ def follow(root, *, poll="0.05"):
     ]
     prepare_console(arguments)
     process = subprocess.Popen(
-        [str(Path(sysconfig.get_path("scripts")) / "rg"), *arguments],
+        [str(Path(sysconfig.get_path("scripts")) / "rgraph"), *arguments],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -138,7 +138,7 @@ def test_events_read_completes_while_another_owner_holds_writer_lock(
     prepare_console(arguments)
     with write_lock(tmp_path):
         result = subprocess.run(
-            [str(Path(sysconfig.get_path("scripts")) / "rg"), *arguments],
+            [str(Path(sysconfig.get_path("scripts")) / "rgraph"), *arguments],
             env={
                 key: value for key, value in os.environ.items() if key != "PYTHONPATH"
             },

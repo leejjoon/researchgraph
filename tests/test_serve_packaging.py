@@ -17,7 +17,7 @@ def consumer(tmp_path, candidate_distribution, *, viewer):
         cwd=tmp_path,
         environment=environment,
     )
-    python, console = venv / "bin/python", venv / "bin/rg"
+    python, console = venv / "bin/python", venv / "bin/rgraph"
     requirement = (
         f"researchgraph[test,viewer] @ {wheel.as_uri()}" if viewer else str(wheel)
     )
@@ -56,7 +56,7 @@ for arguments in commands:
     # Invoke the real Click command in this interpreter too, inspecting actual
     # imports after every ordinary command (not just dependency availability).
     try:
-        main.main(args=[str(audit_root) if value==str(root) else value for value in arguments],prog_name='rg',standalone_mode=False)
+        main.main(args=[str(audit_root) if value==str(root) else value for value in arguments],prog_name='rgraph',standalone_mode=False)
     except SystemExit as error:
         assert error.code in (0,None)
     assert not any(name.split('.')[0] in {'mcp','starlette','uvicorn'} for name in sys.modules)

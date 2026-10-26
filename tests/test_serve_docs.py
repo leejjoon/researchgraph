@@ -22,7 +22,7 @@ def test_exact_live_interface_recipe(tmp_path, candidate_distribution, index_mod
     _, python, console, environment = consumer(
         tmp_path, candidate_distribution, viewer=True
     )
-    environment = dict(environment, RG=str(console))
+    environment = dict(environment, RGRAPH=str(console))
     results = execute_manual_parts(
         published_manual_blocks(),
         "live-interfaces",

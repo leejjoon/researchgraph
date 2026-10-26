@@ -392,7 +392,7 @@ def test_installed_cli_external_no_commit_reaches_sse_within_three_seconds(
             started = monotonic()
             result = subprocess.run(
                 [
-                    str(Path(sysconfig.get_path("scripts")) / "rg"),
+                    str(Path(sysconfig.get_path("scripts")) / "rgraph"),
                     "--project",
                     str(tmp_path),
                     "--json",

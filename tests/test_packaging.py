@@ -133,12 +133,16 @@ def test_sdist_native_sources_and_real_installed_wheel(tmp_path):
     script = """
 import hashlib, json, subprocess, sys
 from datetime import UTC, datetime
+from importlib.metadata import distribution
 from pathlib import Path
 from researchgraph import Project, __version__
 from researchgraph.model import Actor
 import researchgraph._native_clone as clone
 import researchgraph.store._native_scan as scan
 venv=Path(sys.argv[1]).resolve()
+scripts={entry.name:entry.value for entry in distribution('researchgraph').entry_points if entry.group=='console_scripts'}
+assert scripts=={'rgraph':'researchgraph.cli:main'}
+assert (venv/'bin/rgraph').is_file() and not (venv/'bin/rg').exists()
 assert all(Path(module.__file__).resolve().is_relative_to(venv) for module in (clone,scan))
 root=Path('installed-project').resolve()
 root.mkdir()
@@ -168,11 +172,11 @@ print(json.dumps({'version':__version__,'root':str(root),'node':node['id']}))
     assert consumed.stderr == ""
     receipt = json.loads(consumed.stdout)
     assert receipt["version"] == __version__
-    console = (venv / "bin/rg").resolve()
+    console = (venv / "bin/rgraph").resolve()
     version = execute(
         [str(console), "--version"], cwd=tmp_path, environment=environment
     )
-    assert version.stdout == f"rg, version {__version__}\n" and version.stderr == ""
+    assert version.stdout == f"rgraph, version {__version__}\n" and version.stderr == ""
     ready = execute(
         [str(console), "--project", receipt["root"], "--json", "ready"],
         cwd=tmp_path,

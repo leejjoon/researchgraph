@@ -198,7 +198,7 @@ def test_general4_human_only_writes_deny_agents(tmp_path, operation):
 
 
 def _console():
-    return (Path(sysconfig.get_path("scripts")) / "rg").resolve()
+    return (Path(sysconfig.get_path("scripts")) / "rgraph").resolve()
 
 
 def _environment():

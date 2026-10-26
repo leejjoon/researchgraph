@@ -62,8 +62,8 @@ retained, report that limitation instead of calling the run verified.
 
 ## Operator preparation (not timed agent work)
 
-Use the already installed package with its MCP extra, an absolute installed `rg`
-(not ripgrep), and the matching Python interpreter. Resolve the source checkout
+Use the already installed package with its MCP extra, an absolute installed
+`rgraph`, and the matching Python interpreter. Resolve the source checkout
 and record its commit, prompt/seed/check hashes, package version, interpreter
 version and executable paths. The APIs are `seed(root, *, actor, now)` and
 `check(root, manifest) -> summary`; the latter raises `AssertionError` on invalid
@@ -102,10 +102,10 @@ that no registration is ever overwritten:
 
 ```sh
 claude mcp add --transport stdio --scope local researchgraph -- \
-  /absolute/path/to/venv/bin/rg --project /tmp/researchgraph-claude-session \
+  /absolute/path/to/venv/bin/rgraph --project /tmp/researchgraph-claude-session \
   --as-agent claude-code mcp --preset essential
 codex mcp add researchgraph -- \
-  /absolute/path/to/venv/bin/rg --project /tmp/researchgraph-codex-session \
+  /absolute/path/to/venv/bin/rgraph --project /tmp/researchgraph-codex-session \
   --as-agent codex-cli mcp --preset essential
 ```
 
@@ -251,7 +251,7 @@ nodes/relationships. Preserve failures rather than weakening its contract.
 
 Declared actors and Git authors are not authenticated human/model identities.
 The checker does not prove physical non-assistance or product identity. It also
-cannot distinguish MCP writes from `rg --as-agent <name>` shell writes, and it does
+cannot distinguish MCP writes from `rgraph --as-agent <name>` shell writes, and it does
 not compare artifact contents, Result `fields`, the `supports` strength or the four
 `fail` arguments with the prompt: it requires only a nonempty Failure step and
 check, and its citation checks are conditional. The reviewer therefore audits the
@@ -271,7 +271,7 @@ actual attempts; keep the count at zero until genuine recordings are reviewed.
 | session_id / product | Unique pseudonymous attempt ID; Claude Code or Codex CLI |
 | product_version / model_version | Observed versions and source; undisclosed revision noted |
 | configuration | Redacted content/hash, launch command/identity/preset/role, permissions |
-| source / installed environment | Source commit, installed rg/Python paths and versions |
+| source / installed environment | Source commit, installed rgraph/Python paths and versions |
 | consent / protocol_review | Restricted consent reference and owner decision reference |
 | preflight | Negotiation version, actual show result, pass/failure/indeterminate |
 | timing / outcome | UTC start/end, elapsed seconds, stop reason, last step |

@@ -51,7 +51,7 @@ separately; document redactions without disclosing removed values.
 ## Prepare and review a fresh synthetic seed
 
 Use an installed interpreter with the viewer extra and the absolute installed
-`rg` console script (not ripgrep). Record source commit, package/Python/browser
+`rgraph` console script. Record source commit, package/Python/browser
 versions, OS, viewport, server command and redacted configuration. Each participant
 gets a fresh project with the same reviewed starting content; never reuse a prior
 participant's mutated graph. The following preparation is human operator work,
@@ -103,7 +103,7 @@ with Project.open(root) as project:
 print(json.dumps({'failed_task': task['id'], 'hypothesis': manifest['hypothesis'],
                   'artifact': relative}))
 PY
-/absolute/path/to/venv/bin/rg --project /tmp/researchgraph-usability-p01 serve --no-open
+/absolute/path/to/venv/bin/rgraph --project /tmp/researchgraph-usability-p01 serve --no-open
 ```
 
 Retain actual preparation output/exit codes and native baseline HEAD/file hashes.

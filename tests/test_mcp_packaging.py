@@ -28,7 +28,7 @@ def test_core_only_help_and_optional_mcp_from_sdist_built_wheel(
             cwd=tmp_path,
             environment=environment,
         )
-        python, console = venv / "bin/python", venv / "bin/rg"
+        python, console = venv / "bin/python", venv / "bin/rgraph"
         requirement = f"researchgraph[mcp] @ {wheel.as_uri()}" if extra else str(wheel)
         execute(
             ["uv", "pip", "install", "--python", str(python), requirement],

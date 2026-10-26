@@ -88,7 +88,7 @@ def test_quickstart_is_under_thirty_lines_and_one_complete_shell_recipe():
     assert text.count("```") == 2
     recipe = text.split("```sh\n", 1)[1].split("\n```", 1)[0]
     assert "examples/minimal_runner.py" in recipe
-    assert ".venv/bin/rg" in recipe
+    assert ".venv/bin/rgraph" in recipe
 
 
 def test_exact_quickstart_reproduces_three_tasks_in_an_isolated_install(tmp_path):
@@ -128,7 +128,7 @@ def test_exact_quickstart_reproduces_three_tasks_in_an_isolated_install(tmp_path
                 "Step "
             ).encode()
             assert artifact.bytes == 1
-    console = (source / ".venv/bin/rg").resolve()
+    console = (source / ".venv/bin/rgraph").resolve()
     installed = subprocess.run(
         [str(console), "--project", str(root), "--json", "digest"],
         cwd=tmp_path,
@@ -372,7 +372,7 @@ def test_manual_reference_rejects_incomplete_fixtures(change, message):
 
 def test_help_parsers_handle_aliases_pairs_metavariables_and_wrapping():
     help_text = (
-        "Usage: rg [OPTIONS] COMMAND\n\nOptions:\n"
+        "Usage: rgraph [OPTIONS] COMMAND\n\nOptions:\n"
         "  -p, --project PATH           Project path.\n"
         "  --commit / --no-commit       Default is commit;\n"
         "                               --not-an-option is descriptive text.\n"
@@ -554,10 +554,10 @@ def docs_environment(tmp_path):
         PYTHONNOUSERSITE="1",
         COLUMNS="100",
         LC_ALL="C.UTF-8",
-        RG=str((Path(sysconfig.get_path("scripts")) / "rg").resolve()),
+        RGRAPH=str((Path(sysconfig.get_path("scripts")) / "rgraph").resolve()),
         RESEARCHGRAPH_CHECKOUT_ROOT=str(ROOT),
     )
-    assert Path(environment["RG"]).is_file(), (
+    assert Path(environment["RGRAPH"]).is_file(), (
         "install researchgraph's real console first"
     )
     return environment
@@ -583,7 +583,7 @@ def docs_process(arguments, *, cwd, environment, timeout=60):
 @pytest.mark.cli
 def test_manual_reference_matches_spec_and_real_installed_help(tmp_path):
     environment = docs_environment(tmp_path)
-    console = environment["RG"]
+    console = environment["RGRAPH"]
 
     def help_for(*arguments):
         return docs_process(
@@ -609,7 +609,7 @@ def test_manual_reference_matches_spec_and_real_installed_help(tmp_path):
     text = (ROOT / MANUALS[0]).read_text()
     assert text.count("\n## Servers\n") == 1
     servers = text.split("\n## Servers\n", 1)[1].split("\n## ", 1)[0]
-    assert all(f"`rg {name}`" in servers for name in spec["Servers"])
+    assert all(f"`rgraph {name}`" in servers for name in spec["Servers"])
     assert text.count("\n## Common options\n") == 1
     shared = text.split("\n## Common options\n", 1)[1].split("\n## ", 1)[0]
     check_reference(
@@ -623,7 +623,7 @@ def test_manual_reference_matches_spec_and_real_installed_help(tmp_path):
     version = docs_process(
         [console, "--version"], cwd=tmp_path, environment=environment
     )
-    assert version.stdout == f"rg, version {__version__}\n"
+    assert version.stdout == f"rgraph, version {__version__}\n"
 
 
 def copy_documentation_checkout(destination):
@@ -680,12 +680,12 @@ def test_exact_manual_provisioning_recipes(tmp_path, scenario):
     )
     # Each provisioning recipe leaves this isolated, interpreter-matched console.
     python = source / ".venv/bin/python"
-    console = source / ".venv/bin/rg"
+    console = source / ".venv/bin/rgraph"
     assert python.is_file() and console.is_file()
     result = docs_process(
         [str(console), "--version"], cwd=tmp_path, environment=environment
     )
-    assert result.stdout == f"rg, version {__version__}\n"
+    assert result.stdout == f"rgraph, version {__version__}\n"
     probe = docs_process(
         [
             str(python),

@@ -24,6 +24,6 @@ with Project.init("demo", profile="tasks", **context) as project:
         project.link("blocks", source, target, **context)
 PY
 .venv/bin/python examples/minimal_runner.py demo
-.venv/bin/rg --project demo --json digest
+.venv/bin/rgraph --project demo --json digest
 ```
 The three Tasks are done, each with a committed `artifacts/<id>/result.txt`. The example supplies `RESEARCHGRAPH_NODE_ID` and `RESEARCHGRAPH_ARTIFACT_DIR`; it skips commandless Tasks and records nonzero exits as Failures without retrying.

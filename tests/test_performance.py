@@ -211,7 +211,7 @@ def test_fresh_twenty_thousand_node_rebuild_budget(tmp_path, record_property):
         started = perf_counter()
         result = subprocess.run(
             [
-                str(Path(sysconfig.get_path("scripts")) / "rg"),
+                str(Path(sysconfig.get_path("scripts")) / "rgraph"),
                 "--project",
                 str(root),
                 "--json",

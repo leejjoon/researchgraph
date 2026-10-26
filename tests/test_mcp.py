@@ -473,7 +473,7 @@ def test_real_installed_modern_stdio_round_trip_and_shutdown(
 
     async def session(errors):
         parameters = StdioServerParameters(
-            command=str(Path(sysconfig.get_path("scripts")) / "rg"),
+            command=str(Path(sysconfig.get_path("scripts")) / "rgraph"),
             args=["--project", str(tmp_path), "--as-agent", "stdio-worker", "mcp"]
             + ([] if preset is None else ["--preset", preset]),
             env={
@@ -587,7 +587,7 @@ def test_installed_stdio_cancellation_and_noisy_callback_framing(tmp_path, index
 
     async def session(errors):
         parameters = StdioServerParameters(
-            command=str(Path(sysconfig.get_path("scripts")) / "rg"),
+            command=str(Path(sysconfig.get_path("scripts")) / "rgraph"),
             args=["--project", str(root), "--as-agent", "cancel-worker", "mcp"],
             env=environment,
         )

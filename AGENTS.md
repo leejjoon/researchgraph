@@ -26,7 +26,7 @@ You are building **researchgraph**: a small Python package that stores a researc
 
 ## Retained v0.1 definition of done
 
-`pytest` passes; `rg init`, `rg propose`, `rg link`, `rg approve`, `rg ready`, `rg claim`, `rg complete`, `rg fail`, `rg history`, `rg evidence`, `rg export`, `rg import` work end to end on a fresh repository; `examples/minimal_runner.py` runs a three-node project to completion; `docs/quickstart.md` reproduces that in under 30 lines.
+`pytest` passes; `rgraph init`, `rgraph propose`, `rgraph link`, `rgraph approve`, `rgraph ready`, `rgraph claim`, `rgraph complete`, `rgraph fail`, `rgraph history`, `rgraph evidence`, `rgraph export`, `rgraph import` work end to end on a fresh repository; `examples/minimal_runner.py` runs a three-node project to completion; `docs/quickstart.md` reproduces that in under 30 lines.
 
 ## v0.2 completion boundary
 

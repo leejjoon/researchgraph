@@ -14,7 +14,7 @@
   artifacts/<node id>/  # files attached to that node (optional data-versioning layer may manage large ones)
   .gitignore            # includes .researchgraph/index.sqlite and .researchgraph/lock
 ```
-`rg init` creates this layout and the first commit. `profile.yaml` is exactly `name: <name>\nversion: "<version>"\n`. `.gitignore` is created if absent, else the two lines are appended.
+`rgraph init` creates this layout and the first commit. `profile.yaml` is exactly `name: <name>\nversion: "<version>"\n`. `.gitignore` is created if absent, else the two lines are appended.
 
 ## File format
 Serialised with PyYAML (YAML 1.1 semantics) in this **canonical form** (decision 011). A no-op rewrite produces no diff.

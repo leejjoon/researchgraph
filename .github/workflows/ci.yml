@@ -54,13 +54,13 @@ jobs:
           import sys
           import sysconfig
           runner = Path('examples/minimal_runner.py')
-          console = Path(sysconfig.get_path('scripts')) / 'rg'
+          console = Path(sysconfig.get_path('scripts')) / 'rgraph'
           print(json.dumps({
               'python': sys.version, 'executable': sys.executable,
               'implementation': platform.python_implementation(),
               'platform': platform.platform(), 'sqlite': sqlite3.sqlite_version,
               'SOABI': sysconfig.get_config_var('SOABI'),
-              'rg': str(console.resolve()), 'rg_exists': console.is_file(),
+              'rgraph': str(console.resolve()), 'rgraph_exists': console.is_file(),
               'runner': str(runner.resolve()),
               'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
               'PYTHONHASHSEED': os.environ['PYTHONHASHSEED'],
@@ -133,13 +133,13 @@ jobs:
           import sys
           import sysconfig
           runner = Path('examples/minimal_runner.py')
-          console = Path(sysconfig.get_path('scripts')) / 'rg'
+          console = Path(sysconfig.get_path('scripts')) / 'rgraph'
           print(json.dumps({
               'python': sys.version, 'executable': sys.executable,
               'implementation': platform.python_implementation(),
               'platform': platform.platform(), 'sqlite': sqlite3.sqlite_version,
               'SOABI': sysconfig.get_config_var('SOABI'),
-              'rg': str(console.resolve()), 'rg_exists': console.is_file(),
+              'rgraph': str(console.resolve()), 'rgraph_exists': console.is_file(),
               'runner': str(runner.resolve()),
               'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
               'PYTHONHASHSEED': os.environ['PYTHONHASHSEED'],
@@ -209,13 +209,13 @@ jobs:
           import sys
           import sysconfig
           runner = Path('examples/minimal_runner.py')
-          console = Path(sysconfig.get_path('scripts')) / 'rg'
+          console = Path(sysconfig.get_path('scripts')) / 'rgraph'
           print(json.dumps({
               'python': sys.version, 'executable': sys.executable,
               'implementation': platform.python_implementation(),
               'platform': platform.platform(), 'sqlite': sqlite3.sqlite_version,
               'SOABI': sysconfig.get_config_var('SOABI'),
-              'rg': str(console.resolve()), 'rg_exists': console.is_file(),
+              'rgraph': str(console.resolve()), 'rgraph_exists': console.is_file(),
               'runner': str(runner.resolve()),
               'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
               'PYTHONHASHSEED': os.environ['PYTHONHASHSEED'],
