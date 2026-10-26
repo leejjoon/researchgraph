@@ -13,8 +13,6 @@ env:
 jobs:
   acceptance:
     runs-on: ubuntu-24.04
-    env:
-      TMPDIR: ${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/system-tmp
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +32,9 @@ jobs:
         run: |
           set -euo pipefail
           evidence="${{ runner.temp }}/acceptance-${{ matrix.index-mode }}"
+          export TMPDIR="$evidence/system-tmp"
           mkdir -p "$evidence" "$TMPDIR"
+          printf 'TMPDIR=%s\n' "$TMPDIR" >> "$GITHUB_ENV"
           uv venv .venv --python "$(command -v python)"
           source .venv/bin/activate
           echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
@@ -96,8 +96,6 @@ jobs:
 
   scale:
     runs-on: ubuntu-24.04
-    env:
-      TMPDIR: ${{ runner.temp }}/scale/system-tmp
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -113,7 +111,9 @@ jobs:
         run: |
           set -euo pipefail
           evidence="${{ runner.temp }}/scale"
+          export TMPDIR="$evidence/system-tmp"
           mkdir -p "$evidence" "$TMPDIR"
+          printf 'TMPDIR=%s\n' "$TMPDIR" >> "$GITHUB_ENV"
           uv venv .venv --python "$(command -v python)"
           source .venv/bin/activate
           echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
@@ -169,8 +169,6 @@ jobs:
 
   compatibility:
     runs-on: ubuntu-24.04
-    env:
-      TMPDIR: ${{ runner.temp }}/compatibility-${{ matrix.python }}/system-tmp
     strategy:
       fail-fast: false
       matrix:
@@ -190,7 +188,9 @@ jobs:
         run: |
           set -euo pipefail
           evidence="${{ runner.temp }}/compatibility-${{ matrix.python }}"
+          export TMPDIR="$evidence/system-tmp"
           mkdir -p "$evidence" "$TMPDIR"
+          printf 'TMPDIR=%s\n' "$TMPDIR" >> "$GITHUB_ENV"
           uv venv .venv --python "$(command -v python)"
           source .venv/bin/activate
           echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"

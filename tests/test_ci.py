@@ -275,6 +275,56 @@ def test_adapter_cache_parity(
     } == after
 
 
+@pytest.mark.parametrize(
+    ("job_name", "matrix_value"),
+    [
+        ("acceptance", "kept"),
+        ("acceptance", "deleted"),
+        ("scale", ""),
+        ("compatibility", "3.11"),
+        ("compatibility", "pypy3.11"),
+    ],
+)
+def test_runtime_temp_directory_is_created_and_exported(
+    tmp_path, job_name, matrix_value
+):
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    job = workflow["jobs"][job_name]
+    # GitHub rejects runner context at job-level env before starting any jobs.
+    assert "runner." not in str(job.get("env", {}))
+    setup = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Install and disclose runtime"
+    )
+    prefix, separator, _ = setup["run"].partition("uv venv")
+    assert separator, "exercise setup before installing dependencies"
+    runner_temp = tmp_path / "runner temp"
+    prefix = prefix.replace("${{ runner.temp }}", str(runner_temp))
+    prefix = prefix.replace("${{ matrix.index-mode }}", matrix_value)
+    prefix = prefix.replace("${{ matrix.python }}", matrix_value)
+    assert "${{" not in prefix
+    environment_file = tmp_path / "github-env"
+    environment = dict(os.environ, GITHUB_ENV=str(environment_file))
+    environment.pop("TMPDIR", None)
+    result = subprocess.run(
+        ["bash", "-c", prefix + '\nprintf "%s\\n" "$TMPDIR"\ntest -d "$TMPDIR"\n'],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    lane = f"{job_name}-{matrix_value}" if matrix_value else job_name
+    expected = runner_temp / lane / "system-tmp"
+    assert result.stdout.strip() == str(expected)
+    assert expected.is_dir()
+    assert environment_file.read_text() == f"TMPDIR={expected}\n"
+
+
 def test_workflow_contract():
     # BaseLoader deliberately preserves the YAML 1.1 boolean-looking `on` key.
     workflow = yaml.load(
@@ -297,7 +347,7 @@ def test_workflow_contract():
         assert job["runs-on"] == "ubuntu-24.04"
         assert "continue-on-error" not in job
         assert "permissions" not in job
-        assert "${{ runner.temp }}" in job["env"]["TMPDIR"]
+        assert "runner." not in str(job.get("env", {}))
         steps = job["steps"]
         scripts[name] = "\n".join(step.get("run", "") for step in steps)
         actions = {step["uses"].split("@")[0]: step for step in steps if "uses" in step}
