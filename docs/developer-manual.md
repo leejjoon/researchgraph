@@ -654,6 +654,60 @@ not merely completion of cells or saved output bytes.
 
 ## Local verification and troubleshooting
 
+For routine edits, use the bounded core and documentation checks below, then run
+focused tests for the changed behavior. Install `.[test,mcp,viewer]` and
+`tests/testprofiles` first; the CI contract tests inspect the full collection, but
+these commands do not run browser or transport acceptance. `pytest tests` without
+a selection remains the full suite, not a fast preset.
+
+<!-- rg-example: fast-verification; part=1; fragment -->
+```sh
+PYTHONHASHSEED=0 .venv/bin/python -m pytest \
+  tests/test_model.py tests/test_profiles.py tests/test_validation.py \
+  tests/test_registry.py tests/test_operations.py tests/test_cli_version.py tests/test_ci.py \
+  --protocol-fixtures core --query-door cli --index-mode kept --hypothesis-seed=20261020 --durations=20
+PYTHONHASHSEED=0 .venv/bin/python -m pytest tests/test_docs.py -k 'not exact_' \
+  --protocol-fixtures core --query-door cli --index-mode kept --hypothesis-seed=20261020 --durations=20
+```
+
+`Fast checks` uses these selections on main-branch pushes and pull requests.
+`Exhaustive CI` runs daily, on manual dispatch and on `v*` tags. It retains every
+functional/performance test across disjoint lanes, all four doors, both cache
+modes, real Chromium, wheel/notebook checks and interpreter compatibility. The
+separate CLI and scale-distribution reruns were redundant and are removed
+(decision 029). CI's deleted lane also uses `--index-fixtures-only` to avoid
+rerunning cache-independent cases already covered by the kept lane. This is an
+explicit collection filter, not a change to default `--index-mode` behavior.
+Passing fast checks is not full acceptance or release evidence. Full verification
+still requires Chromium installation and `pytest tests --protocol-fixtures all
+--query-door all --index-mode both`; release evidence must match the candidate
+commit. Reports and logs are uploaded, not fixture trees.
+
+Bootstrap tests that need a human commit use the opt-in `isolated_git_identity`
+fixture. It supplies explicit test-only Git configuration while ignoring host
+global/system configuration; production still requires a configured Git identity.
+
+Large source scans retain up to eight private hash helpers, even on low-core
+hosts. Reducing that pool to the CPU count can exceed each helper's bounded
+mapping capacity and repeatedly reopen/remap the entire scan. Mappings are not
+cached content hashes: every scan still discovers paths, checks file identities
+and hashes all current bytes. Per-helper mapping/FD/byte limits remain unchanged.
+
+Failed scale jobs retain a separate `profile.txt` with cumulative storage profiles
+and Python/PyYAML/libyaml capability information. These diagnostics run **after**
+the ordinary gate fails; they neither retry acceptance nor relax its budgets.
+To collect the same diagnostic locally, supply a new workspace directory:
+
+<!-- rg-example: storage-profile; part=1; fragment -->
+```sh
+.venv/bin/python -m tests.profile_performance /tmp/rgraph-storage-profile-new
+```
+
+Existing workspace paths are refused. Profiling uses the exact 5,000-node/200-read
+and 20,000-node fixtures, but its overhead means its timings are not acceptance
+measurements. In particular, a profiled rebuild must not be presented as satisfying
+the unchanged five-second limit. Scratch data remain under the chosen workspace.
+
 After notebook setup, the following is a command fragment for maintainers selecting
 their own external basetemp; it is not another workflow recipe and does not create
 or modify a project by itself.
@@ -664,8 +718,8 @@ or modify a project by itself.
 .venv/bin/python -m pytest tests/test_notebook.py --index-mode kept
 ```
 
-CI runs docs checks on its existing interpreter gates and actual notebook execution
-in CPython 3.14.4 acceptance/scale, not the compatibility job. Missing tooling is a
+Exhaustive CI runs docs checks on its interpreter gates and actual notebook execution
+in CPython 3.14.4 acceptance, not the compatibility job. Missing tooling is a
 failure, never a silent skip. Stored notebook outputs/execution counts are stripped;
 execution creates fresh state. Local passing commands are not hosted CI evidence.
 

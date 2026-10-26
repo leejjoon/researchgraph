@@ -32,6 +32,11 @@ def pytest_addoption(parser):
         default="both",
         help="Select the named acceptance fixture; unrelated unit/scale tests are unchanged",
     )
+    parser.addoption(
+        "--index-fixtures-only",
+        action="store_true",
+        help="Only collect index_mode cases; omit native checks already run in another lane",
+    )
 
 
 def pytest_generate_tests(metafunc):
@@ -73,8 +78,9 @@ def pytest_generate_tests(metafunc):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Filter explicit operation doors, never private/native profile boundaries."""
+    """Filter selected doors and, only when requested, cache-independent cases."""
     selection = config.getoption("--protocol-fixtures")
+    indexed_only = config.getoption("--index-fixtures-only")
     selected, deselected = [], []
     for item in items:
         door = getattr(item, "callspec", None)
@@ -84,6 +90,11 @@ def pytest_collection_modifyitems(config, items):
             or door not in {"api", "cli", "mcp", "http"}
             or (door in {"api", "cli"} if selection == "core" else door == selection)
         )
+        if indexed_only:
+            callspec = getattr(item, "callspec", None)
+            eligible = (
+                eligible and callspec is not None and "index_mode" in callspec.params
+            )
         (selected if eligible else deselected).append(item)
     items[:] = selected
     if deselected:
@@ -122,6 +133,25 @@ def actors():
         "agent1": Actor("agent", "agent1"),
         "agent2": Actor("agent", "agent2"),
     }
+
+
+@pytest.fixture
+def isolated_git_identity(tmp_path_factory, monkeypatch):
+    """Supply bootstrap identity without reading or modifying host Git config."""
+    config = tmp_path_factory.mktemp("git-config") / "empty"
+    config.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.delenv("GIT_CONFIG_PARAMETERS", raising=False)
+    values = (
+        ("user.name", "Alice Git"),
+        ("user.email", "alice@git.test"),
+        ("commit.gpgsign", "false"),
+    )
+    monkeypatch.setenv("GIT_CONFIG_COUNT", str(len(values)))
+    for index, (key, value) in enumerate(values):
+        monkeypatch.setenv(f"GIT_CONFIG_KEY_{index}", key)
+        monkeypatch.setenv(f"GIT_CONFIG_VALUE_{index}", value)
 
 
 @pytest.fixture

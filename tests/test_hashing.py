@@ -138,7 +138,7 @@ def test_direct_and_helper_hashes_match_independent_contents(tmp_path):
     try:
         assert scanner.hash_files(paths) == expected
         processes = list(scanner._processes)
-        assert 1 <= len(processes) <= min(os.cpu_count() or 1, 8)
+        assert len(processes) == min(len(paths), 8)
         assert scanner.hash_files(paths) == expected
         assert scanner._processes == processes
     finally:
@@ -347,7 +347,8 @@ def test_partial_startup_failure_reaps_started_helpers(monkeypatch):
     assert all(process.poll() is not None for process in processes)
 
 
-def test_eight_worker_bound_and_all_requests_precede_reads(monkeypatch):
+@pytest.mark.parametrize("cpu_count", [1, 2, 4, 128])
+def test_eight_worker_bound_and_all_requests_precede_reads(monkeypatch, cpu_count):
     processes = []
 
     class CheckedReader(io.BytesIO):
@@ -365,7 +366,7 @@ def test_eight_worker_bound_and_all_requests_precede_reads(monkeypatch):
         processes.append(process)
         return process
 
-    monkeypatch.setattr(hashing.os, "cpu_count", lambda: 128)
+    monkeypatch.setattr(hashing.os, "cpu_count", lambda: cpu_count)
     monkeypatch.setattr(hashing.subprocess, "Popen", start)
     scanner = HashScanner()
     try:
@@ -475,10 +476,10 @@ def test_stream_drains_worker_before_reusing_pipe(monkeypatch):
     process = FakeProcess(b"")
     process.stdin = Writer()
     process.stdout = Reader((struct.pack(">I", 33) + b"\x00" + b"x" * 32) * 100)
-    monkeypatch.setattr(hashing.os, "cpu_count", lambda: 1)
     monkeypatch.setattr(hashing.subprocess, "Popen", lambda *a, **k: process)
     scanner = HashScanner()
     try:
+        scanner._start(1)
         with scanner.stream() as stream:
             for i in range(100):
                 stream.submit([str(i)])

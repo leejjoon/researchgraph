@@ -1,8 +1,11 @@
-name: CI
+name: Exhaustive CI
 
 on:
   push:
-  pull_request:
+    tags: ['v*']
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,6 +20,11 @@ jobs:
       fail-fast: false
       matrix:
         index-mode: [kept, deleted]
+        include:
+          - index-mode: kept
+            cache-selection: ''
+          - index-mode: deleted
+            cache-selection: --index-fixtures-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -76,21 +84,19 @@ jobs:
           set -euo pipefail
           ruff check .
           ruff format --check src tests examples setup.py
-      - name: Full suite including both strict performance gates
+      - name: Functional acceptance across all four doors
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests --protocol-fixtures all --query-door all --index-mode '${{ matrix.index-mode }}' --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/full.xml' --basetemp='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/full-tmp' | tee '${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/full.txt'
-      - name: Dedicated installed console acceptance
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pytest tests -m cli --protocol-fixtures core --query-door cli --index-mode '${{ matrix.index-mode }}' --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli.xml' --basetemp='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli-tmp' | tee '${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/cli.txt'
+          python -m pytest tests --protocol-fixtures all --query-door all --index-mode '${{ matrix.index-mode }}' ${{ matrix.cache-selection }} -m "not performance" --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/full.xml' --basetemp='${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/full-tmp' | tee '${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/full.txt'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: acceptance-${{ matrix.index-mode }}
-          path: ${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/
+          path: |
+            ${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/*.txt
+            ${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/*.xml
+            ${{ runner.temp }}/acceptance-${{ matrix.index-mode }}/*.json
           include-hidden-files: true
           if-no-files-found: error
 
@@ -149,21 +155,27 @@ jobs:
           PY
       - name: Install required Chromium
         run: python -m playwright install --with-deps chromium
-      - name: Strict 5000-node temporal and fresh 20000-node rebuild gates
+      - name: Strict scale and real-browser monitoring gates
+        id: performance
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/test_performance.py::test_public_temporal_scrub_budget tests/test_performance.py::test_fresh_twenty_thousand_node_rebuild_budget --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/performance.xml' --basetemp='${{ runner.temp }}/scale/performance-tmp' | tee '${{ runner.temp }}/scale/performance.txt'
-      - name: Distribution, version, runner and documentation gates
+          python -m pytest tests -m performance --protocol-fixtures all --query-door all --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/performance.xml' --basetemp='${{ runner.temp }}/scale/performance-tmp' | tee '${{ runner.temp }}/scale/performance.txt'
+      - name: Profile failed storage gates separately from acceptance
+        id: storage_profile
+        if: ${{ failure() && steps.performance.conclusion == 'failure' }}
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/test_packaging.py tests/test_mcp_packaging.py tests/test_serve.py tests/test_serve_artifacts.py tests/test_serve_events.py tests/test_serve_packaging.py tests/test_viewer_graph.py tests/test_viewer_live.py tests/test_agent_session.py tests/test_serve_docs.py tests/test_event_consumers.py tests/test_cli_version.py::test_installed_cli_version tests/test_runner.py tests/test_docs.py tests/test_notebook.py --index-mode both --hypothesis-seed=20261020 -o junit_family=legacy --durations=30 --junitxml='${{ runner.temp }}/scale/distribution.xml' --basetemp='${{ runner.temp }}/scale/distribution-tmp' | tee '${{ runner.temp }}/scale/distribution.txt'
+          python -m tests.profile_performance '${{ runner.temp }}/scale/profile-work' | tee '${{ runner.temp }}/scale/profile.txt'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: scale
-          path: ${{ runner.temp }}/scale/
+          path: |
+            ${{ runner.temp }}/scale/*.txt
+            ${{ runner.temp }}/scale/*.xml
+            ${{ runner.temp }}/scale/*.json
           include-hidden-files: true
           if-no-files-found: error
 
@@ -247,6 +259,9 @@ jobs:
         if: always()
         with:
           name: compatibility-${{ matrix.python }}
-          path: ${{ runner.temp }}/compatibility-${{ matrix.python }}/
+          path: |
+            ${{ runner.temp }}/compatibility-${{ matrix.python }}/*.txt
+            ${{ runner.temp }}/compatibility-${{ matrix.python }}/*.xml
+            ${{ runner.temp }}/compatibility-${{ matrix.python }}/*.json
           include-hidden-files: true
           if-no-files-found: error

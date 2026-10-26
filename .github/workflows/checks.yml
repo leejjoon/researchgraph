@@ -1,0 +1,75 @@
+name: Fast checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONHASHSEED: '0'
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14.4'
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.11.8'
+      - name: Install and disclose runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${{ runner.temp }}/checks"
+          export TMPDIR="$evidence/system-tmp"
+          mkdir -p "$evidence" "$TMPDIR"
+          printf 'TMPDIR=%s\n' "$TMPDIR" >> "$GITHUB_ENV"
+          uv venv .venv --python "$(command -v python)"
+          source .venv/bin/activate
+          echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
+          uv pip install -e '.[test,mcp,viewer]' -e tests/testprofiles
+          uv --version | tee "$evidence/uv.txt"
+          uv pip freeze | tee "$evidence/dependencies.txt"
+          git rev-parse HEAD | tee "$evidence/head.txt"
+          python --version | tee "$evidence/python.txt"
+          rgraph --version | tee "$evidence/console.txt"
+      - name: Lint and Python formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruff check .
+          ruff format --check src tests examples setup.py
+      - name: Core behavior and installed command checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_model.py tests/test_profiles.py tests/test_validation.py tests/test_registry.py tests/test_operations.py tests/test_cli_version.py tests/test_ci.py --protocol-fixtures core --query-door cli --index-mode kept --hypothesis-seed=20261020 -o junit_family=legacy --durations=20 --junitxml='${{ runner.temp }}/checks/core.xml' --basetemp='${{ runner.temp }}/checks/core-tmp' | tee '${{ runner.temp }}/checks/core.txt'
+      - name: Documentation structure and installed reference checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_docs.py -k 'not exact_' --protocol-fixtures core --query-door cli --index-mode kept --hypothesis-seed=20261020 -o junit_family=legacy --durations=20 --junitxml='${{ runner.temp }}/checks/docs.xml' --basetemp='${{ runner.temp }}/checks/docs-tmp' | tee '${{ runner.temp }}/checks/docs.txt'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: checks
+          path: |
+            ${{ runner.temp }}/checks/*.txt
+            ${{ runner.temp }}/checks/*.xml
+            ${{ runner.temp }}/checks/*.json
+          include-hidden-files: true
+          if-no-files-found: error

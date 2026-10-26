@@ -150,9 +150,10 @@ def test_public_temporal_scrub_budget(tmp_path, record_property):
         project.close()
 
 
-def test_fresh_twenty_thousand_node_rebuild_budget(tmp_path, record_property):
+def prepare_fresh_rebuild(root):
+    """Prepare the unchanged 20k-node fixture outside any rebuild/profile timer."""
     preparation = perf_counter()
-    root = repository(tmp_path / "rebuild-20k")
+    root = repository(root)
     with Project.init(root, "tasks", actor=ALICE, now=NOW):
         pass
     template = dump_node(
@@ -179,6 +180,13 @@ def test_fresh_twenty_thousand_node_rebuild_budget(tmp_path, record_property):
         source_bytes += len(content)
     (root / ".researchgraph/index.sqlite").unlink()
     prepared_seconds = perf_counter() - preparation
+    return root, source_bytes, prepared_seconds
+
+
+def test_fresh_twenty_thousand_node_rebuild_budget(tmp_path, record_property):
+    root, source_bytes, prepared_seconds = prepare_fresh_rebuild(
+        tmp_path / "rebuild-20k"
+    )
     started = perf_counter()
     project = Project.open(root)
     wall_seconds = perf_counter() - started

@@ -386,7 +386,7 @@ def test_general7_every_mutation_no_commit_updates_source_and_index_without_even
 
 @pytest.mark.parametrize("operation", ["init", "import"])
 def test_general7_initializers_no_commit_do_not_emit_events(
-    tmp_path, monkeypatch, operation
+    tmp_path, monkeypatch, operation, isolated_git_identity
 ):
     repository(tmp_path)
     log = tmp_path / "events.jsonl"

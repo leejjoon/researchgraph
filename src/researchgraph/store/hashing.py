@@ -98,8 +98,10 @@ class HashScanner:
 
     A protocol/process/file error closes the entire scanner and raises OSError;
     it is never retried or hidden by a serial scan. A closed scanner is terminal.
-    Helpers start lazily, capped at eight and the detected CPU count. They are
-    isolated Python content-hash workers, not graph task execution resources.
+    Helpers start lazily, capped at eight and the initial request size. The pool
+    is not CPU-count limited: its bounded mapping capacity must also cover warm
+    I/O workloads on low-core hosts. These are private content-hash workers, not
+    graph task execution resources.
     """
 
     def __init__(self):
@@ -147,7 +149,7 @@ class HashScanner:
 
     def _start(self, count):
         if not self._processes:
-            for _ in range(min(os.cpu_count() or 1, 8, count)):
+            for _ in range(min(8, count)):
                 self._processes.append(
                     subprocess.Popen(
                         [sys.executable, "-I", "-m", "researchgraph.store.hash_worker"],

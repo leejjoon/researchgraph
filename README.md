@@ -90,26 +90,51 @@ managers to close index connections and helper processes deterministically.
 
 ## Verification
 
-Install `.[test]` and `tests/testprofiles` into the isolated environment (use the
-quickstart's existing-dependency constraint on PyPy 3.11), then run:
+Install `.[test,mcp,viewer]` and `tests/testprofiles` into the isolated environment
+(use the quickstart's existing-dependency constraint on PyPy 3.11). For routine
+local feedback, run the same bounded checks used for pushes and pull requests:
 
 ```sh
 .venv/bin/ruff check .
 .venv/bin/ruff format --check src tests examples setup.py
-PYTHONHASHSEED=0 .venv/bin/python -m pytest tests --index-mode kept --hypothesis-seed=20261020 --basetemp=/tmp/researchgraph-kept
-PYTHONHASHSEED=0 .venv/bin/python -m pytest tests --index-mode deleted --hypothesis-seed=20261020 --basetemp=/tmp/researchgraph-deleted
-.venv/bin/python -m pytest tests -m cli --index-mode both
+PYTHONHASHSEED=0 .venv/bin/python -m pytest \
+  tests/test_model.py tests/test_profiles.py tests/test_validation.py \
+  tests/test_registry.py tests/test_operations.py tests/test_cli_version.py tests/test_ci.py \
+  --protocol-fixtures core --query-door cli --index-mode kept --hypothesis-seed=20261020 --durations=20
+PYTHONHASHSEED=0 .venv/bin/python -m pytest tests/test_docs.py -k 'not exact_' \
+  --protocol-fixtures core --query-door cli --index-mode kept --hypothesis-seed=20261020 --durations=20
+```
+
+These checks cover core behavior, installed command identity, CI contracts and
+documentation structure/reference accuracy. They do **not** establish full
+adapter, browser, notebook, packaging, cache-mode or performance acceptance.
+Use focused tests for the behavior being changed as well.
+
+For exhaustive local verification, install Chromium and run the full suite once;
+the default remains exhaustive, with both cache modes and all operation doors:
+
+```sh
+.venv/bin/python -m playwright install --with-deps chromium
+PYTHONHASHSEED=0 .venv/bin/python -m pytest tests --protocol-fixtures all --query-door all \
+  --index-mode both --hypothesis-seed=20261020 --durations=30
 ```
 
 `--index-mode` selects the actual acceptance fixture (`both` by default), not a
 global cache hook; independent unit and scale tests are unchanged. Temporary
 projects must live outside the checkout so they cannot inherit its Git repository.
-CI defines full and dedicated installed-console gates on CPython 3.14.4, plus
-focused CPython/PyPy 3.11 functionality checks, not interpreter-wide performance
-claims. Scale reports retain the unchanged 5,000-Task/200-public-historical-call
+Exhaustive CI adds `--index-fixtures-only` in its deleted functional lane so
+cache-independent tests run once, not once per matrix entry. Local full runs do
+not need that filter.
+`Fast checks` runs on main-branch pushes and pull requests. `Exhaustive CI` runs
+daily, manually (`gh workflow run ci.yml --ref BRANCH`), and on `v*` release tags.
+It partitions CPython 3.14.4 acceptance and performance checks, retains focused
+CPython/PyPy 3.11 compatibility checks, and does not repeat the installed-CLI pass
+already covered by full acceptance (decision 029). A release still requires
+successful exhaustive evidence at its candidate commit, not just fast checks.
+Scale reports retain the unchanged 5,000-Task/200-public-historical-call
 <2s gate and a fresh 20,000-Task rebuild <5s excluding only the separately measured
-Git walk; full public-call time is also reported. JUnit properties and temporary
-fixtures are uploaded even on failure. Local execution is separate evidence from
+Git walk; full public-call time is also reported. Runtime metadata, logs and JUnit
+reports are uploaded even on failure; temporary fixture trees are not. Local execution is separate evidence from
 a hosted Actions run; neither proves the separate external astroharness Gate 1.
 
 Licence: BSD-3-Clause.

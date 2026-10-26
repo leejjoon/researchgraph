@@ -1,5 +1,6 @@
 """Executable CI contracts; collection probes never execute the selected test."""
 
+import json
 import os
 import re
 import subprocess
@@ -24,6 +25,128 @@ PINS = {
 }
 
 
+def test_feedback_workflow_is_bounded_and_keeps_core_assertions():
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/checks.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    assert workflow["on"]["push"] == {"branches": ["main"]}
+    assert "pull_request" in workflow["on"]
+    assert workflow["concurrency"]["cancel-in-progress"] == "true"
+    assert workflow["permissions"] == {"contents": "read"}
+    steps = workflow["jobs"]["checks"]["steps"]
+    for step in steps:
+        assert "continue-on-error" not in step
+        if "uses" in step:
+            action, pin = step["uses"].split("@")
+            assert pin == PINS[action]
+    scripts = "\n".join(step.get("run", "") for step in steps)
+    assert "ruff check ." in scripts
+    assert "ruff format --check src tests examples setup.py" in scripts
+    assert "--protocol-fixtures core --query-door cli --index-mode kept" in scripts
+    assert "--hypothesis-seed=20261020" in scripts
+    assert "--durations" in scripts and "--junitxml" in scripts
+    for target in (
+        "tests/test_model.py",
+        "tests/test_profiles.py",
+        "tests/test_validation.py",
+        "tests/test_registry.py",
+        "tests/test_operations.py",
+        "tests/test_cli_version.py",
+        "tests/test_ci.py",
+        "tests/test_docs.py",
+    ):
+        assert target in scripts
+    assert "not exact_" in scripts
+    assert "playwright install" not in scripts
+
+
+def test_exhaustive_lanes_partition_the_full_collection():
+    """Prove functional cache lanes and performance retain every node ID once."""
+    probe = """
+import json, pytest, sys
+class Inventory:
+    def pytest_collection_finish(self, session):
+        print(json.dumps(sorted(item.nodeid for item in session.items)))
+raise SystemExit(pytest.main(sys.argv[1:], plugins=[Inventory()]))
+"""
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    selections = {}
+    for lane, marker, mode, indexed_only in (
+        ("full", None, "both", False),
+        ("kept", "not performance", "kept", False),
+        ("deleted", "not performance", "deleted", True),
+        ("performance", "performance", "both", False),
+    ):
+        arguments = [
+            sys.executable,
+            "-c",
+            probe,
+            "tests",
+            "--collect-only",
+            "-p",
+            "no:terminal",
+            "--protocol-fixtures",
+            "all",
+            "--query-door",
+            "all",
+            "--index-mode",
+            mode,
+        ]
+        if marker:
+            arguments += ["-m", marker]
+        if indexed_only:
+            arguments += ["--index-fixtures-only"]
+        result = subprocess.run(
+            arguments,
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        selections[lane] = set(json.loads(result.stdout))
+    assert selections["performance"]
+    assert not selections["kept"] & selections["deleted"]
+    functional = selections["kept"] | selections["deleted"]
+    assert not selections["performance"] & functional
+    assert selections["full"] == selections["performance"] | functional
+    assert any("test_model" in nodeid for nodeid in selections["kept"])
+    assert all("test_model" not in nodeid for nodeid in selections["deleted"])
+    for target in (
+        "test_public_temporal_scrub_budget",
+        "test_fresh_twenty_thousand_node_rebuild_budget",
+        "test_fifty_running_twenty_real_cli_writes_reach_sse_and_dom_under_three_seconds",
+    ):
+        assert any(target in nodeid for nodeid in selections["performance"])
+
+
+@pytest.mark.parametrize("workflow_name", ["ci", "checks"])
+def test_ci_artifacts_upload_reports_not_fixture_trees(workflow_name):
+    workflow = yaml.load(
+        (ROOT / f".github/workflows/{workflow_name}.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    for job in workflow["jobs"].values():
+        upload = next(
+            step
+            for step in job["steps"]
+            if step.get("uses", "").startswith("actions/upload-artifact@")
+        )
+        paths = upload["with"]["path"].splitlines()
+        assert len(paths) == 3
+        assert {path.rsplit("/", 1)[-1] for path in paths} == {
+            "*.txt",
+            "*.xml",
+            "*.json",
+        }
+        assert all("**" not in path for path in paths)
+        assert upload["if"] == "always()"
+        assert upload["with"]["if-no-files-found"] == "error"
+
+
 def test_all_doors_live_latency_and_replay_are_explicit_ci_admissions():
     workflow = yaml.load(
         (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
@@ -39,18 +162,38 @@ def test_all_doors_live_latency_and_replay_are_explicit_ci_admissions():
     ]
     assert len(full) == 1
     assert "--protocol-fixtures all --query-door all" in full[0]
+    assert '-m "not performance"' in full[0]
     for target in (
         "tests/test_viewer_live.py",
         "tests/test_agent_session.py",
         "tests/test_serve_docs.py",
         "tests/test_event_consumers.py",
     ):
-        assert target in scripts["scale"], target
         assert target not in scripts["compatibility"], target
+    assert "python -m pytest tests -m performance " in scripts["scale"]
     for name in ("acceptance", "scale"):
         assert "curl --version" in scripts[name]
     performance = (ROOT / "tests/test_performance.py").read_text()
     assert "installed_graph" in performance
+
+
+def test_scale_failure_profile_is_separate_from_acceptance():
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    steps = workflow["jobs"]["scale"]["steps"]
+    gate = next(step for step in steps if step.get("id") == "performance")
+    diagnostic = next(step for step in steps if step.get("id") == "storage_profile")
+    assert "python -m pytest tests -m performance" in gate["run"]
+    assert "cProfile" not in gate["run"]
+    assert (
+        diagnostic["if"]
+        == "${{ failure() && steps.performance.conclusion == 'failure' }}"
+    )
+    assert "python -m tests.profile_performance" in diagnostic["run"]
+    assert "scale/profile.txt" in diagnostic["run"]
+    assert "set -euo pipefail" in diagnostic["run"]
+    assert "continue-on-error" not in diagnostic
 
 
 @pytest.mark.browser
@@ -110,7 +253,7 @@ def test_mcp_is_optional_and_primary_jobs_admit_its_required_tests():
     compatibility = scripts["compatibility"]
     assert "-e '.[test]'" in compatibility and "mcp]" not in compatibility
     assert "--protocol-fixtures core" in compatibility
-    assert "tests/test_mcp_packaging.py" in scripts["scale"]
+    assert re.search(r"python -m pytest tests --", scripts["acceptance"])
 
 
 def test_viewer_is_optional_and_primary_jobs_admit_required_http_tests():
@@ -140,15 +283,8 @@ def test_viewer_is_optional_and_primary_jobs_admit_required_http_tests():
         for line in scripts["acceptance"].splitlines()
         if "python -m pytest tests -m cli " in line
     ]
-    assert len(console_commands) == 1
-    assert "--protocol-fixtures core --query-door cli" in console_commands[0]
-    for target in (
-        "tests/test_serve.py",
-        "tests/test_serve_artifacts.py",
-        "tests/test_serve_events.py",
-        "tests/test_serve_packaging.py",
-    ):
-        assert target in scripts["scale"]
+    assert not console_commands, "the full four-door suite already includes CLI cases"
+    assert "python -m pytest tests -m performance " in scripts["scale"]
     compatibility = scripts["compatibility"]
     assert "-e '.[test]'" in compatibility
     assert "viewer]" not in compatibility and "mcp]" not in compatibility
@@ -172,7 +308,7 @@ def test_notebook_ci_execution_targets_are_separate_from_compatibility():
                     assert "if" not in step
         selections[name] = commands
     assert any("tests" in command for command in selections["acceptance"])
-    assert any("tests/test_notebook.py" in command for command in selections["scale"])
+    assert selections["scale"] == [["tests"]]
     compatibility = {
         item for command in selections["compatibility"] for item in command
     }
@@ -330,13 +466,19 @@ def test_workflow_contract():
     workflow = yaml.load(
         (ROOT / ".github/workflows/ci.yml").read_text(), Loader=yaml.BaseLoader
     )
-    assert {"push", "pull_request"} <= set(workflow["on"])
+    assert set(workflow["on"]) == {"push", "schedule", "workflow_dispatch"}
+    assert workflow["on"]["push"] == {"tags": ["v*"]}
+    assert workflow["on"]["schedule"]
     assert workflow["permissions"] == {"contents": "read"}
     assert workflow["env"]["PYTHONHASHSEED"] == "0"
     jobs = workflow["jobs"]
     primary = jobs["acceptance"]
     assert primary["runs-on"] == "ubuntu-24.04"
     assert primary["strategy"]["matrix"]["index-mode"] == ["kept", "deleted"]
+    assert primary["strategy"]["matrix"]["include"] == [
+        {"index-mode": "kept", "cache-selection": ""},
+        {"index-mode": "deleted", "cache-selection": "--index-fixtures-only"},
+    ]
     assert primary["strategy"]["fail-fast"] == "false"
     compat = jobs["compatibility"]["strategy"]["matrix"]["python"]
     assert set(compat) == {"3.11", "pypy3.11"}
@@ -415,20 +557,12 @@ def test_workflow_contract():
     assert "ruff format --check src tests examples setup.py" in acceptance
     assert re.search(r"python -m pytest\s+tests\s", acceptance)
     assert "--index-mode" in acceptance and "matrix.index-mode" in acceptance
-    assert "-m cli" in acceptance
+    assert "${{ matrix.cache-selection }}" in acceptance
+    assert '-m "not performance"' in acceptance
+    assert "-m cli" not in acceptance
     scale = scripts["scale"]
-    assert "tests/test_performance.py::test_public_temporal_scrub_budget" in scale
-    assert (
-        "tests/test_performance.py::test_fresh_twenty_thousand_node_rebuild_budget"
-        in scale
-    )
-    assert "tests/test_packaging.py" in scale
-    for target in (
-        "tests/test_cli_version.py::test_installed_cli_version",
-        "tests/test_runner.py",
-        "tests/test_docs.py",
-    ):
-        assert target in scale
+    assert "python -m pytest tests -m performance " in scale
+    assert scale.count("python -m pytest") == 1
     for script in (scripts["compatibility"],):
         assert "tests/test_performance.py" not in script
         assert not re.search(r"python -m pytest\s+tests(?:\s|$)", script)
@@ -489,7 +623,7 @@ def test_required_browser_jobs_install_chromium_and_admit_graph_acceptance():
             if "python -m pytest" in script
         )
         assert all("continue-on-error" not in step for step in jobs[name]["steps"])
-    assert "tests/test_viewer_graph.py" in "\n".join(
+    assert "python -m pytest tests -m performance " in "\n".join(
         step.get("run", "") for step in jobs["scale"]["steps"]
     )
     compatibility = "\n".join(

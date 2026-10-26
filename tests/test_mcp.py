@@ -234,7 +234,9 @@ def test_read_only_hides_and_refuses_every_write_including_initializers(
         assert snapshot(project) == before
 
 
-def test_bootstrap_uses_only_fixed_destination_and_no_core_instructions(tmp_path):
+def test_bootstrap_uses_only_fixed_destination_and_no_core_instructions(
+    tmp_path, isolated_git_identity
+):
     root = tmp_path / "new"
     initialized, _, results = call_memory(
         root, [("init", {"profile": "tasks", "now": format_timestamp(NOW)})]
@@ -252,15 +254,9 @@ def test_bootstrap_uses_only_fixed_destination_and_no_core_instructions(tmp_path
 @pytest.mark.parametrize("existing_history", [False, True])
 @pytest.mark.parametrize("door", ["mcp", pytest.param("http", marks=pytest.mark.http)])
 def test_protocol_init_files_history_repeat_and_cache(
-    tmp_path, monkeypatch, index_mode, existing_history, door
+    tmp_path, monkeypatch, index_mode, existing_history, door, isolated_git_identity
 ):
     root = tmp_path / "project"
-    monkeypatch.setenv("GIT_CONFIG_COUNT", "2")
-    for index, (key, value) in enumerate(
-        [("user.name", "Alice Git"), ("user.email", "alice@git.test")]
-    ):
-        monkeypatch.setenv(f"GIT_CONFIG_KEY_{index}", key)
-        monkeypatch.setenv(f"GIT_CONFIG_VALUE_{index}", value)
     monkeypatch.setenv("GIT_AUTHOR_DATE", format_timestamp(NOW))
     monkeypatch.setenv("GIT_COMMITTER_DATE", format_timestamp(NOW))
     if existing_history:
